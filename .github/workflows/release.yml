@@ -1,0 +1,104 @@
+name: Release RemoteKit
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            label: macOS-ARM64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            label: macOS-Intel
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: Linux-x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: Windows-x64
+
+    runs-on: ${{ matrix.platform }}
+    name: Build (${{ matrix.label }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Run tests
+        run: cd src-tauri && cargo test
+        
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'RemoteKit ${{ github.ref_name }}'
+          releaseBody: |
+            ## RemoteKit ${{ github.ref_name }}
+            
+            ### Descargas / Downloads
+            | Plataforma | Archivo |
+            |------------|---------|
+            | **macOS (Apple Silicon)** | `.dmg` |
+            | **macOS (Intel)** | `.dmg` |
+            | **Linux (x64)** | `.deb` + `.AppImage` |
+            | **Windows (x64)** | `.msi` + `.exe` |
+            
+            ### Features
+            - 🖥️ Terminal SSH con xterm.js
+            - 📂 SFTP Browser con búsqueda y viewer inline
+            - 🔒 Vault encriptado (AES-256-GCM + Argon2id)
+            - 🚇 SSH Tunnels (local + remote)
+            - 🌐 Inglés y Español
+            - 📤 Export/Import de perfiles
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}

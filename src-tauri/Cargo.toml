@@ -1,0 +1,73 @@
+[package]
+name = "nexterm"
+version = "0.1.0"
+description = "NexTerm — Cross-platform SSH client with terminal, SFTP, and tunneling"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "nexterm_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+
+# SSH
+russh = "0.48"
+russh-keys = "0.48"
+russh-sftp = "2.0.5"
+
+# Key parsing
+ssh-key = { version = "0.6", features = ["rsa", "ed25519", "ecdsa", "encryption"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# Async trait (required by russh Handler)
+async-trait = "0.1"
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Encrypted credential vault
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+
+# Open files with system default app
+open = { version = "5", features = ["shellexecute-on-windows"] }
+
+# Platform directories
+dirs = "6"
+
+# Cryptographic hashing (for host key fingerprints)
+sha2 = "0.10"
+base64 = "0.22"
+
+# Shell path expansion (~/ to home dir)
+shellexpand = "3"
+
+# Secure memory zeroization
+zeroize = { version = "1", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

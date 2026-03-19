@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#161b22"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </linearGradient>
+
+    <!-- Accent glow gradient -->
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+
+    <!-- Subtle inner shadow -->
+    <linearGradient id="innerEdge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Shield gradient -->
+    <linearGradient id="shieldGrad" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#58a6ff" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1f6feb" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Drop shadow for depth -->
+    <filter id="textShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="#58a6ff" flood-opacity="0.35"/>
+    </filter>
+
+    <!-- Subtle glow on lock -->
+    <filter id="lockGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1" stdDeviation="4" flood-color="#58a6ff" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rectangle (macOS style ~22% radius) -->
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#bg)"/>
+
+  <!-- Subtle top edge highlight -->
+  <rect x="4" y="4" width="504" height="504" rx="108" ry="108"
+        fill="none" stroke="url(#innerEdge)" stroke-width="1"/>
+
+  <!-- Outer border -->
+  <rect x="1" y="1" width="510" height="510" rx="111" ry="111"
+        fill="none" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- Shield shape behind the prompt (subtle security element) -->
+  <path d="M256 90 L370 140 L370 280 Q370 380 256 420 Q142 380 142 280 L142 140 Z"
+        fill="url(#shieldGrad)" stroke="#58a6ff" stroke-width="1.5" stroke-opacity="0.12"/>
+
+  <!-- Terminal prompt ">_" — the main icon element -->
+  <g filter="url(#textShadow)">
+    <!-- ">" chevron -->
+    <path d="M140 195 L230 256 L140 317"
+          fill="none" stroke="url(#accent)" stroke-width="32"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- "_" underscore/cursor -->
+    <line x1="255" y1="317" x2="365" y2="317"
+          stroke="#58a6ff" stroke-width="32" stroke-linecap="round"/>
+  </g>
+
+  <!-- Small lock icon (bottom-right, security indicator) -->
+  <g transform="translate(358, 370)" filter="url(#lockGlow)">
+    <!-- Lock shackle -->
+    <path d="M22 32 L22 20 Q22 6 36 6 Q50 6 50 20 L50 32"
+          fill="none" stroke="#58a6ff" stroke-width="5" stroke-linecap="round"/>
+    <!-- Lock body -->
+    <rect x="14" y="30" width="44" height="34" rx="6" ry="6"
+          fill="url(#accent)"/>
+    <!-- Keyhole -->
+    <circle cx="36" cy="44" r="5" fill="#0d1117"/>
+    <rect x="34" y="47" width="4" height="9" rx="1" fill="#0d1117"/>
+  </g>
+</svg>
