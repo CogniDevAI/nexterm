@@ -84,7 +84,7 @@ interface SortableProfileCardProps {
   onDeleteClick: (id: string, name: string) => void;
   onSetActiveSession: (id: string) => void;
   onDisconnect: (id: string) => void;
-  t: (key: TranslationKey, params?: Record<string, unknown>) => string;
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   connectingLabel: string;
   connectLabel: string;
 }
@@ -497,7 +497,7 @@ export function Sidebar({
             return newFilteredIds[filterIdx++];
           }
           return id;
-        });
+        }).filter((id): id is string => id !== undefined);
         void reorderProfiles(reorderedIds);
       } else {
         void reorderProfiles(newFilteredIds);
