@@ -2,20 +2,35 @@
 
 # NexTerm
 
-### A Modern Cross-Platform SSH Client
+### The SSH client you actually want to use.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform: macOS](https://img.shields.io/badge/macOS-supported-black?logo=apple&logoColor=white)](https://github.com/cognidevai/nexterm/releases)
-[![Platform: Linux](https://img.shields.io/badge/Linux-supported-FCC624?logo=linux&logoColor=black)](https://github.com/cognidevai/nexterm/releases)
-[![Platform: Windows](https://img.shields.io/badge/Windows-supported-0078D6?logo=windows&logoColor=white)](https://github.com/cognidevai/nexterm/releases)
-[![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202.0-FFC131?logo=tauri&logoColor=white)](https://v2.tauri.app)
-[![Built with Rust](https://img.shields.io/badge/Backend-Rust-DEA584?logo=rust&logoColor=black)](https://www.rust-lang.org)
+[![macOS](https://img.shields.io/badge/macOS-supported-black?logo=apple&logoColor=white)](https://github.com/cognidevai/nexterm/releases)
+[![Linux](https://img.shields.io/badge/Linux-soon-FCC624?logo=linux&logoColor=black)](#)
+[![Windows](https://img.shields.io/badge/Windows-soon-0078D6?logo=windows&logoColor=white)](#)
+[![Tauri 2.0](https://img.shields.io/badge/Tauri-2.0-FFC131?logo=tauri&logoColor=white)](https://v2.tauri.app)
+[![Rust](https://img.shields.io/badge/Rust-backend-DEA584?logo=rust&logoColor=black)](https://www.rust-lang.org)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-
-**NexTerm** is a fast, secure, and feature-rich SSH client built with Tauri 2.0. It combines a native Rust backend with a modern React frontend to deliver terminal emulation, SFTP file management, SSH tunneling, and encrypted credential storage — all in a single, lightweight desktop application.
 
 </div>
+
+---
+
+Most SSH clients feel like they were designed in 2005. You either get a powerful tool with a terrible UI, or a pretty app that can barely handle real workflows.
+
+**NexTerm** is different. It's a desktop SSH client built from scratch with Tauri 2.0 and Rust — terminal, SFTP, tunnels, and an encrypted vault, all in one lightweight app. No Electron bloat. No Java runtime. Just a fast, native binary that respects your machine and your time.
+
+---
+
+## Why NexTerm?
+
+**One server, multiple users.** Most clients force you to duplicate profiles for every user on the same server. NexTerm lets you save one server and add as many users as you need — root, deploy, admin — each with their own credentials. Test each connection right from the profile editor.
+
+**Your credentials are actually safe.** Passwords and keys are encrypted with AES-256-GCM, derived through Argon2id. Nothing is ever stored in plain text. The vault locks automatically when you step away.
+
+**SFTP that doesn't feel like an afterthought.** Dual-pane browser with drag-and-drop, type-to-search, inline actions per pane, and a file viewer. Upload, download, and manage files without leaving the app.
+
+**SSH tunnels without the terminal gymnastics.** Create local and remote port forwards visually. Monitor traffic in real time. No more remembering `-L 3306:localhost:3306`.
 
 ---
 
@@ -26,7 +41,7 @@
 |  |  |
 |:---:|:---:|
 | ![Terminal](screenshots/terminal.png) | ![Profile Editor](screenshots/profile-editor.png) |
-| **Terminal Emulator** | **Connection Profile Editor** |
+| **Terminal Emulator** | **Multi-User Profile Editor** |
 | ![SFTP](screenshots/sftp.png) | ![Tunnels](screenshots/tunnels.png) |
 | **SFTP File Browser** | **SSH Tunnels** |
 
@@ -36,160 +51,128 @@
 
 ## Features
 
-### Terminal Emulator
-- Full-featured terminal powered by **xterm.js 6** with GPU-accelerated rendering
-- Multi-tab interface — open multiple terminals per session
-- Customizable themes, fonts, and cursor styles
-- Unicode and emoji support
-- Search within terminal buffer
+### Terminal
+- GPU-accelerated rendering via **xterm.js 6**
+- Multi-tab — open as many terminals as you need per session
+- Search, themes, fonts, Unicode, emoji
 
-### SFTP File Browser
-- Dual-pane layout: local filesystem on the left, remote on the right
-- Drag-and-drop file upload and download
-- Built-in file viewer for quick content inspection
-- Remote file search across directories
-- Batch operations: copy, move, rename, delete
+### SFTP
+- Dual-pane: local on the left, remote on the right
+- Drag-and-drop uploads and downloads
+- Type-to-search to quickly find files
+- Per-pane actions: upload, download, refresh, new folder
+- Built-in file viewer
 
-### SSH Tunneling
-- **Local forwarding** (`-L`): Access remote services through a local port
-- **Remote forwarding** (`-R`): Expose local services to the remote network
-- Live traffic statistics with bytes sent/received
+### SSH Tunnels
+- Local forwarding (`-L`) and remote forwarding (`-R`)
+- Live traffic stats (bytes sent/received)
 - Create, pause, and manage multiple tunnels per session
 
-### Encrypted Vault
-- Credentials secured with **AES-256-GCM** symmetric encryption
-- Master password derived using **Argon2id** (winner of the Password Hashing Competition)
-- Passwords and private keys are **never stored in plain text**
-- Vault is locked automatically after inactivity
+### Multi-User Profiles
+- One profile = one server, N users
+- Each user has independent auth (password or key)
+- Test each user's connection directly in the profile editor
+- Auto-save credentials on successful test
 
-### Connection Profiles
-- Save and organize connection details for quick access
-- Supported authentication methods:
-  - Password
-  - Public key (with optional passphrase)
-  - Keyboard-interactive
-- Group profiles by folders or tags
+### Encrypted Vault
+- **AES-256-GCM** encryption for all stored credentials
+- Master password derived with **Argon2id** (GPU + side-channel resistant)
+- Auto-lock after inactivity
+- Credentials never touch disk in plain text
 
 ### Host Key Verification
-- **Trust-on-first-use (TOFU)** model — like SSH `known_hosts`
-- Alerts on host key changes to protect against MITM attacks
-- View and manage trusted host fingerprints
+- Trust-on-first-use (TOFU) — like SSH `known_hosts`
+- Alerts on host key changes (MITM protection)
 
-### Internationalization
-- English and Spanish interface
-- Extensible i18n framework for additional languages
+### Onboarding Tour
+- Step-by-step guided tour on first launch
+- Spotlight tooltips explaining each part of the interface
+- Replay anytime via the **?** button in the status bar
 
-### Cross-Platform
-- Native builds for **macOS** (Apple Silicon + Intel), **Linux**, and **Windows**
-- Automated CI/CD via **GitHub Actions**
-- Lightweight binaries thanks to Tauri's minimal runtime
+### i18n
+- English and Spanish
+- Extensible for more languages
 
 ---
 
-## Installation
+## Install
 
-Download the latest release for your platform:
+Download the latest release:
 
 | Platform | Download |
 |----------|----------|
 | macOS (Apple Silicon) | [NexTerm_aarch64.dmg](https://github.com/cognidevai/nexterm/releases/latest) |
-| macOS (Intel) | [NexTerm_x64.dmg](https://github.com/cognidevai/nexterm/releases/latest) |
-| Linux (AppImage) | [NexTerm.AppImage](https://github.com/cognidevai/nexterm/releases/latest) |
-| Linux (deb) | [NexTerm.deb](https://github.com/cognidevai/nexterm/releases/latest) |
-| Windows | [NexTerm_Setup.exe](https://github.com/cognidevai/nexterm/releases/latest) |
+| macOS (Intel) | Coming soon |
+| Linux | Coming soon |
+| Windows | Coming soon |
 
-> All binaries are unsigned for now. On macOS, you may need to right-click and select "Open" on first launch.
+> Binaries are unsigned. On macOS, run `xattr -cr /Applications/NexTerm.app` after installing.
 
 ---
 
 ## Build from Source
 
-### Prerequisites
-
-| Tool | Version |
-|------|---------|
-| [Rust](https://www.rust-lang.org/tools/install) | Latest stable |
-| [Node.js](https://nodejs.org) | 18+ |
-| [pnpm](https://pnpm.io/installation) | 9+ |
-
-You also need the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform (system dependencies for webview, etc.).
-
-### Steps
-
 ```bash
-# Clone the repository
+# Prerequisites: Rust (stable), Node.js 18+, pnpm 9+
+# + Tauri prerequisites for your platform: https://v2.tauri.app/start/prerequisites/
+
 git clone https://github.com/cognidevai/nexterm.git
 cd nexterm
-
-# Install frontend dependencies
 pnpm install
-
-# Run in development mode (hot-reload)
-pnpm tauri dev
-
-# Build for production
-pnpm tauri build
+pnpm tauri dev      # development (hot-reload)
+pnpm tauri build    # production binary
 ```
-
-Production artifacts are output to `src-tauri/target/release/bundle/`.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Desktop Runtime | Tauri 2.0 | Native window, IPC, system APIs |
-| Backend | Rust | SSH protocol, encryption, file I/O |
-| SSH Protocol | russh | Async SSH2 implementation in Rust |
-| Frontend | React 19 | UI components and views |
-| Language | TypeScript 5.7 (strict) | Type-safe frontend development |
-| Bundler | Vite 6 | Fast dev server and production builds |
-| State Management | Zustand 5 | Lightweight, hook-based state |
-| Terminal | xterm.js 6 | Terminal emulation in the browser |
-| Encryption | AES-256-GCM + Argon2id | Credential vault |
-| CI/CD | GitHub Actions | Automated builds and releases |
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Tauri 2.0 |
+| Backend | Rust |
+| SSH | russh (async SSH2) |
+| Frontend | React 19 + TypeScript 5.7 (strict) |
+| Bundler | Vite 6 |
+| State | Zustand 5 |
+| Terminal | xterm.js 6 |
+| Encryption | AES-256-GCM + Argon2id |
+| CI/CD | GitHub Actions |
 
 ---
 
 ## Security
 
-NexTerm takes credential security seriously. The **Encrypted Vault** architecture works as follows:
+1. **Master Password** — Set on first launch. Never stored anywhere.
+2. **Key Derivation** — Argon2id with unique random salt produces a 256-bit key.
+3. **Encryption** — AES-256-GCM encrypts all credentials with integrity verification.
+4. **At Rest** — Vault file contains only ciphertext + salt. Unrecoverable without the master password.
+5. **In Memory** — Decrypted credentials are cleared on lock or exit.
 
-1. **Master Password** — On first launch, the user sets a master password. This password is never stored anywhere.
-2. **Key Derivation** — The master password is processed through **Argon2id** with a unique random salt to produce a 256-bit encryption key. Argon2id is resistant to both GPU-based and side-channel attacks.
-3. **Encryption** — All stored credentials (passwords, private keys, passphrases) are encrypted with **AES-256-GCM**, which provides both confidentiality and integrity verification.
-4. **At Rest** — The vault file on disk contains only ciphertext and the Argon2id salt. Without the master password, the contents are computationally infeasible to recover.
-5. **In Memory** — Decrypted credentials are held in memory only for the duration of an active session and are cleared on lock or exit.
+> Passwords and private keys are never written to disk in plain text.
 
-> **Passwords and private keys are never written to disk in plain text.**
-
-If you discover a security vulnerability, please report it privately via [GitHub Security Advisories](https://github.com/cognidevai/nexterm/security/advisories) rather than opening a public issue.
+Found a vulnerability? Report it privately via [GitHub Security Advisories](https://github.com/cognidevai/nexterm/security/advisories).
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Here's how to get started:
-
-1. **Open an issue first** — Describe the bug or feature you'd like to work on
-2. **Fork the repo** and create a feature branch (`git checkout -b feat/my-feature`)
-3. **Make your changes** with clear commit messages
-4. **Submit a pull request** referencing the issue
-
-Please make sure your code passes existing tests and linting before submitting.
+1. Open an issue first
+2. Fork and create a feature branch
+3. Make your changes with clear commits
+4. Submit a PR referencing the issue
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-Made by [cognidevai](https://github.com/cognidevai)
+Built by [CogniDevAI](https://github.com/cognidevai)
 
 </div>
 
@@ -206,22 +189,38 @@ Made by [cognidevai](https://github.com/cognidevai)
 
 # NexTerm
 
-### Un Cliente SSH Moderno y Multiplataforma
-
-**NexTerm** es un cliente SSH rápido, seguro y completo, construido con Tauri 2.0. Combina un backend nativo en Rust con un frontend moderno en React para ofrecer emulación de terminal, gestión de archivos por SFTP, túneles SSH y almacenamiento cifrado de credenciales — todo en una única aplicación de escritorio liviana.
+### El cliente SSH que de verdad querés usar.
 
 </div>
 
 ---
 
-### Capturas de Pantalla
+La mayoría de clientes SSH parecen diseñados en 2005. O tenés una herramienta poderosa con una interfaz terrible, o una app bonita que apenas sirve para flujos de trabajo reales.
+
+**NexTerm** es diferente. Es un cliente SSH de escritorio construido desde cero con Tauri 2.0 y Rust — terminal, SFTP, túneles y una bóveda cifrada, todo en una sola app liviana. Sin el peso de Electron. Sin Java. Solo un binario nativo, rápido, que respeta tu máquina y tu tiempo.
+
+---
+
+## Por qué NexTerm?
+
+**Un servidor, múltiples usuarios.** La mayoría de clientes te obligan a duplicar perfiles para cada usuario del mismo servidor. NexTerm te deja guardar un servidor y agregar todos los usuarios que necesites — root, deploy, admin — cada uno con sus propias credenciales. Probá cada conexión directo desde el editor de perfiles.
+
+**Tus credenciales están realmente seguras.** Contraseñas y claves se cifran con AES-256-GCM, derivadas con Argon2id. Nada se guarda en texto plano. La bóveda se bloquea automáticamente cuando te alejás.
+
+**SFTP que no parece un agregado de último momento.** Explorador de doble panel con drag-and-drop, búsqueda al escribir, acciones por panel, y visor de archivos. Subí, descargá y gestioná archivos sin salir de la app.
+
+**Túneles SSH sin gimnasia en la terminal.** Creá port forwards locales y remotos de forma visual. Monitoreá el tráfico en tiempo real. No más memorizar `-L 3306:localhost:3306`.
+
+---
+
+## Capturas de Pantalla
 
 <div align="center">
 
 |  |  |
 |:---:|:---:|
 | ![Terminal](screenshots/terminal.png) | ![Editor de Perfiles](screenshots/profile-editor.png) |
-| **Emulador de Terminal** | **Editor de Perfiles de Conexión** |
+| **Emulador de Terminal** | **Editor de Perfiles Multi-Usuario** |
 | ![SFTP](screenshots/sftp.png) | ![Túneles](screenshots/tunnels.png) |
 | **Explorador de Archivos SFTP** | **Túneles SSH** |
 
@@ -229,161 +228,127 @@ Made by [cognidevai](https://github.com/cognidevai)
 
 ---
 
-### Características
+## Características
 
-#### Emulador de Terminal
-- Terminal completo impulsado por **xterm.js 6** con renderizado acelerado por GPU
-- Interfaz multi-pestaña — múltiples terminales por sesión
-- Temas, fuentes y estilos de cursor personalizables
-- Soporte para Unicode y emojis
-- Búsqueda dentro del buffer del terminal
+### Terminal
+- Renderizado acelerado por GPU con **xterm.js 6**
+- Multi-pestaña — abrí todas las terminales que necesites por sesión
+- Búsqueda, temas, fuentes, Unicode, emojis
 
-#### Explorador de Archivos SFTP
-- Diseño de doble panel: sistema de archivos local a la izquierda, remoto a la derecha
-- Subida y descarga de archivos con arrastrar y soltar
-- Visor de archivos integrado para inspección rápida de contenido
-- Búsqueda remota de archivos entre directorios
-- Operaciones por lotes: copiar, mover, renombrar, eliminar
+### SFTP
+- Doble panel: local a la izquierda, remoto a la derecha
+- Drag-and-drop para subir y descargar
+- Búsqueda rápida al escribir
+- Acciones por panel: subir, descargar, actualizar, nueva carpeta
+- Visor de archivos integrado
 
-#### Túneles SSH
-- **Reenvío local** (`-L`): Accedé a servicios remotos a través de un puerto local
-- **Reenvío remoto** (`-R`): Exponé servicios locales a la red remota
-- Estadísticas de tráfico en vivo con bytes enviados/recibidos
+### Túneles SSH
+- Reenvío local (`-L`) y remoto (`-R`)
+- Estadísticas de tráfico en vivo (bytes enviados/recibidos)
 - Creá, pausá y administrá múltiples túneles por sesión
 
-#### Bóveda Cifrada
-- Credenciales protegidas con cifrado simétrico **AES-256-GCM**
-- Contraseña maestra derivada con **Argon2id** (ganador del Password Hashing Competition)
-- Las contraseñas y claves privadas **nunca se almacenan en texto plano**
-- La bóveda se bloquea automáticamente tras inactividad
+### Perfiles Multi-Usuario
+- Un perfil = un servidor, N usuarios
+- Cada usuario con autenticación independiente (password o key)
+- Probá la conexión de cada usuario directo desde el editor
+- Guardado automático de credenciales al probar exitosamente
 
-#### Perfiles de Conexión
-- Guardá y organizá los datos de conexión para acceso rápido
-- Métodos de autenticación soportados:
-  - Contraseña
-  - Clave pública (con frase de paso opcional)
-  - Interactivo por teclado (keyboard-interactive)
-- Agrupá perfiles por carpetas o etiquetas
+### Bóveda Cifrada
+- Cifrado **AES-256-GCM** para todas las credenciales
+- Contraseña maestra derivada con **Argon2id** (resistente a GPU y side-channel)
+- Bloqueo automático por inactividad
+- Las credenciales nunca tocan el disco en texto plano
 
-#### Verificación de Clave de Host
-- Modelo **Trust-on-first-use (TOFU)** — como `known_hosts` de SSH
-- Alertas ante cambios en la clave del host para proteger contra ataques MITM
-- Visualización y gestión de huellas digitales de hosts confiables
+### Verificación de Host
+- Trust-on-first-use (TOFU) — como `known_hosts` de SSH
+- Alertas ante cambios de clave del host (protección MITM)
 
-#### Internacionalización
-- Interfaz en inglés y español
-- Framework de i18n extensible para idiomas adicionales
+### Tour de Onboarding
+- Recorrido guiado paso a paso en el primer inicio
+- Tooltips con spotlight explicando cada parte de la interfaz
+- Repetilo cuando quieras con el botón **?** en la barra de estado
 
-#### Multiplataforma
-- Binarios nativos para **macOS** (Apple Silicon + Intel), **Linux** y **Windows**
-- CI/CD automatizado con **GitHub Actions**
-- Binarios livianos gracias al runtime mínimo de Tauri
+### i18n
+- Inglés y español
+- Extensible para más idiomas
 
 ---
 
-### Instalación
-
-Descargá la última versión para tu plataforma:
+## Instalación
 
 | Plataforma | Descarga |
 |------------|----------|
 | macOS (Apple Silicon) | [NexTerm_aarch64.dmg](https://github.com/cognidevai/nexterm/releases/latest) |
-| macOS (Intel) | [NexTerm_x64.dmg](https://github.com/cognidevai/nexterm/releases/latest) |
-| Linux (AppImage) | [NexTerm.AppImage](https://github.com/cognidevai/nexterm/releases/latest) |
-| Linux (deb) | [NexTerm.deb](https://github.com/cognidevai/nexterm/releases/latest) |
-| Windows | [NexTerm_Setup.exe](https://github.com/cognidevai/nexterm/releases/latest) |
+| macOS (Intel) | Próximamente |
+| Linux | Próximamente |
+| Windows | Próximamente |
 
-> Los binarios no están firmados por el momento. En macOS, puede que necesites hacer clic derecho y seleccionar "Abrir" en el primer inicio.
+> Los binarios no están firmados. En macOS, ejecutá `xattr -cr /Applications/NexTerm.app` después de instalar.
 
 ---
 
-### Compilar desde el Código Fuente
-
-#### Requisitos Previos
-
-| Herramienta | Versión |
-|-------------|---------|
-| [Rust](https://www.rust-lang.org/tools/install) | Última estable |
-| [Node.js](https://nodejs.org) | 18+ |
-| [pnpm](https://pnpm.io/installation) | 9+ |
-
-También necesitás los [prerequisitos de Tauri](https://v2.tauri.app/start/prerequisites/) para tu plataforma (dependencias del sistema para webview, etc.).
-
-#### Pasos
+## Compilar desde el Código Fuente
 
 ```bash
-# Clonar el repositorio
+# Requisitos: Rust (stable), Node.js 18+, pnpm 9+
+# + Prerequisitos de Tauri: https://v2.tauri.app/start/prerequisites/
+
 git clone https://github.com/cognidevai/nexterm.git
 cd nexterm
-
-# Instalar dependencias del frontend
 pnpm install
-
-# Ejecutar en modo desarrollo (hot-reload)
-pnpm tauri dev
-
-# Compilar para producción
-pnpm tauri build
+pnpm tauri dev      # desarrollo (hot-reload)
+pnpm tauri build    # binario de producción
 ```
 
-Los artefactos de producción se generan en `src-tauri/target/release/bundle/`.
+---
+
+## Stack Tecnológico
+
+| Capa | Tecnología |
+|------|-----------|
+| Runtime | Tauri 2.0 |
+| Backend | Rust |
+| SSH | russh (SSH2 asíncrono) |
+| Frontend | React 19 + TypeScript 5.7 (estricto) |
+| Bundler | Vite 6 |
+| Estado | Zustand 5 |
+| Terminal | xterm.js 6 |
+| Cifrado | AES-256-GCM + Argon2id |
+| CI/CD | GitHub Actions |
 
 ---
 
-### Stack Tecnológico
+## Seguridad
 
-| Capa | Tecnología | Propósito |
-|------|-----------|-----------|
-| Runtime de Escritorio | Tauri 2.0 | Ventana nativa, IPC, APIs del sistema |
-| Backend | Rust | Protocolo SSH, cifrado, E/S de archivos |
-| Protocolo SSH | russh | Implementación SSH2 asíncrona en Rust |
-| Frontend | React 19 | Componentes y vistas de UI |
-| Lenguaje | TypeScript 5.7 (estricto) | Desarrollo frontend con tipos seguros |
-| Bundler | Vite 6 | Servidor de desarrollo rápido y builds de producción |
-| Estado | Zustand 5 | Gestión de estado liviana basada en hooks |
-| Terminal | xterm.js 6 | Emulación de terminal en el navegador |
-| Cifrado | AES-256-GCM + Argon2id | Bóveda de credenciales |
-| CI/CD | GitHub Actions | Builds y releases automatizados |
+1. **Contraseña Maestra** — Se establece en el primer inicio. Nunca se almacena.
+2. **Derivación de Clave** — Argon2id con salt aleatorio único produce una clave de 256 bits.
+3. **Cifrado** — AES-256-GCM cifra todas las credenciales con verificación de integridad.
+4. **En Reposo** — El archivo de la bóveda contiene solo texto cifrado + salt. Irrecuperable sin la contraseña maestra.
+5. **En Memoria** — Las credenciales descifradas se eliminan al bloquear o cerrar.
+
+> Las contraseñas y claves privadas nunca se escriben en disco en texto plano.
+
+Encontraste una vulnerabilidad? Reportala de forma privada en [GitHub Security Advisories](https://github.com/cognidevai/nexterm/security/advisories).
 
 ---
 
-### Seguridad
+## Contribuir
 
-NexTerm se toma en serio la seguridad de las credenciales. La arquitectura de la **Bóveda Cifrada** funciona así:
-
-1. **Contraseña Maestra** — En el primer inicio, el usuario establece una contraseña maestra. Esta contraseña nunca se almacena en ningún lugar.
-2. **Derivación de Clave** — La contraseña maestra se procesa a través de **Argon2id** con un salt aleatorio único para producir una clave de cifrado de 256 bits. Argon2id es resistente tanto a ataques basados en GPU como a ataques de canal lateral.
-3. **Cifrado** — Todas las credenciales almacenadas (contraseñas, claves privadas, frases de paso) se cifran con **AES-256-GCM**, que proporciona tanto confidencialidad como verificación de integridad.
-4. **En Reposo** — El archivo de la bóveda en disco contiene solo texto cifrado y el salt de Argon2id. Sin la contraseña maestra, recuperar el contenido es computacionalmente inviable.
-5. **En Memoria** — Las credenciales descifradas se mantienen en memoria solo durante la sesión activa y se eliminan al bloquear o cerrar la aplicación.
-
-> **Las contraseñas y claves privadas nunca se escriben en disco en texto plano.**
-
-Si descubrís una vulnerabilidad de seguridad, por favor reportala de forma privada a través de [GitHub Security Advisories](https://github.com/cognidevai/nexterm/security/advisories) en lugar de abrir un issue público.
+1. Abrí un issue primero
+2. Hacé fork y creá una rama de feature
+3. Hacé tus cambios con commits claros
+4. Enviá un PR referenciando el issue
 
 ---
 
-### Contribuir
+## Licencia
 
-Las contribuciones son bienvenidas. Así podés empezar:
-
-1. **Abrí un issue primero** — Describí el bug o la funcionalidad que querés trabajar
-2. **Hacé un fork del repo** y creá una rama de feature (`git checkout -b feat/mi-feature`)
-3. **Hacé tus cambios** con mensajes de commit claros
-4. **Enviá un pull request** referenciando el issue
-
-Asegurate de que tu código pase los tests y el linting existentes antes de enviar.
-
----
-
-### Licencia
-
-Este proyecto está licenciado bajo la **Licencia MIT** — consultá el archivo [LICENSE](LICENSE) para más detalles.
+MIT — ver [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-Hecho por [cognidevai](https://github.com/cognidevai)
+Hecho por [CogniDevAI](https://github.com/cognidevai)
 
 </div>
