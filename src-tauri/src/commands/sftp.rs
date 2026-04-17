@@ -505,13 +505,35 @@ pub async fn sftp_open_external(
         local_path.display()
     );
 
-    // 4. Open with system default application
-    open::that(&local_path).map_err(|e| {
-        AppError::Sftp(format!(
-            "Failed to open '{}' with system app: {e}",
-            local_path.display()
-        ))
-    })?;
+    // 4. Open with the OS default application (or "Open With" chooser on Windows)
+    //
+    // - macOS: `open <path>` — opens with the default app for the file type
+    // - Linux: `xdg-open <path>` — same behavior
+    // - Windows: `rundll32 shell32.dll,OpenAs_RunDLL <path>` — shows the
+    //   "Open With" chooser dialog so the user can pick an application
+    #[cfg(target_os = "windows")]
+    {
+        let path_str = local_path.to_string_lossy().to_string();
+        std::process::Command::new("rundll32")
+            .args(["shell32.dll,OpenAs_RunDLL", &path_str])
+            .spawn()
+            .map_err(|e| {
+                AppError::Sftp(format!(
+                    "Failed to open 'Open With' dialog for '{}': {e}",
+                    local_path.display()
+                ))
+            })?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        open::that(&local_path).map_err(|e| {
+            AppError::Sftp(format!(
+                "Failed to open '{}' with system app: {e}",
+                local_path.display()
+            ))
+        })?;
+    }
 
     Ok(())
 }

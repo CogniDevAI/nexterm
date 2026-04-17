@@ -10,6 +10,15 @@ export type TerminalId = string; // UUID
 export type TunnelId = string; // UUID
 export type TransferId = string; // UUID
 
+// ─── User Credential (per-user auth within a profile) ───
+
+export interface UserCredential {
+  id: string;           // UUID
+  username: string;
+  authMethod: AuthMethodConfig;
+  isDefault?: boolean;
+}
+
 // ─── Connection Profile ─────────────────────────────────
 
 export interface ConnectionProfile {
@@ -17,8 +26,7 @@ export interface ConnectionProfile {
   name: string;
   host: string;
   port: number;
-  username: string;
-  authMethod: AuthMethodConfig;
+  users: UserCredential[];
   startupDirectory?: string;
   tunnels: TunnelConfig[];
   displayOrder?: number;
@@ -44,6 +52,8 @@ export interface SessionInfo {
   id: SessionId;
   profileName: string;
   host: string;
+  userId: string;
+  username: string;
   state: SessionState;
   terminalCount: number;
   hasSftp: boolean;

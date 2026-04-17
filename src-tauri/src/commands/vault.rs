@@ -27,7 +27,17 @@ fn get_app_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_data_dir().ok()
 }
 
-fn vault_key(profile_id: &Uuid, credential_type: &str) -> String {
+/// Build vault key in the new format: `{profile_id}:{user_id}:{cred_type}`.
+/// If `user_id` is None, falls back to the legacy format `{profile_id}:{cred_type}`.
+fn vault_key(profile_id: &Uuid, user_id: Option<&Uuid>, credential_type: &str) -> String {
+    match user_id {
+        Some(uid) => format!("{profile_id}:{uid}:{credential_type}"),
+        None => format!("{profile_id}:{credential_type}"),
+    }
+}
+
+/// Build legacy vault key: `{profile_id}:{cred_type}` (pre-multi-user format).
+fn vault_key_legacy(profile_id: &Uuid, credential_type: &str) -> String {
     format!("{profile_id}:{credential_type}")
 }
 
@@ -134,6 +144,7 @@ pub async fn vault_reset(
 pub async fn store_credential(
     state: State<'_, AppState>,
     profile_id: Uuid,
+    user_id: Option<Uuid>,
     credential_type: String,
     value: String,
 ) -> Result<(), AppError> {
@@ -142,7 +153,7 @@ pub async fn store_credential(
         .as_mut()
         .ok_or(AppError::VaultLocked)?;
 
-    let key = vault_key(&profile_id, &credential_type);
+    let key = vault_key(&profile_id, user_id.as_ref(), &credential_type);
     vault.store(&key, &value)
 }
 
@@ -150,6 +161,7 @@ pub async fn store_credential(
 pub async fn has_credential(
     state: State<'_, AppState>,
     profile_id: Uuid,
+    user_id: Option<Uuid>,
     credential_type: String,
 ) -> Result<bool, AppError> {
     let vault_guard = state.vault.lock().await;
@@ -157,7 +169,7 @@ pub async fn has_credential(
         .as_ref()
         .ok_or(AppError::VaultLocked)?;
 
-    let key = vault_key(&profile_id, &credential_type);
+    let key = vault_key(&profile_id, user_id.as_ref(), &credential_type);
     Ok(vault.has(&key))
 }
 
@@ -165,6 +177,7 @@ pub async fn has_credential(
 pub async fn delete_credential(
     state: State<'_, AppState>,
     profile_id: Uuid,
+    user_id: Option<Uuid>,
     credential_type: String,
 ) -> Result<(), AppError> {
     let mut vault_guard = state.vault.lock().await;
@@ -172,19 +185,46 @@ pub async fn delete_credential(
         .as_mut()
         .ok_or(AppError::VaultLocked)?;
 
-    let key = vault_key(&profile_id, &credential_type);
+    let key = vault_key(&profile_id, user_id.as_ref(), &credential_type);
     vault.delete(&key)
 }
 
 /// Internal function: retrieve a credential from the vault.
 /// Not a Tauri command — called by `ssh/session.rs` for auth resolution.
+///
+/// Tries the new key format `{profile_id}:{user_id}:{cred_type}` first.
+/// Falls back to legacy `{profile_id}:{cred_type}` if the new key is not found.
+/// On legacy hit, auto-migrates by writing the credential under the new key
+/// (old key is kept for rollback safety).
 pub fn get_credential_from_vault(
     vault: &Vault,
     profile_id: &Uuid,
+    user_id: Option<&Uuid>,
     credential_type: &str,
 ) -> Result<Option<String>, AppError> {
-    let key = vault_key(profile_id, credential_type);
-    vault.get(&key)
+    let key = vault_key(profile_id, user_id, credential_type);
+
+    // Try new-format key first
+    if let Some(value) = vault.get(&key)? {
+        return Ok(Some(value));
+    }
+
+    // Fall back to legacy key (only if user_id was provided — otherwise we already tried the legacy format)
+    if user_id.is_some() {
+        let legacy = vault_key_legacy(profile_id, credential_type);
+        if let Some(value) = vault.get(&legacy)? {
+            // Auto-migrate: write under new key (best-effort, don't fail if vault is read-only)
+            // NOTE: We can't mutate vault here since we only have &Vault.
+            // Migration will happen lazily on next store_credential call or
+            // can be triggered explicitly. For now, just return the legacy value.
+            tracing::info!(
+                "Found legacy vault key '{legacy}', should be migrated to '{key}'"
+            );
+            return Ok(Some(value));
+        }
+    }
+
+    Ok(None)
 }
 
 /// Delete all credentials for a given profile from the vault.

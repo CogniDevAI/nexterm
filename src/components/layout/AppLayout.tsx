@@ -6,13 +6,14 @@ import { StatusBar } from "./StatusBar";
 
 interface AppLayoutProps {
   children: ReactNode;
-  onConnect: (profileId: string) => void;
+  onConnect: (profileId: string, userId?: string) => void;
   onDisconnect: (sessionId: string) => void;
   onNewProfile: () => void;
   onEditProfile: (profileId: string) => void;
   connectingProfileId: string | null;
   connectError: string | null;
   onClearError: () => void;
+  onStartTour?: () => void;
 }
 
 export function AppLayout({
@@ -24,6 +25,7 @@ export function AppLayout({
   connectingProfileId,
   connectError,
   onClearError,
+  onStartTour,
 }: AppLayoutProps) {
   return (
     <div className="app-layout">
@@ -37,7 +39,7 @@ export function AppLayout({
         onClearError={onClearError}
       />
       <main className="app-content">{children}</main>
-      <StatusBar />
+      <StatusBar onStartTour={onStartTour} />
     </div>
   );
 }

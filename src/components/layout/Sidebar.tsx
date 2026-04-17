@@ -2,7 +2,7 @@
 //
 // Premium minimalist redesign with drag-and-drop reordering via @dnd-kit.
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import {
   DndContext,
@@ -29,9 +29,9 @@ import { useI18n } from "../../lib/i18n";
 import { Dialog } from "../ui/Dialog";
 import type { ConnectionProfile } from "../../lib/types";
 
-// ─── Props (UNCHANGED — matches AppLayout contract) ───────
+// ─── Props ────────────────────────────────────────────────
 interface SidebarProps {
-  onConnect: (profileId: string) => void;
+  onConnect: (profileId: string, userId?: string) => void;
   onDisconnect: (sessionId: string) => void;
   onNewProfile: () => void;
   onEditProfile: (profileId: string) => void;
@@ -75,11 +75,12 @@ interface SortableProfileCardProps {
   connected: boolean;
   connecting: boolean;
   hasActiveSessions: boolean;
+  isExpanded: boolean;
   profileSessions?: SessionEntry[];
   activeSessionId: string | null;
   statusClass: string;
   onProfileClick: (id: string) => void;
-  onConnect: (id: string) => void;
+  onConnect: (id: string, userId?: string) => void;
   onEditProfile: (id: string) => void;
   onDeleteClick: (id: string, name: string) => void;
   onSetActiveSession: (id: string) => void;
@@ -94,6 +95,7 @@ function SortableProfileCard({
   connected,
   connecting,
   hasActiveSessions,
+  isExpanded,
   profileSessions,
   activeSessionId,
   statusClass,
@@ -123,13 +125,59 @@ function SortableProfileCard({
     zIndex: isDragging ? 10 : undefined,
   };
 
+  // Build subtitle based on number of users
+  const isSingleUser = p.users.length <= 1;
+  const defaultUser = p.users.find((u) => u.isDefault) ?? p.users[0];
+  const subtitle = isSingleUser && defaultUser
+    ? `${defaultUser.username || "?"}@${p.host}:${p.port}`
+    : `${p.users.length} users · ${p.host}:${p.port}`;
+
+  // User picker state (for multi-user connect)
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close picker when clicking outside
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [pickerOpen]);
+
+  // Which users already have an active session?
+  const connectedUserIds = new Set(
+    (profileSessions ?? [])
+      .filter((s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating")
+      .map((s) => s.userId)
+      .filter(Boolean)
+  );
+
+  function handleConnectClick() {
+    if (isSingleUser) {
+      // Single user — connect directly (even if already connected, allows multiple sessions)
+      onConnect(p.id);
+    } else {
+      // Multi-user — show picker
+      setPickerOpen((prev) => !prev);
+    }
+  }
+
+  function handlePickUser(userId: string) {
+    setPickerOpen(false);
+    onConnect(p.id, userId);
+  }
+
   return (
     <div ref={setNodeRef} style={style}>
       {/* Profile card */}
       <div
         className={`sidebar-profile-card ${connected ? "sidebar-profile-card-connected" : ""}`}
         onClick={() => onProfileClick(p.id)}
-        title={`${p.username}@${p.host}:${p.port}`}
+        title={subtitle}
       >
         {/* Drag handle */}
         <div
@@ -141,11 +189,12 @@ function SortableProfileCard({
         </div>
 
         <div className="sidebar-profile-card-left">
+          <span className={`sidebar-chevron sidebar-profile-chevron ${isExpanded ? "" : "sidebar-chevron-collapsed"}`}>{"\u25BC"}</span>
           <span className={`sidebar-status-dot ${statusClass}`} />
           <div className="sidebar-profile-text">
             <div className="sidebar-profile-name">{p.name}</div>
             <div className="sidebar-profile-host">
-              {p.username}@{p.host}:{p.port}
+              {subtitle}
             </div>
           </div>
         </div>
@@ -153,22 +202,50 @@ function SortableProfileCard({
           className="sidebar-profile-card-actions"
           onClick={(e) => e.stopPropagation()}
         >
-          {!connected && (
+          <div className="sidebar-connect-wrapper" ref={pickerRef}>
             <button
-              className="sidebar-profile-btn sidebar-profile-btn-connect"
-              onClick={() => onConnect(p.id)}
+              className={`sidebar-profile-btn sidebar-profile-btn-connect ${connected ? "sidebar-profile-btn-add" : ""}`}
+              onClick={handleConnectClick}
               disabled={connecting}
-              title={connecting ? connectingLabel : connectLabel}
+              title={connecting ? connectingLabel : connected ? t("sidebar.newSession") : connectLabel}
             >
               {connecting ? (
                 <span className="sidebar-btn-spinner" />
+              ) : connected ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
               ) : (
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                   <polygon points="5,3 19,12 5,21" />
                 </svg>
               )}
             </button>
-          )}
+            {/* User picker popover (multi-user profiles) */}
+            {pickerOpen && !isSingleUser && (
+              <div className="sidebar-user-picker">
+                {p.users.map((u) => {
+                  const isUserConnected = connectedUserIds.has(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      className={`sidebar-user-picker-item ${isUserConnected ? "sidebar-user-picker-item-connected" : ""}`}
+                      onClick={() => handlePickUser(u.id)}
+                    >
+                      <span className="sidebar-user-picker-name">{u.username || "?"}</span>
+                      <span className="sidebar-user-picker-auth">
+                        {u.authMethod.type === "publicKey" ? "\uD83D\uDD11" : "\uD83D\uDD12"}
+                      </span>
+                      {isUserConnected && (
+                        <span className="sidebar-user-picker-connected-dot" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <button
             className="sidebar-profile-btn"
             onClick={() => onEditProfile(p.id)}
@@ -191,8 +268,8 @@ function SortableProfileCard({
         </div>
       </div>
 
-      {/* Nested sessions under profile */}
-      {hasActiveSessions && profileSessions && (
+      {/* Nested sessions under profile (visible when expanded) */}
+      {isExpanded && hasActiveSessions && profileSessions && (
         <div className="sidebar-nested-sessions">
           {profileSessions
             .filter(
@@ -211,7 +288,7 @@ function SortableProfileCard({
                   <SessionStateIndicator state={s.state} />
                   <div className="sidebar-nested-session-info">
                     <div className="sidebar-nested-session-host">
-                      {s.host}
+                      {s.username}@{s.host}
                     </div>
                     <div className="sidebar-nested-session-state">
                       {t(getSessionStateKey(s.state))}
@@ -261,7 +338,7 @@ export function Sidebar({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [profilesCollapsed, setProfilesCollapsed] = useState(false);
-  const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(new Set());
 
   // Delete confirmation dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -447,7 +524,41 @@ export function Sidebar({
     return map;
   }, [sessionEntries]);
 
-  // Filter profiles by search query
+  // Track which profiles we've already auto-expanded so we don't fight the user's collapse
+  const autoExpandedRef = useRef<Set<string>>(new Set());
+
+  // Auto-expand a profile only when it FIRST gets an active session
+  useEffect(() => {
+    const profilesWithSessions = new Set<string>();
+    for (const [profileId, sess] of profileSessionMap) {
+      if (sess.some((s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating")) {
+        profilesWithSessions.add(profileId);
+      }
+    }
+    // Only expand profiles we haven't auto-expanded before
+    const toExpand: string[] = [];
+    for (const id of profilesWithSessions) {
+      if (!autoExpandedRef.current.has(id)) {
+        toExpand.push(id);
+        autoExpandedRef.current.add(id);
+      }
+    }
+    // Clean up profiles that no longer have sessions
+    for (const id of autoExpandedRef.current) {
+      if (!profilesWithSessions.has(id)) {
+        autoExpandedRef.current.delete(id);
+      }
+    }
+    if (toExpand.length > 0) {
+      setExpandedProfiles((prev) => {
+        const next = new Set(prev);
+        for (const id of toExpand) next.add(id);
+        return next;
+      });
+    }
+  }, [profileSessionMap]);
+
+  // Filter profiles by search query (searches all usernames in users array)
   const filteredProfiles = useMemo(() => {
     if (!searchQuery.trim()) return profiles;
     const q = searchQuery.toLowerCase();
@@ -455,15 +566,9 @@ export function Sidebar({
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.host.toLowerCase().includes(q) ||
-        p.username.toLowerCase().includes(q)
+        p.users.some((u) => u.username.toLowerCase().includes(q))
     );
   }, [profiles, searchQuery]);
-
-  // Active (connected/connecting) sessions for the quick-access section
-  const activeSessions = useMemo(
-    () => sessionEntries.filter((s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating"),
-    [sessionEntries]
-  );
 
   // DnD handler
   const handleDragEnd = useCallback(
@@ -573,14 +678,16 @@ export function Sidebar({
   }
 
   function handleProfileClick(profileId: string) {
-    // If profile has an active session, switch to it. Otherwise, connect.
-    const profileSessions = profileSessionMap.get(profileId);
-    const connectedSession = profileSessions?.find((s) => s.state === "connected");
-    if (connectedSession) {
-      setActiveSession(connectedSession.id);
-    } else {
-      onConnect(profileId);
-    }
+    // Toggle expand/collapse
+    setExpandedProfiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(profileId)) {
+        next.delete(profileId);
+      } else {
+        next.add(profileId);
+      }
+      return next;
+    });
   }
 
   function getProfileStatusClass(profileId: string): string {
@@ -625,50 +732,46 @@ export function Sidebar({
             <span className="sidebar-section-title">{t("sidebar.profiles")}</span>
             <span className="sidebar-section-badge">{profiles.length}</span>
           </div>
-          <div className="sidebar-section-header-actions">
+        </div>
+        {!profilesCollapsed && (
+          <div className="sidebar-actions-row">
             <button
-              className="sidebar-action-btn sidebar-action-btn-subtle"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleImportClick();
-              }}
+              className="sidebar-action-btn sidebar-action-btn-labeled"
+              onClick={() => void handleImportClick()}
               title={t("sidebar.import")}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
+              <span>{t("sidebar.importShort")}</span>
             </button>
             <button
-              className="sidebar-action-btn sidebar-action-btn-subtle"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleExportClick();
-              }}
+              className="sidebar-action-btn sidebar-action-btn-labeled"
+              onClick={() => handleExportClick()}
               title={t("sidebar.export")}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="17 8 12 3 7 8" />
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
+              <span>{t("sidebar.exportShort")}</span>
             </button>
             <button
-              className="sidebar-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onNewProfile();
-              }}
+              className="sidebar-action-btn sidebar-action-btn-labeled sidebar-action-btn-primary"
+              onClick={() => onNewProfile()}
               title={t("sidebar.newProfile")}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
+              <span>{t("sidebar.newProfileShort")}</span>
             </button>
           </div>
-        </div>
+        )}
 
         <div
           className={`sidebar-section-content ${profilesCollapsed ? "sidebar-section-content-collapsed" : ""}`}
@@ -718,6 +821,7 @@ export function Sidebar({
                       connected={connected}
                       connecting={connecting}
                       hasActiveSessions={hasActiveSessions}
+                      isExpanded={expandedProfiles.has(p.id)}
                       profileSessions={profileSessions}
                       activeSessionId={activeSessionId}
                       statusClass={getProfileStatusClass(p.id)}
@@ -757,55 +861,7 @@ export function Sidebar({
         )}
       </div>
 
-      {/* ── Active Sessions Section (quick access) ── */}
-      {activeSessions.length > 0 && (
-        <div className="sidebar-section">
-          <div
-            className="sidebar-section-header-collapsible"
-            onClick={() => setSessionsCollapsed((prev) => !prev)}
-          >
-            <div className="sidebar-section-header-left">
-              <ChevronIcon collapsed={sessionsCollapsed} />
-              <span className="sidebar-section-title">{t("sidebar.sessions")}</span>
-              <span className="sidebar-section-badge sidebar-section-badge-active">
-                {activeSessions.length}
-              </span>
-            </div>
-          </div>
-
-          <div
-            className={`sidebar-section-content ${sessionsCollapsed ? "sidebar-section-content-collapsed" : ""}`}
-          >
-            <div className="sidebar-list">
-              {activeSessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={`sidebar-item sidebar-session-item ${s.id === activeSessionId ? "sidebar-item-active" : ""}`}
-                  onClick={() => setActiveSession(s.id)}
-                >
-                  <div className="sidebar-session-main">
-                    <SessionStateIndicator state={s.state} />
-                    <div className="sidebar-profile-info">
-                      <div className="sidebar-item-name">{s.profileName}</div>
-                      <div className="sidebar-item-detail">{s.host}</div>
-                    </div>
-                  </div>
-                  <button
-                    className="sidebar-disconnect-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDisconnect(s.id);
-                    }}
-                    title={t("sidebar.disconnect")}
-                  >
-                    {"\u23FB"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Active Sessions section removed — sessions now shown inline under each expanded profile */}
 
       {/* ── Delete Confirmation Dialog ── */}
       <Dialog

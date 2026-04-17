@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::profile::{AuthMethodConfig, ConnectionProfile};
+use crate::profile::{AuthMethodConfig, ConnectionProfile, UserCredential};
 use crate::ssh::handler::SshClientHandler;
 use crate::ssh::keys;
 use crate::state::{
@@ -114,6 +114,9 @@ pub async fn do_handshake(
     let handle = SessionHandle {
         id: handshake.session_id,
         profile: profile.clone(),
+        // Placeholder values — set by the connect command after user resolution
+        user_id: Uuid::nil(),
+        username: String::new(),
         state: SessionState::Connecting,
         ssh_handle: Some(ssh_handle),
         terminals: HashMap::new(),
@@ -131,9 +134,13 @@ pub async fn do_handshake(
 
 /// Authenticate an established SSH session.
 /// The session must be in Connecting or Authenticating state.
+///
+/// `username` is the SSH username from the resolved `UserCredential` — no longer
+/// read from `handle.profile` since profiles now have multiple users.
 pub async fn authenticate(
     handle: &mut SessionHandle,
     auth: AuthMethod,
+    username: &str,
 ) -> Result<(), AppError> {
     let ssh = handle
         .ssh_handle
@@ -141,8 +148,6 @@ pub async fn authenticate(
         .ok_or(AppError::NotConnected)?;
 
     handle.state = SessionState::Authenticating;
-
-    let username = &handle.profile.username;
 
     let authenticated = match auth {
         AuthMethod::Password(password) => {
@@ -171,18 +176,22 @@ pub async fn authenticate(
     }
 }
 
-/// Resolve the auth method from the profile config, fetching credentials as needed.
+/// Resolve the auth method from a user credential, fetching credentials as needed.
 /// Returns None if the password/passphrase needs to be prompted from the user.
+///
+/// `user` is the resolved `UserCredential` from the profile's `users` array.
+/// `profile_id` is needed for vault key construction.
 ///
 /// Priority order:
 /// 1. Explicitly provided password/passphrase (from connect command)
 /// 2. Encrypted vault lookup
 pub fn resolve_auth_method(
-    profile: &ConnectionProfile,
+    user: &UserCredential,
+    profile_id: &Uuid,
     password: Option<&str>,
     vault: Option<&crate::vault::Vault>,
 ) -> Result<Option<AuthMethod>, AppError> {
-    match &profile.auth_method {
+    match &user.auth_method {
         AuthMethodConfig::Password => {
             // Prefer explicitly-provided password
             if let Some(pw) = password {
@@ -193,7 +202,8 @@ pub fn resolve_auth_method(
                 if let Some(stored) =
                     crate::commands::vault::get_credential_from_vault(
                         v,
-                        &profile.id,
+                        profile_id,
+                        Some(&user.id),
                         "password",
                     )?
                 {
@@ -226,7 +236,8 @@ pub fn resolve_auth_method(
                             if let Some(passphrase) =
                                 crate::commands::vault::get_credential_from_vault(
                                     v,
-                                    &profile.id,
+                                    profile_id,
+                                    Some(&user.id),
                                     "passphrase",
                                 )?
                             {

@@ -45,6 +45,10 @@ impl Default for AppState {
 pub struct SessionHandle {
     pub id: SessionId,
     pub profile: ConnectionProfile,
+    /// The user ID of the UserCredential that initiated this session.
+    pub user_id: Uuid,
+    /// The username of the UserCredential that initiated this session.
+    pub username: String,
     pub state: SessionState,
     pub ssh_handle: Option<russh::client::Handle<crate::ssh::handler::SshClientHandler>>,
     pub terminals: HashMap<TerminalId, TerminalChannelHandle>,
@@ -76,6 +80,10 @@ pub struct SessionInfo {
     pub id: SessionId,
     pub profile_name: String,
     pub host: String,
+    /// The user ID of the UserCredential that initiated this session.
+    pub user_id: Uuid,
+    /// The username that authenticated this session.
+    pub username: String,
     pub state: SessionState,
     pub terminal_count: usize,
     pub has_sftp: bool,

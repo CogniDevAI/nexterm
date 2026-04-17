@@ -22,6 +22,7 @@ export interface SessionEntry {
   profileId: string;
   profileName: string;
   host: string;
+  userId: string;
   username: string;
   port: number;
   connectedAt: number; // Date.now() timestamp

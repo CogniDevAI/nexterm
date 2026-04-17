@@ -14,6 +14,7 @@ import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
 import { TerminalTabs } from "./features/terminal/TerminalTabs";
 import { SftpBrowser } from "./features/sftp/SftpBrowser";
 import { TunnelManager } from "./features/tunnel/TunnelManager";
+import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
 import { useProfileStore } from "./stores/profileStore";
 import { useConnection } from "./features/connection/useConnection";
@@ -38,6 +39,7 @@ function App() {
     hostKeyRequest,
     needsPassword,
     pendingProfileId,
+    pendingUser,
     connect,
     disconnect,
     respondHostKey,
@@ -89,6 +91,20 @@ function App() {
     setVaultStatus({ exists: false, unlocked: false });
   }, []);
 
+  // ── Onboarding tour ──────────────────────────────────
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    if (vaultReady && !localStorage.getItem("nexterm-onboarding-completed")) {
+      const timer = setTimeout(() => setShowTour(true), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [vaultReady]);
+
+  const handleStartTour = useCallback(() => {
+    setShowTour(true);
+  }, []);
+
   // ── Dialog state ─────────────────────────────────────
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [editProfileId, setEditProfileId] = useState<string | null>(null);
@@ -104,15 +120,15 @@ function App() {
   }, []);
 
   const handleConnect = useCallback(
-    (profileId: string) => {
-      void connect(profileId);
+    (profileId: string, userId?: string) => {
+      void connect(profileId, undefined, userId);
     },
     [connect],
   );
 
   const handleSaveAndConnect = useCallback(
-    (profileId: string, password?: string) => {
-      void connect(profileId, password);
+    (profileId: string, password?: string, userId?: string) => {
+      void connect(profileId, password, userId);
     },
     [connect],
   );
@@ -158,6 +174,7 @@ function App() {
         connectingProfileId={connectingProfileId}
         connectError={connectError}
         onClearError={clearError}
+        onStartTour={handleStartTour}
       >
         {/* Content area */}
         {activeSession ? (
@@ -190,6 +207,9 @@ function App() {
         )}
       </AppLayout>
 
+      {/* Onboarding tour */}
+      {showTour && <OnboardingTour onClose={() => setShowTour(false)} />}
+
       {/* Modals */}
       <ConnectionDialog
         open={showProfileDialog}
@@ -207,7 +227,7 @@ function App() {
       <AuthPrompt
         open={needsPassword}
         host={pendingProfile ? `${pendingProfile.host}:${pendingProfile.port}` : ""}
-        username={pendingProfile?.username ?? ""}
+        username={pendingUser?.username ?? ""}
         profileId={pendingProfileId}
         onSubmit={submitPassword}
         onCancel={cancelConnect}

@@ -28,5 +28,10 @@ src-tauri/gen/
 *.log
 npm-debug.log*
 
+# Secrets
+*.pem
+*.p12
+*.key
+
 # ATL
 .atl/

@@ -15,7 +15,7 @@ use argon2::Argon2;
 use rand::RngCore;
 
 use crate::error::AppError;
-use crate::profile::{self, AuthMethodConfig, ConnectionProfile};
+use crate::profile::{self, AuthMethodConfig, ConnectionProfile, UserCredential};
 use crate::state::{AppState, SessionState};
 
 // ─── Helpers ────────────────────────────────────────────
@@ -157,19 +157,41 @@ pub async fn reorder_profiles(
 
 // ─── Export / Import ────────────────────────────────────
 
+/// Exported user credential within a v2 export.
+#[derive(Debug, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct ExportedUser {
+    username: String,
+    auth_method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    private_key_path: Option<String>,
+    #[serde(default)]
+    is_default: bool,
+    /// Password — only present in encrypted exports.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    password: Option<String>,
+}
+
 /// A single exported profile — safe metadata only, no secrets.
+/// v1: had top-level `username`, `auth_method`, `password`
+/// v2: has `users` array
 #[derive(Debug, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct ExportedProfile {
     name: String,
     host: String,
     port: u16,
-    username: String,
-    auth_method: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// v2 format: array of users
+    #[serde(default)]
+    users: Vec<ExportedUser>,
+    /// Legacy v1 fields — used for importing old exports
+    #[serde(default, skip_serializing)]
+    username: Option<String>,
+    #[serde(default, skip_serializing)]
+    auth_method: Option<String>,
+    #[serde(default, skip_serializing)]
     private_key_path: Option<String>,
-    /// Password — only present in encrypted exports.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing)]
     password: Option<String>,
 }
 
@@ -198,20 +220,37 @@ pub struct ImportResult {
 
 impl From<&ConnectionProfile> for ExportedProfile {
     fn from(p: &ConnectionProfile) -> Self {
-        let (auth_method, private_key_path) = match &p.auth_method {
-            AuthMethodConfig::Password => ("password".to_string(), None),
-            AuthMethodConfig::PublicKey {
-                private_key_path, ..
-            } => ("publickey".to_string(), Some(private_key_path.clone())),
-            AuthMethodConfig::KeyboardInteractive => ("keyboard-interactive".to_string(), None),
-        };
+        let users: Vec<ExportedUser> = p
+            .users
+            .iter()
+            .map(|u| {
+                let (auth_method, private_key_path) = match &u.auth_method {
+                    AuthMethodConfig::Password => ("password".to_string(), None),
+                    AuthMethodConfig::PublicKey {
+                        private_key_path, ..
+                    } => ("publickey".to_string(), Some(private_key_path.clone())),
+                    AuthMethodConfig::KeyboardInteractive => {
+                        ("keyboard-interactive".to_string(), None)
+                    }
+                };
+                ExportedUser {
+                    username: u.username.clone(),
+                    auth_method,
+                    private_key_path,
+                    is_default: u.is_default,
+                    password: None,
+                }
+            })
+            .collect();
         ExportedProfile {
             name: p.name.clone(),
             host: p.host.clone(),
             port: p.port,
-            username: p.username.clone(),
-            auth_method,
-            private_key_path,
+            users,
+            // Legacy fields not serialized
+            username: None,
+            auth_method: None,
+            private_key_path: None,
             password: None,
         }
     }
@@ -239,21 +278,32 @@ pub async fn export_profiles(
     let mut exported: Vec<ExportedProfile> = profiles.iter().map(ExportedProfile::from).collect();
     let count = exported.len() as u32;
 
-    // If including credentials, read passwords from vault
+    // If including credentials, read passwords from vault (per user)
     if include_credentials {
         let vault_guard = state.vault.lock().await;
         if let Some(ref vault) = *vault_guard {
             for (i, profile) in profiles.iter().enumerate() {
-                let key = format!("{}:password", profile.id);
-                if let Ok(Some(password)) = vault.get(&key) {
-                    exported[i].password = Some(password);
+                for (j, user) in profile.users.iter().enumerate() {
+                    // Try new key format first, then legacy
+                    if let Ok(Some(password)) =
+                        crate::commands::vault::get_credential_from_vault(
+                            vault,
+                            &profile.id,
+                            Some(&user.id),
+                            "password",
+                        )
+                    {
+                        if j < exported[i].users.len() {
+                            exported[i].users[j].password = Some(password);
+                        }
+                    }
                 }
             }
         }
     }
 
     let envelope = ExportEnvelope {
-        version: 1,
+        version: 2,
         app: "NexTerm".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         profiles: exported,
@@ -317,14 +367,12 @@ pub async fn import_profiles(
     let mut imported: u32 = 0;
     let mut skipped: u32 = 0;
     let mut errors: Vec<String> = Vec::new();
-    let mut credentials_to_store: Vec<(Uuid, String)> = Vec::new();
+    let mut credentials_to_store: Vec<(Uuid, Option<Uuid>, String)> = Vec::new();
 
     for ep in &envelope.profiles {
-        // Duplicate check: same name + host + username
+        // Duplicate check: same name + host
         let is_duplicate = profiles.iter().any(|existing| {
-            existing.name == ep.name
-                && existing.host == ep.host
-                && existing.username == ep.username
+            existing.name == ep.name && existing.host == ep.host
         });
 
         if is_duplicate {
@@ -333,22 +381,62 @@ pub async fn import_profiles(
         }
 
         // Validate required fields
-        if ep.name.trim().is_empty() || ep.host.trim().is_empty() || ep.username.trim().is_empty() {
+        if ep.name.trim().is_empty() || ep.host.trim().is_empty() {
             errors.push(format!("Skipped invalid profile: '{}'", ep.name));
             continue;
         }
 
-        // Reconstruct AuthMethodConfig from the exported type string
-        let auth_method = match ep.auth_method.as_str() {
-            "publickey" => AuthMethodConfig::PublicKey {
-                private_key_path: ep
-                    .private_key_path
-                    .clone()
-                    .unwrap_or_else(|| "~/.ssh/id_rsa".to_string()),
-                passphrase_in_keychain: false,
-            },
-            "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
-            _ => AuthMethodConfig::Password, // default to password
+        // Build users array — either from v2 `users` field or v1 legacy fields
+        let users: Vec<UserCredential> = if !ep.users.is_empty() {
+            // v2 format: reconstruct UserCredentials from exported users
+            ep.users
+                .iter()
+                .map(|eu| {
+                    let auth_method = match eu.auth_method.as_str() {
+                        "publickey" => AuthMethodConfig::PublicKey {
+                            private_key_path: eu
+                                .private_key_path
+                                .clone()
+                                .unwrap_or_else(|| "~/.ssh/id_rsa".to_string()),
+                            passphrase_in_keychain: false,
+                        },
+                        "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
+                        _ => AuthMethodConfig::Password,
+                    };
+                    UserCredential {
+                        id: Uuid::new_v4(),
+                        username: eu.username.clone(),
+                        auth_method,
+                        is_default: eu.is_default,
+                    }
+                })
+                .collect()
+        } else if let Some(ref username) = ep.username {
+            // v1 format: single user from top-level fields
+            if username.trim().is_empty() {
+                errors.push(format!("Skipped invalid profile: '{}' (no username)", ep.name));
+                continue;
+            }
+            let auth_method = match ep.auth_method.as_deref().unwrap_or("password") {
+                "publickey" => AuthMethodConfig::PublicKey {
+                    private_key_path: ep
+                        .private_key_path
+                        .clone()
+                        .unwrap_or_else(|| "~/.ssh/id_rsa".to_string()),
+                    passphrase_in_keychain: false,
+                },
+                "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
+                _ => AuthMethodConfig::Password,
+            };
+            vec![UserCredential {
+                id: Uuid::new_v4(),
+                username: username.clone(),
+                auth_method,
+                is_default: true,
+            }]
+        } else {
+            errors.push(format!("Skipped profile with no users: '{}'", ep.name));
+            continue;
         };
 
         let now = chrono::Utc::now();
@@ -359,8 +447,9 @@ pub async fn import_profiles(
             name: ep.name.clone(),
             host: ep.host.clone(),
             port: ep.port,
-            username: ep.username.clone(),
-            auth_method,
+            username: None,
+            auth_method: None,
+            users: users.clone(),
             startup_directory: None,
             tunnels: Vec::new(),
             display_order: max_order + 1,
@@ -368,10 +457,25 @@ pub async fn import_profiles(
             updated_at: now,
         };
 
-        // Queue credential storage if password is present
-        if let Some(ref password) = ep.password {
-            if !password.is_empty() {
-                credentials_to_store.push((new_id, password.clone()));
+        // Queue credential storage if passwords are present (v2: per-user, v1: single)
+        for user in &users {
+            // Check v2 user passwords
+            if let Some(eu) = ep.users.iter().find(|eu| eu.username == user.username) {
+                if let Some(ref password) = eu.password {
+                    if !password.is_empty() {
+                        credentials_to_store.push((new_id, Some(user.id), password.clone()));
+                    }
+                }
+            }
+        }
+        // Also check v1 legacy password
+        if ep.users.is_empty() {
+            if let Some(ref password) = ep.password {
+                if !password.is_empty() {
+                    if let Some(user) = users.first() {
+                        credentials_to_store.push((new_id, Some(user.id), password.clone()));
+                    }
+                }
             }
         }
 
@@ -391,8 +495,11 @@ pub async fn import_profiles(
     if !credentials_to_store.is_empty() {
         let mut vault_guard = state.vault.lock().await;
         if let Some(ref mut vault) = *vault_guard {
-            for (profile_id, password) in &credentials_to_store {
-                let key = format!("{profile_id}:password");
+            for (profile_id, user_id, password) in &credentials_to_store {
+                let key = match user_id {
+                    Some(uid) => format!("{profile_id}:{uid}:password"),
+                    None => format!("{profile_id}:password"),
+                };
                 if let Err(e) = vault.store(&key, password) {
                     errors.push(format!("Failed to store credential: {e}"));
                 }

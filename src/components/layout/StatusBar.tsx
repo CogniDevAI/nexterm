@@ -4,7 +4,11 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useUpdateStore } from "../../stores/updateStore";
 import { useI18n, type Locale } from "../../lib/i18n";
 
-export function StatusBar() {
+interface StatusBarProps {
+  onStartTour?: () => void;
+}
+
+export function StatusBar({ onStartTour }: StatusBarProps) {
   const { t, locale, setLocale } = useI18n();
   const { sessions } = useSessionStore();
   const { status, isCritical } = useUpdateStore();
@@ -51,6 +55,15 @@ export function StatusBar() {
         >
           <span className="statusbar-update-dot" />
           {t("update.statusBadge")}
+        </button>
+      )}
+      {onStartTour && (
+        <button
+          className="statusbar-help-btn"
+          onClick={onStartTour}
+          title={t("tour.helpButton")}
+        >
+          ?
         </button>
       )}
       <button

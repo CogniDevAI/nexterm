@@ -80,12 +80,8 @@ export function FileContextMenu({
       items.push({ label: t("ctx.open"), action: { type: "open", entry } });
     }
 
-    // Open with system app — remote files only
+    // Save As & Open — remote files only (lets user choose where to save)
     if (source === "remote" && isFilelike(entry)) {
-      items.push({
-        label: t("ctx.openExternal"),
-        action: { type: "openExternal", entry },
-      });
       items.push({
         label: t("ctx.saveAsAndOpen"),
         action: { type: "saveAsAndOpen", entry },

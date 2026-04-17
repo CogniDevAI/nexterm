@@ -20,7 +20,7 @@ interface ProfileStoreState {
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfile) => Promise<string>;
   deleteProfile: (id: string) => Promise<void>;
-  storeCredential: (profileId: string, password: string) => Promise<void>;
+  storeCredential: (profileId: string, userId: string, password: string) => Promise<void>;
   reorderProfiles: (ids: string[]) => Promise<void>;
   exportProfiles: (exportPath: string, includeCredentials: boolean, exportPassword?: string) => Promise<number>;
   importProfiles: (importPath: string, importPassword?: string) => Promise<ImportResult>;
@@ -74,10 +74,11 @@ export const useProfileStore = create<ProfileStoreState>((set) => ({
     }
   },
 
-  storeCredential: async (profileId: string, password: string) => {
+  storeCredential: async (profileId: string, userId: string, password: string) => {
     try {
       await tauriInvoke<void>("store_credential", {
         profileId,
+        userId,
         credentialType: "password",
         value: password,
       });

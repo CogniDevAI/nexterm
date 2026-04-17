@@ -12,6 +12,7 @@ import type {
   SessionState,
   HostKeyVerificationRequest,
   HostKeyVerificationResponse,
+  UserCredential,
 } from "../../lib/types";
 
 // Mirror the Rust SessionStateEvent enum
@@ -26,7 +27,8 @@ interface UseConnectionReturn {
   hostKeyRequest: HostKeyVerificationRequest | null;
   needsPassword: boolean;
   pendingProfileId: string | null;
-  connect: (profileId: string, password?: string) => Promise<void>;
+  pendingUser: UserCredential | null;
+  connect: (profileId: string, password?: string, userId?: string) => Promise<void>;
   disconnect: (sessionId: string) => Promise<void>;
   respondHostKey: (response: HostKeyVerificationResponse) => void;
   submitPassword: (password: string, remember: boolean) => void;
@@ -48,10 +50,11 @@ export function useConnection(): UseConnectionReturn {
     useState<HostKeyVerificationRequest | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
+  const [pendingUser, setPendingUser] = useState<UserCredential | null>(null);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
 
   const connect = useCallback(
-    async (profileId: string, password?: string) => {
+    async (profileId: string, password?: string, userId?: string) => {
       // Read profiles from Zustand's latest state — NOT the closure.
       // When called immediately after saveProfile (e.g. "Save & Connect"),
       // the closure's `profiles` is stale (captured before the store update).
@@ -60,6 +63,24 @@ export function useConnection(): UseConnectionReturn {
       const profile = currentProfiles.find((p) => p.id === profileId);
       if (!profile) {
         setConnectError("Profile not found");
+        return;
+      }
+
+      // Resolve which user to connect as (frontend mirrors backend logic)
+      let resolvedUser: UserCredential | undefined;
+      if (userId) {
+        resolvedUser = profile.users.find((u) => u.id === userId);
+      } else if (profile.users.length === 1) {
+        resolvedUser = profile.users[0];
+      } else {
+        // Multiple users, no userId — backend will return UserSelectionRequired.
+        // Let the caller handle the picker.
+        const defaultUser = profile.users.find((u) => u.isDefault);
+        resolvedUser = defaultUser ?? profile.users[0];
+      }
+
+      if (!resolvedUser) {
+        setConnectError("User not found in profile");
         return;
       }
 
@@ -75,6 +96,7 @@ export function useConnection(): UseConnectionReturn {
       setHostKeyRequest(null);
       setNeedsPassword(false);
       setPendingProfileId(profileId);
+      setPendingUser(resolvedUser);
 
       try {
         // Create Channel for session state events
@@ -97,6 +119,7 @@ export function useConnection(): UseConnectionReturn {
 
         const sessionId = await tauriInvoke<SessionId>("connect", {
           profileId,
+          userId: resolvedUser.id,
           password: password ?? null,
           onEvent,
         });
@@ -109,7 +132,8 @@ export function useConnection(): UseConnectionReturn {
           profileId,
           profileName: profile.name,
           host: `${profile.host}:${profile.port}`,
-          username: profile.username,
+          userId: resolvedUser.id,
+          username: resolvedUser.username,
           port: profile.port,
           connectedAt: Date.now(),
           state: "connected",
@@ -121,6 +145,7 @@ export function useConnection(): UseConnectionReturn {
         connectingProfileIdRef.current = null;
         setConnectingProfileId(null);
         setPendingProfileId(null);
+        setPendingUser(null);
       } catch (err) {
         const msg = String(err);
         if (msg.includes("Password or passphrase required")) {
@@ -173,15 +198,15 @@ export function useConnection(): UseConnectionReturn {
   const submitPassword = useCallback(
     (password: string, remember: boolean) => {
       setNeedsPassword(false);
-      if (pendingProfileId) {
-        // If user wants to remember, store in keychain
+      if (pendingProfileId && pendingUser) {
+        // If user wants to remember, store in keychain (with userId for vault key)
         if (remember && password.trim()) {
-          void storeCredential(pendingProfileId, password);
+          void storeCredential(pendingProfileId, pendingUser.id, password);
         }
-        void connect(pendingProfileId, password);
+        void connect(pendingProfileId, password, pendingUser.id);
       }
     },
-    [pendingProfileId, connect, storeCredential],
+    [pendingProfileId, pendingUser, connect, storeCredential],
   );
 
   const cancelConnect = useCallback(() => {
@@ -192,6 +217,7 @@ export function useConnection(): UseConnectionReturn {
     setHostKeyRequest(null);
     setNeedsPassword(false);
     setPendingProfileId(null);
+    setPendingUser(null);
     setPendingSessionId(null);
   }, []);
 
@@ -206,6 +232,7 @@ export function useConnection(): UseConnectionReturn {
     hostKeyRequest,
     needsPassword,
     pendingProfileId,
+    pendingUser,
     connect,
     disconnect,
     respondHostKey,

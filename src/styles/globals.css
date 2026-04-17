@@ -37,7 +37,7 @@
   --error: #f85149;
 
   /* ─── Layout ─── */
-  --sidebar-width: 260px;
+  --sidebar-width: 300px;
   --statusbar-height: 28px;
   --tabbar-height: 38px;
   --radius-sm: 4px;
@@ -327,6 +327,15 @@ body {
   background-color: var(--success-subtle);
 }
 
+.sidebar-profile-btn-add {
+  color: var(--accent);
+}
+
+.sidebar-profile-btn-add:hover {
+  color: var(--accent);
+  background-color: rgba(88, 166, 255, 0.12);
+}
+
 .sidebar-profile-btn-delete:hover {
   color: var(--danger);
   background-color: var(--danger-subtle);
@@ -419,16 +428,58 @@ body {
 }
 
 .sidebar-action-btn-subtle {
-  opacity: 0;
+  opacity: 0.45;
   transition: opacity var(--transition-normal);
 }
 
 .sidebar-section-header-collapsible:hover .sidebar-action-btn-subtle {
-  opacity: 0.7;
+  opacity: 0.75;
 }
 
 .sidebar-action-btn-subtle:hover {
   opacity: 1 !important;
+}
+
+.sidebar-action-btn-labeled {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.sidebar-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-actions-row .sidebar-action-btn-labeled {
+  flex: 1;
+  justify-content: center;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.sidebar-actions-row .sidebar-action-btn-labeled:hover {
+  border-color: var(--text-tertiary);
+}
+
+.sidebar-action-btn-primary {
+  background-color: rgba(88, 166, 255, 0.1) !important;
+  color: var(--accent) !important;
+  border-color: rgba(88, 166, 255, 0.25) !important;
+}
+
+.sidebar-action-btn-primary:hover {
+  background-color: rgba(88, 166, 255, 0.18) !important;
+  border-color: var(--accent) !important;
 }
 
 .sidebar-banner {
@@ -545,6 +596,13 @@ body {
 
 .sidebar-chevron-collapsed {
   transform: rotate(-90deg);
+}
+
+.sidebar-profile-chevron {
+  width: 12px;
+  height: 12px;
+  font-size: 7px;
+  opacity: 0.5;
 }
 
 .sidebar-section-badge {
@@ -725,13 +783,7 @@ body {
 .sidebar-profile-card-actions {
   display: flex;
   gap: 2px;
-  opacity: 0;
-  transition: opacity var(--transition-normal);
   flex-shrink: 0;
-}
-
-.sidebar-profile-card:hover .sidebar-profile-card-actions {
-  opacity: 1;
 }
 
 /* ─── Nested Session (indented under profile) ────── */
@@ -2046,42 +2098,7 @@ dialog::backdrop {
   user-select: none;
 }
 
-/* ─── Test Result (inline) ───────────────────────── */
-
-.cd-test-result {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
-.cd-test-icon {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.cd-test-message {
-  flex: 1;
-  min-width: 0;
-  word-break: break-word;
-  line-height: 1.4;
-}
-
-.cd-test-success {
-  background-color: var(--success-subtle);
-  color: var(--success);
-  border: 1px solid rgba(63, 185, 80, 0.2);
-}
-
-.cd-test-error {
-  background-color: var(--danger-subtle);
-  color: var(--danger);
-  border: 1px solid rgba(248, 81, 73, 0.2);
-}
+/* ─── Test Result (removed — now per-user badges) ── */
 
 /* ─── Warning Banner ─────────────────────────────── */
 
@@ -2123,6 +2140,283 @@ dialog::backdrop {
   background: rgba(255, 59, 48, 0.08);
   border-radius: 4px;
   margin-top: 8px;
+}
+
+/* ─── Section label badge (user count) ──────────── */
+
+.cd-section-label-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 9px;
+  background-color: var(--bg-hover);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+/* ─── User Card (in connection dialog) ──────────── */
+
+/* ─── User Rows (inline editing) ─────────────────── */
+
+.cd-user-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cd-user-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.cd-user-row-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-user-row-username {
+  flex: 0 0 120px;
+}
+
+.cd-user-row-credential {
+  flex: 1;
+  min-width: 0;
+}
+
+.cd-user-row-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.cd-user-row-input:focus {
+  border-color: var(--accent);
+}
+
+.cd-user-row-input::placeholder {
+  color: var(--text-quaternary);
+}
+
+.cd-user-row-input-error {
+  border-color: var(--danger);
+}
+
+.cd-user-row-auth {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cd-user-row-auth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.cd-user-row-auth-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.cd-user-row-auth-btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.cd-user-row-auth-btn-active {
+  background-color: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.cd-user-row-connect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--success);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.cd-user-row-connect:hover:not(:disabled) {
+  background-color: var(--success-subtle);
+}
+
+.cd-user-row-connect:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+.cd-user-row-connect-ok {
+  color: var(--success);
+  background-color: var(--success-subtle);
+}
+
+.cd-user-row-connect-fail {
+  color: var(--danger);
+}
+
+.cd-user-row-connect-fail:hover:not(:disabled) {
+  background-color: var(--danger-subtle);
+}
+
+@keyframes cd-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cd-spin {
+  animation: cd-spin 0.6s linear infinite;
+}
+
+.cd-user-row-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-quaternary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.cd-user-row-delete:hover:not(:disabled) {
+  color: var(--danger);
+  background-color: var(--danger-subtle);
+}
+
+.cd-user-row-delete:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+/* ─── Add User Button ────────────────────────────── */
+
+.cd-add-user-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  width: 100%;
+  border: 1px dashed var(--border-emphasis);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.cd-add-user-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background-color: rgba(56, 139, 253, 0.04);
+}
+
+/* ─── Sidebar User Picker (multi-user connect) ───── */
+
+.sidebar-connect-wrapper {
+  position: relative;
+}
+
+.sidebar-user-picker {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 50;
+  min-width: 160px;
+  max-width: 220px;
+  margin-top: 4px;
+  padding: 4px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.sidebar-user-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  text-align: left;
+}
+
+.sidebar-user-picker-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.sidebar-user-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-picker-auth {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.sidebar-user-picker-default {
+  font-size: 10px;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.sidebar-user-picker-item-connected {
+  opacity: 0.6;
+}
+
+.sidebar-user-picker-connected-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--success);
+  flex-shrink: 0;
 }
 
 /* ─── Export dialog checkbox ────────────────────── */
@@ -2278,26 +2572,6 @@ dialog::backdrop {
   text-align: center;
 }
 
-/* ─── SFTP Toolbar ───────────────────────────────── */
-
-.sftp-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  background-color: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.sftp-toolbar-separator {
-  width: 1px;
-  height: 18px;
-  background-color: var(--border-emphasis);
-  margin: 0 6px;
-  opacity: 0.5;
-}
-
 /* ─── SFTP Too-Large Banner ──────────────────────── */
 
 .sftp-too-large-banner {
@@ -2441,6 +2715,7 @@ dialog::backdrop {
   flex: 1;
   overflow: hidden;
   border-right: 1px solid var(--border-subtle);
+  position: relative;
 }
 
 .sftp-pane-container:last-child .sftp-pane {
@@ -2471,24 +2746,33 @@ dialog::backdrop {
 
 .sftp-pane-actions {
   display: flex;
+  align-items: center;
   gap: 2px;
 }
 
 .sftp-icon-btn {
   background: none;
-  border: none;
+  border: 1px solid transparent;
   color: var(--text-tertiary);
-  font-size: 14px;
   cursor: pointer;
-  padding: 3px 7px;
+  padding: 4px 6px;
   border-radius: var(--radius-sm);
   line-height: 1;
-  transition: color var(--transition-fast), background-color var(--transition-fast), transform var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.sftp-icon-btn svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .sftp-icon-btn:hover {
-  background-color: rgba(240, 246, 252, 0.06);
-  color: var(--accent);
+  background-color: rgba(240, 246, 252, 0.08);
+  color: var(--text-primary);
+  border-color: var(--border);
 }
 
 .sftp-icon-btn:active {
@@ -2496,12 +2780,23 @@ dialog::backdrop {
 }
 
 .sftp-icon-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.25;
   cursor: not-allowed;
 }
 
 .sftp-icon-btn:disabled:active {
   transform: none;
+}
+
+/* Transfer button highlight when actionable */
+.sftp-action-btn-active {
+  color: var(--accent);
+}
+
+.sftp-action-btn-active:hover {
+  background-color: rgba(88, 166, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(88, 166, 255, 0.25);
 }
 
 /* ─── PathBar (nav buttons + always-editable input) ───── */
@@ -2877,6 +3172,38 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0.7;
+}
+
+/* ─── Type-to-search badge ───────────────────────── */
+
+.sftp-type-search-badge {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-tertiary, #2d333b);
+  border: 1px solid var(--border-primary, #444c56);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-primary, #e6edf3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+  animation: sftp-type-search-in 0.15s ease-out;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.sftp-type-search-badge-no-match {
+  border-color: var(--danger, #f85149);
+  color: var(--danger, #f85149);
+}
+
+@keyframes sftp-type-search-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* ─── State Messages ─────────────────────────────── */
@@ -4438,4 +4765,209 @@ dialog::backdrop {
 @keyframes statusbar-update-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ─── StatusBar Help Button ────────────────────────── */
+
+.statusbar-help-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: color var(--transition-fast), border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.statusbar-help-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-emphasis);
+  background: var(--bg-hover);
+}
+
+/* ─── Onboarding Tour ──────────────────────────────── */
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  pointer-events: all;
+}
+
+.tour-spotlight {
+  position: fixed;
+  z-index: 700;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.75);
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+
+.tour-tooltip {
+  position: fixed;
+  z-index: 750;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  max-width: 320px;
+  box-shadow: var(--shadow-xl);
+  animation: tour-tooltip-in 0.2s ease-out;
+}
+
+@keyframes tour-tooltip-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tour-tooltip-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.tour-tooltip-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.tour-tooltip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tour-tooltip-steps {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.tour-tooltip-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tour-tooltip-btn {
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.tour-tooltip-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tour-tooltip-btn-primary {
+  background: var(--accent-emphasis);
+  border-color: var(--accent-emphasis);
+  color: #fff;
+}
+
+.tour-tooltip-btn-primary:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tour-tooltip-arrow {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-emphasis);
+  transform: rotate(45deg);
+}
+
+/* Arrow positions */
+.tour-tooltip-arrow-top {
+  bottom: -6px;
+  left: 50%;
+  margin-left: -5px;
+  border-top: none;
+  border-left: none;
+}
+
+.tour-tooltip-arrow-bottom {
+  top: -6px;
+  left: 50%;
+  margin-left: -5px;
+  border-bottom: none;
+  border-right: none;
+}
+
+.tour-tooltip-arrow-left {
+  right: -6px;
+  top: 50%;
+  margin-top: -5px;
+  border-bottom: none;
+  border-left: none;
+}
+
+.tour-tooltip-arrow-right {
+  left: -6px;
+  top: 50%;
+  margin-top: -5px;
+  border-top: none;
+  border-right: none;
+}
+
+/* Welcome step (centered, no spotlight) */
+.tour-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 750;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.tour-welcome-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-lg);
+  padding: 32px 40px;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: var(--shadow-xl);
+  animation: tour-tooltip-in 0.3s ease-out;
+}
+
+.tour-welcome-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.tour-welcome-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.tour-welcome-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
 }

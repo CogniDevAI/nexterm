@@ -1,7 +1,7 @@
 // features/sftp/SftpBrowser.tsx — Dual-pane SFTP file browser
 //
 // Left pane: local filesystem. Right pane: remote SFTP.
-// Toolbar with common actions. Wires up useSftp hook.
+// Per-pane action buttons in each FilePane header. Wires up useSftp hook.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { homeDir } from "@tauri-apps/api/path";
@@ -10,14 +10,13 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { FilePane, type SearchMode } from "./FilePane";
 import { TransferOverlay } from "./TransferOverlay";
 import { FileContextMenu } from "./FileContextMenu";
-import { FileViewer } from "./FileViewer";
 import { useSftp } from "./useSftp";
 import { Spinner } from "../../components/ui/Spinner";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../lib/i18n";
 import { tauriInvoke } from "../../lib/tauri";
-import type { SessionId, FileEntry, FileContent, SearchResult, TransferEvent } from "../../lib/types";
+import type { SessionId, FileEntry, SearchResult, TransferEvent } from "../../lib/types";
 import type { PaneSource, FileAction } from "./sftp.types";
 
 interface SftpBrowserProps {
@@ -59,16 +58,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     source: PaneSource;
   } | null>(null);
 
-  // Large file confirmation
-  const [largeFileConfirm, setLargeFileConfirm] = useState<{
-    entry: FileEntry;
-    size: string;
-  } | null>(null);
 
-  // File viewer state
-  const [viewerFile, setViewerFile] = useState<FileContent | null>(null);
-  const [viewerLoading, setViewerLoading] = useState(false);
-  const [viewerError, setViewerError] = useState<string | null>(null);
 
   // Error banner (download failures, etc.)
   const [tooLargeMessage, setTooLargeMessage] = useState<string | null>(null);
@@ -81,11 +71,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     totalBytes: number;
     label: string;
   } | null>(null);
-
-  // Cancellation: monotonic counter so stale readFile results are discarded
-  const viewerRequestIdRef = useRef(0);
-  // Track the remote path of the currently-viewed file (for "Load Full File")
-  const viewerPathRef = useRef<string | null>(null);
 
   // Cleanup too-large timer on unmount
   useEffect(() => {
@@ -323,45 +308,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     setContextMenu(null);
   }, []);
 
-  // ─── File Open Helper ──────────────────────────────────
-
-  /** Default initial load: first 1000 lines for instant preview */
-  const INITIAL_MAX_LINES = 1000;
-
-  const openFile = useCallback(
-    (entry: FileEntry, maxLines?: number) => {
-      const requestId = ++viewerRequestIdRef.current;
-      viewerPathRef.current = entry.path;
-      setViewerFile(null);
-      setViewerError(null);
-      setViewerLoading(true);
-      sftp
-        .readFile(entry.path, maxLines ?? INITIAL_MAX_LINES)
-        .then((content) => {
-          // Discard result if viewer was closed or a newer request was made
-          if (viewerRequestIdRef.current !== requestId) return;
-          setViewerFile(content);
-        })
-        .catch((err) => {
-          if (viewerRequestIdRef.current !== requestId) return;
-          const message = err instanceof Error ? err.message : String(err);
-          setViewerError(message);
-        })
-        .finally(() => {
-          if (viewerRequestIdRef.current !== requestId) return;
-          setViewerLoading(false);
-        });
-    },
-    [sftp],
-  );
-
-  const handleLargeFileConfirm = useCallback(() => {
-    if (largeFileConfirm) {
-      openFile(largeFileConfirm.entry);
-    }
-    setLargeFileConfirm(null);
-  }, [largeFileConfirm, openFile]);
-
   // ─── File Actions ─────────────────────────────────────
 
   const handleFileAction = useCallback(
@@ -370,75 +316,59 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
       switch (action.type) {
         case "open": {
-          if (!action.entry || action.entry.fileType !== "file") return;
+          if (!action.entry) return;
           const entry = action.entry;
-          const fileSize = entry.size;
-          const FIFTEEN_MB = 15 * 1024 * 1024;
-          const FIVE_MB = 5 * 1024 * 1024;
-          const sizeMB = `${(fileSize / (1024 * 1024)).toFixed(1)} MB`;
+          // Only open files and symlinks-to-files (not directories)
+          if (entry.fileType !== "file" && !(entry.fileType === "symlink" && entry.linkTarget === "file")) return;
+          const extFileName = entry.name;
 
-          // >15MB — download to temp + open with system default app
-          if (fileSize > FIFTEEN_MB) {
-            const extFileName = entry.name;
+          // All remote files: download to temp + open with OS default app
+          setExternalDownload({
+            fileName: extFileName,
+            bytesTransferred: 0,
+            totalBytes: entry.size || 0,
+            label: t("sftp.downloadingProgress", { name: extFileName }),
+          });
 
-            // Show progress bar during download
-            setExternalDownload({
-              fileName: extFileName,
-              bytesTransferred: 0,
-              totalBytes: entry.size || 0,
-              label: t("sftp.downloadingProgress", { name: extFileName }),
+          sftp
+            .openExternal(entry.path, extFileName, (event: TransferEvent) => {
+              switch (event.event) {
+                case "progress":
+                  setExternalDownload((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          bytesTransferred: event.data.bytesTransferred,
+                          totalBytes: event.data.totalBytes,
+                        }
+                      : null,
+                  );
+                  break;
+                case "completed":
+                  setExternalDownload(null);
+                  break;
+                case "failed":
+                  setExternalDownload(null);
+                  setTooLargeMessage(event.data.error);
+                  tooLargeTimerRef.current = setTimeout(() => {
+                    setTooLargeMessage(null);
+                    tooLargeTimerRef.current = null;
+                  }, 4000);
+                  break;
+              }
+            })
+            .then(() => {
+              setExternalDownload(null);
+            })
+            .catch((err) => {
+              setExternalDownload(null);
+              const message = err instanceof Error ? err.message : String(err);
+              setTooLargeMessage(message);
+              tooLargeTimerRef.current = setTimeout(() => {
+                setTooLargeMessage(null);
+                tooLargeTimerRef.current = null;
+              }, 4000);
             });
-
-            sftp
-              .openExternal(entry.path, extFileName, (event: TransferEvent) => {
-                switch (event.event) {
-                  case "progress":
-                    setExternalDownload((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            bytesTransferred: event.data.bytesTransferred,
-                            totalBytes: event.data.totalBytes,
-                          }
-                        : null,
-                    );
-                    break;
-                  case "completed":
-                    setExternalDownload(null);
-                    break;
-                  case "failed":
-                    setExternalDownload(null);
-                    setTooLargeMessage(event.data.error);
-                    tooLargeTimerRef.current = setTimeout(() => {
-                      setTooLargeMessage(null);
-                      tooLargeTimerRef.current = null;
-                    }, 4000);
-                    break;
-                }
-              })
-              .then(() => {
-                setExternalDownload(null);
-              })
-              .catch((err) => {
-                setExternalDownload(null);
-                const message = err instanceof Error ? err.message : String(err);
-                setTooLargeMessage(message);
-                tooLargeTimerRef.current = setTimeout(() => {
-                  setTooLargeMessage(null);
-                  tooLargeTimerRef.current = null;
-                }, 4000);
-              });
-            return;
-          }
-
-          // 5-15MB — show confirmation dialog
-          if (fileSize > FIVE_MB) {
-            setLargeFileConfirm({ entry, size: sizeMB });
-            return;
-          }
-
-          // <5MB — open directly
-          openFile(entry);
           break;
         }
         case "upload": {
@@ -483,61 +413,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           } else {
             sftp.refreshRemote();
           }
-          break;
-        }
-        case "openExternal": {
-          if (!action.entry) return;
-          const externalEntry = action.entry;
-          const extFileName = externalEntry.name;
-
-          // Show progress bar during download
-          setExternalDownload({
-            fileName: extFileName,
-            bytesTransferred: 0,
-            totalBytes: externalEntry.size || 0,
-            label: t("sftp.downloadingProgress", { name: extFileName }),
-          });
-
-          sftp
-            .openExternal(externalEntry.path, extFileName, (event: TransferEvent) => {
-              switch (event.event) {
-                case "progress":
-                  setExternalDownload((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          bytesTransferred: event.data.bytesTransferred,
-                          totalBytes: event.data.totalBytes,
-                        }
-                      : null,
-                  );
-                  break;
-                case "completed":
-                  setExternalDownload(null);
-                  break;
-                case "failed":
-                  setExternalDownload(null);
-                  // Show error in banner briefly
-                  setTooLargeMessage(event.data.error);
-                  tooLargeTimerRef.current = setTimeout(() => {
-                    setTooLargeMessage(null);
-                    tooLargeTimerRef.current = null;
-                  }, 4000);
-                  break;
-              }
-            })
-            .then(() => {
-              setExternalDownload(null);
-            })
-            .catch((err) => {
-              setExternalDownload(null);
-              const message = err instanceof Error ? err.message : String(err);
-              setTooLargeMessage(message);
-              tooLargeTimerRef.current = setTimeout(() => {
-                setTooLargeMessage(null);
-                tooLargeTimerRef.current = null;
-              }, 4000);
-            });
           break;
         }
         case "saveAsAndOpen": {
@@ -715,39 +590,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     setDeleteDialog(null);
   }, [deleteDialog, sftp]);
 
-  const handleViewerClose = useCallback(() => {
-    // Bump requestId so any in-flight readFile result is discarded
-    viewerRequestIdRef.current++;
-    viewerPathRef.current = null;
-    setViewerFile(null);
-    setViewerLoading(false);
-    setViewerError(null);
-  }, []);
-
-  /** Re-read the current file without line limit (full content up to 50K lines, max 15MB) */
-  const handleLoadFullFile = useCallback(() => {
-    const path = viewerPathRef.current;
-    if (!path) return;
-    const requestId = ++viewerRequestIdRef.current;
-    setViewerLoading(true);
-    setViewerError(null);
-    sftp
-      .readFile(path, undefined)
-      .then((content) => {
-        if (viewerRequestIdRef.current !== requestId) return;
-        setViewerFile(content);
-      })
-      .catch((err) => {
-        if (viewerRequestIdRef.current !== requestId) return;
-        const message = err instanceof Error ? err.message : String(err);
-        setViewerError(message);
-      })
-      .finally(() => {
-        if (viewerRequestIdRef.current !== requestId) return;
-        setViewerLoading(false);
-      });
-  }, [sftp]);
-
   // ─── Search Handlers ───────────────────────────────────
 
   const handleSearchQueryChange = useCallback((query: string) => {
@@ -858,51 +700,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   return (
     <div className="sftp-browser" onClick={closeContextMenu}>
-      {/* Toolbar */}
-      <div className="sftp-toolbar">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleUpload}
-          disabled={localSelected.size === 0}
-          title={t("sftp.uploadTitle")}
-        >
-          {"\u2B06"} {t("sftp.upload")}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleDownload}
-          disabled={remoteSelected.size === 0}
-          title={t("sftp.downloadTitle")}
-        >
-          {"\u2B07"} {t("sftp.download")}
-        </Button>
-        <div className="sftp-toolbar-separator" />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            sftp.refreshLocal();
-            sftp.refreshRemote();
-          }}
-          title={t("sftp.refreshTitle")}
-        >
-          {"\u21BB"} {t("sftp.refresh")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setNewFolderDialog({ source: "remote" });
-            setNewFolderName("");
-          }}
-          title={t("sftp.newFolderTitle")}
-        >
-          + {t("sftp.newFolder")}
-        </Button>
-      </div>
-
       {/* Download progress banner (open external / save as) */}
       {externalDownload && (
         <div className="sftp-too-large-banner sftp-download-progress-banner">
@@ -976,6 +773,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             onGoHome={sftp.goLocalHome}
             isFocused={activePane === "local"}
             onPaneFocus={() => setActivePane("local")}
+            onTransfer={handleUpload}
+            selectedCount={localSelected.size}
           />
         </div>
 
@@ -1017,6 +816,12 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             onSearchClear={handleSearchClear}
             isFocused={activePane === "remote"}
             onPaneFocus={() => setActivePane("remote")}
+            onTransfer={handleDownload}
+            selectedCount={remoteSelected.size}
+            onNewFolder={() => {
+              setNewFolderDialog({ source: "remote" });
+              setNewFolderName("");
+            }}
           />
 
           {/* OS Drag & Drop overlay (PR2) */}
@@ -1205,54 +1010,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
         )}
       </Dialog>
 
-      {/* Large File Confirmation */}
-      <Dialog
-        open={largeFileConfirm !== null}
-        onClose={() => setLargeFileConfirm(null)}
-        title=""
-        width="420px"
-      >
-        {largeFileConfirm && (
-          <>
-            <div className="cd-header">
-              <div className="cd-header-icon cd-header-icon-warning">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-              </div>
-              <div className="cd-header-text">
-                <h3 className="cd-title">{t("sftp.largeFileTitle")}</h3>
-                <p className="cd-subtitle">
-                  {t("sftp.largeFileMessage", { size: largeFileConfirm.size })}
-                </p>
-              </div>
-            </div>
-            <div className="cd-actions">
-              <Button
-                variant="ghost"
-                onClick={() => setLargeFileConfirm(null)}
-                autoFocus
-              >
-                {t("general.cancel")}
-              </Button>
-              <Button onClick={handleLargeFileConfirm}>{t("sftp.openAnyway")}</Button>
-            </div>
-          </>
-        )}
-      </Dialog>
 
-      {/* File Viewer */}
-      {(viewerFile || viewerLoading || viewerError) && (
-        <FileViewer
-          file={viewerFile}
-          loading={viewerLoading}
-          error={viewerError}
-          onClose={handleViewerClose}
-          onLoadFullFile={handleLoadFullFile}
-        />
-      )}
     </div>
   );
 }

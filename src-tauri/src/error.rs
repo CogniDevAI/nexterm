@@ -3,6 +3,8 @@
 // All internal errors convert to AppError via From impls.
 // AppError serializes as a string for Tauri IPC transport.
 
+use uuid::Uuid;
+
 use crate::state::{SessionId, TerminalId};
 use thiserror::Error;
 
@@ -58,6 +60,12 @@ pub enum AppError {
 
     #[error("Connection timeout")]
     ConnectionTimeout,
+
+    #[error("User selection required: profile has multiple users — provide a userId")]
+    UserSelectionRequired,
+
+    #[error("User not found: {0}")]
+    UserNotFound(Uuid),
 
     #[error("{0}")]
     Other(String),
@@ -138,6 +146,8 @@ mod tests {
             AppError::TransferCancelled,
             AppError::KeyError("test".into()),
             AppError::ConnectionTimeout,
+            AppError::UserSelectionRequired,
+            AppError::UserNotFound(id),
             AppError::Other("test".into()),
         ];
 

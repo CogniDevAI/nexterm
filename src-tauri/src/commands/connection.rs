@@ -13,6 +13,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::error::AppError;
+use crate::profile::UserCredential;
 use crate::ssh::session;
 use crate::state::{
     AppState, HostKeyVerificationRequest, HostKeyVerificationResponse, SessionId, SessionInfo,
@@ -50,6 +51,7 @@ fn pending_hk() -> &'static PendingVerifications {
 pub async fn connect(
     state: State<'_, AppState>,
     profile_id: Uuid,
+    user_id: Option<Uuid>,
     password: Option<String>,
     on_event: Channel<SessionStateEvent>,
 ) -> Result<SessionId, AppError> {
@@ -63,6 +65,25 @@ pub async fn connect(
             .find(|p| p.id == profile_id)
             .cloned()
             .ok_or_else(|| AppError::ProfileError(format!("Profile not found: {profile_id}")))?
+    };
+
+    // Resolve which user to connect as
+    let resolved_user: UserCredential = match user_id {
+        Some(uid) => {
+            profile
+                .users
+                .iter()
+                .find(|u| u.id == uid)
+                .cloned()
+                .ok_or(AppError::UserNotFound(uid))?
+        }
+        None => {
+            if profile.users.len() == 1 {
+                profile.users[0].clone()
+            } else {
+                return Err(AppError::UserSelectionRequired);
+            }
+        }
     };
 
     // ── Phase 1: Prepare connection — extract channels BEFORE handshake ──
@@ -140,11 +161,20 @@ pub async fn connect(
     }
     hk_task.abort();
 
+    // Store resolved user info in the session handle
+    handle.user_id = resolved_user.id;
+    handle.username = resolved_user.username.clone();
+
     let auth_result: Result<(), AppError> = async {
         // Resolve authentication method (pass vault reference for credential lookup)
         let vault_guard = state.vault.lock().await;
         let vault_ref = vault_guard.as_ref();
-        let auth_method = session::resolve_auth_method(&profile, password.as_ref().map(|z| z.as_str()), vault_ref)?;
+        let auth_method = session::resolve_auth_method(
+            &resolved_user,
+            &profile.id,
+            password.as_ref().map(|z| z.as_str()),
+            vault_ref,
+        )?;
         drop(vault_guard);
 
         match auth_method {
@@ -155,8 +185,8 @@ pub async fn connect(
                     state: SessionState::Authenticating,
                 });
 
-                // Authenticate
-                session::authenticate(&mut handle, auth).await?;
+                // Authenticate with the resolved user's username
+                session::authenticate(&mut handle, auth, &resolved_user.username).await?;
             }
             None => {
                 // Need user input for password/passphrase — return error
@@ -279,6 +309,8 @@ pub async fn list_sessions(
             id: h.id,
             profile_name: h.profile.name.clone(),
             host: format!("{}:{}", h.profile.host, h.profile.port),
+            user_id: h.user_id,
+            username: h.username.clone(),
             state: h.state.clone(),
             terminal_count: h.terminals.len(),
             has_sftp: h.sftp.is_some(),
@@ -355,7 +387,7 @@ pub async fn test_connection(
     password: Option<String>,
     private_key_path: Option<String>,
 ) -> Result<String, AppError> {
-    use crate::profile::{AuthMethodConfig, ConnectionProfile};
+    use crate::profile::{AuthMethodConfig, UserCredential};
 
     let password: Option<Zeroizing<String>> = password.map(Zeroizing::new);
 
@@ -368,20 +400,14 @@ pub async fn test_connection(
         _ => AuthMethodConfig::Password,
     };
 
-    // Build a temporary profile (not persisted)
-    let profile = ConnectionProfile {
+    // Build a temporary UserCredential for auth resolution
+    let temp_user = UserCredential {
         id: Uuid::nil(),
-        name: String::new(),
-        host: host.clone(),
-        port,
         username: username.clone(),
         auth_method,
-        startup_directory: None,
-        tunnels: vec![],
-        display_order: 0,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        is_default: true,
     };
+    let temp_profile_id = Uuid::nil();
 
     // ── TCP + SSH handshake with auto-accept host key handler ──
     let config = russh::client::Config {
@@ -398,8 +424,13 @@ pub async fn test_connection(
     .map_err(AppError::Ssh)?;
 
     // ── Resolve auth method and authenticate ──
-    // test_connection uses a temp profile — no vault lookup needed (password always explicit)
-    let auth = session::resolve_auth_method(&profile, password.as_ref().map(|z| z.as_str()), None)?;
+    // test_connection uses a temp user — no vault lookup needed (password always explicit)
+    let auth = session::resolve_auth_method(
+        &temp_user,
+        &temp_profile_id,
+        password.as_ref().map(|z| z.as_str()),
+        None,
+    )?;
 
     let result: Result<String, AppError> = match auth {
         Some(session::AuthMethod::Password(pw)) => {
