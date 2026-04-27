@@ -36,6 +36,10 @@ interface TerminalInstance {
 // each call useTerminal() independently (Bug H3).
 const terminalInstances = new Map<string, TerminalInstance>();
 
+function isApplePlatform() {
+  return /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
+}
+
 export function useTerminal() {
 
   const openTerminal = useCallback(
@@ -52,6 +56,7 @@ export function useTerminal() {
         cursorBlink: true,
         cursorStyle: "block",
         allowProposedApi: true,
+        macOptionIsMeta: isApplePlatform(),
         scrollback: 10000,
       });
 

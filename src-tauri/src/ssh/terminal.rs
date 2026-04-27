@@ -19,6 +19,33 @@ use crate::state::{TerminalChannelHandle, TerminalCommand, TerminalEvent, Termin
 /// Default terminal type for PTY requests
 const TERM_TYPE: &str = "xterm-256color";
 
+/// PTY terminal modes for interactive full-screen terminal apps.
+///
+/// Editors like vim/nano depend on the server receiving a sane TTY profile for
+/// signals, canonical processing, echo, flow control, and line ending
+/// translation. Relying on server defaults (`&[]`) can leave these modes in an
+/// inconsistent state, which manifests as Esc/Ctrl keys not behaving correctly
+/// or insert mode appearing "stuck".
+const PTY_MODES: &[(russh::Pty, u32)] = &[
+    (russh::Pty::ISIG, 1),
+    (russh::Pty::ICANON, 1),
+    (russh::Pty::ECHO, 1),
+    (russh::Pty::ECHOE, 1),
+    (russh::Pty::ECHOK, 1),
+    (russh::Pty::ECHONL, 0),
+    (russh::Pty::IEXTEN, 1),
+    (russh::Pty::IXON, 1),
+    (russh::Pty::IXOFF, 0),
+    (russh::Pty::ICRNL, 1),
+    (russh::Pty::INLCR, 0),
+    (russh::Pty::IGNCR, 0),
+    (russh::Pty::OPOST, 1),
+    (russh::Pty::ONLCR, 1),
+    (russh::Pty::CS8, 1),
+    (russh::Pty::TTY_OP_ISPEED, 14_400),
+    (russh::Pty::TTY_OP_OSPEED, 14_400),
+];
+
 /// Buffer size for the terminal command channel.
 /// 256 is generous — each command is tiny (keystroke bytes or resize dimensions).
 /// This avoids backpressure on the frontend even during burst typing.
@@ -50,20 +77,20 @@ pub async fn open_pty(
     // Request PTY
     channel
         .request_pty(
-            false, // don't want reply for PTY request
+            true, // interactive editors need PTY negotiation to succeed explicitly
             TERM_TYPE,
             cols,
             rows,
             0, // pixel width (0 = let server decide)
             0, // pixel height
-            &[], // terminal modes (empty = use server defaults)
+            PTY_MODES,
         )
         .await
         .map_err(AppError::Ssh)?;
 
     // Start shell
     channel
-        .request_shell(false)
+        .request_shell(true)
         .await
         .map_err(AppError::Ssh)?;
 
