@@ -3,9 +3,16 @@
 // Manages connection state, active sessions, terminal tabs per session.
 
 import { create } from "zustand";
-import type { SessionId, SessionState, TerminalId } from "../lib/types";
-
-export type ActiveFeature = "terminal" | "sftp" | "tunnel";
+import type {
+  ActiveFeature,
+  SessionId,
+  SessionState,
+  TerminalId,
+} from "../lib/types";
+import {
+  buildWorkspaceKey,
+  useWorkspaceStore,
+} from "./workspaceStore";
 
 export interface TerminalTab {
   id: TerminalId;
@@ -58,7 +65,16 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
     set((state) => {
       const next = new Map(state.sessions);
       next.set(session.id, session);
-      return { sessions: next, activeSessionId: session.id };
+      const workspaceStore = useWorkspaceStore.getState();
+      const workspace = workspaceStore.getOrCreateWorkspace(
+        session.profileId,
+        session.userId,
+      );
+      return {
+        sessions: next,
+        activeSessionId: session.id,
+        activeFeature: workspace.activeFeature,
+      };
     }),
 
   removeSession: (sessionId) =>
@@ -69,12 +85,70 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
         state.activeSessionId === sessionId
           ? (next.keys().next().value ?? null)
           : state.activeSessionId;
-      return { sessions: next, activeSessionId };
+
+      const nextActiveSession = activeSessionId
+        ? next.get(activeSessionId)
+        : undefined;
+      const activeFeature = nextActiveSession
+        ? useWorkspaceStore
+            .getState()
+            .getOrCreateWorkspace(
+              nextActiveSession.profileId,
+              nextActiveSession.userId,
+            ).activeFeature
+        : state.activeFeature;
+
+      return { sessions: next, activeSessionId, activeFeature };
     }),
 
-  setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
+  setActiveSession: (sessionId) =>
+    set((state) => {
+      if (!sessionId) {
+        return { activeSessionId: null };
+      }
 
-  setActiveFeature: (feature) => set({ activeFeature: feature }),
+      const entry = state.sessions.get(sessionId);
+      if (!entry) {
+        return { activeSessionId: sessionId };
+      }
+
+      const workspace = useWorkspaceStore
+        .getState()
+        .getOrCreateWorkspace(entry.profileId, entry.userId);
+
+      const restoredTerminalId = workspace.activeTerminalId;
+      const next = new Map(state.sessions);
+      if (
+        restoredTerminalId &&
+        restoredTerminalId !== entry.activeTerminalId &&
+        entry.terminals.some((terminal) => terminal.id === restoredTerminalId)
+      ) {
+        next.set(sessionId, {
+          ...entry,
+          activeTerminalId: restoredTerminalId,
+        });
+      }
+
+      return {
+        sessions: next,
+        activeSessionId: sessionId,
+        activeFeature: workspace.activeFeature,
+      };
+    }),
+
+  setActiveFeature: (feature) =>
+    set((state) => {
+      const activeSession = state.activeSessionId
+        ? state.sessions.get(state.activeSessionId)
+        : undefined;
+      if (activeSession) {
+        useWorkspaceStore.getState().setActiveFeature(
+          buildWorkspaceKey(activeSession.profileId, activeSession.userId),
+          feature,
+        );
+      }
+      return { activeFeature: feature };
+    }),
 
   updateSessionState: (sessionId, newState) =>
     set((state) => {
@@ -90,11 +164,16 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
       const entry = state.sessions.get(sessionId);
       if (!entry) return state;
       const next = new Map(state.sessions);
+      const activeTerminalId = tab.id;
       next.set(sessionId, {
         ...entry,
         terminals: [...entry.terminals, tab],
-        activeTerminalId: tab.id,
+        activeTerminalId,
       });
+      useWorkspaceStore.getState().setActiveTerminalId(
+        buildWorkspaceKey(entry.profileId, entry.userId),
+        activeTerminalId,
+      );
       return { sessions: next };
     }),
 
@@ -111,6 +190,10 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
       const activeTerminalId =
         entry.activeTerminalId === oldId ? newTab.id : entry.activeTerminalId;
       next.set(sessionId, { ...entry, terminals, activeTerminalId });
+      useWorkspaceStore.getState().setActiveTerminalId(
+        buildWorkspaceKey(entry.profileId, entry.userId),
+        activeTerminalId,
+      );
       return { sessions: next };
     }),
 
@@ -125,6 +208,10 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
           ? (terminals[terminals.length - 1]?.id ?? null)
           : entry.activeTerminalId;
       next.set(sessionId, { ...entry, terminals, activeTerminalId });
+      useWorkspaceStore.getState().setActiveTerminalId(
+        buildWorkspaceKey(entry.profileId, entry.userId),
+        activeTerminalId,
+      );
       return { sessions: next };
     }),
 
@@ -134,6 +221,10 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
       if (!entry) return state;
       const next = new Map(state.sessions);
       next.set(sessionId, { ...entry, activeTerminalId: terminalId });
+      useWorkspaceStore.getState().setActiveTerminalId(
+        buildWorkspaceKey(entry.profileId, entry.userId),
+        terminalId,
+      );
       return { sessions: next };
     }),
 }));

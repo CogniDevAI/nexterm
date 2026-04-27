@@ -2,8 +2,8 @@
 
 import {
   useSessionStore,
-  type ActiveFeature,
 } from "../../stores/sessionStore";
+import type { ActiveFeature } from "../../lib/types";
 import { useI18n, type TranslationKey } from "../../lib/i18n";
 
 const FEATURES: { key: ActiveFeature; labelKey: TranslationKey }[] = [

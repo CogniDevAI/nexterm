@@ -10,6 +10,8 @@ export type TerminalId = string; // UUID
 export type TunnelId = string; // UUID
 export type TransferId = string; // UUID
 
+export type ActiveFeature = "terminal" | "sftp" | "tunnel";
+
 // ─── User Credential (per-user auth within a profile) ───
 
 export interface UserCredential {
