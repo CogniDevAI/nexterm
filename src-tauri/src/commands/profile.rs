@@ -323,6 +323,14 @@ pub async fn export_profiles(
             .map_err(|e| AppError::ProfileError(format!("Failed to write export file: {e}")))?;
     }
 
+    // Best-effort hardening of the user-chosen destination. The path may live
+    // on FAT32, a network share, or a cloud-sync folder where ACL operations
+    // can fail; in those cases we log a warning but do NOT fail the export.
+    // TODO(ux): surface a localized warning to the frontend when this returns
+    // false, so users on unsupported filesystems know to move the export to a
+    // local NTFS/APFS/ext4 location for owner-only protection.
+    let _hardened = crate::fs_secure::best_effort_harden(std::path::Path::new(&export_path));
+
     Ok(count)
 }
 

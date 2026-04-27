@@ -9,6 +9,7 @@
 
 pub mod commands;
 pub mod error;
+pub mod fs_secure;
 pub mod profile;
 pub mod ssh;
 pub mod state;

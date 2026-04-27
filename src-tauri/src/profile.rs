@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::fs_secure;
 use crate::state::TunnelConfig;
 
 // ─── User Credential ────────────────────────────────────
@@ -200,10 +201,13 @@ pub fn load_profiles_from_disk(
 
     // Persist migrated profiles (backup first)
     if migrated {
-        // Create backup before first migration write
+        // Create backup before first migration write — route through fs_secure
+        // so the backup file picks up owner-only permissions/ACL just like
+        // the live profiles file. Previously this used std::fs::copy which
+        // left the backup with default inherited permissions on every platform.
         let backup_path = path.with_extension("backup.json");
         if !backup_path.exists() {
-            if let Err(e) = std::fs::copy(&path, &backup_path) {
+            if let Err(e) = fs_secure::secure_copy(&path, &backup_path) {
                 tracing::warn!("Failed to create profiles backup: {e}");
             }
         }
@@ -213,11 +217,19 @@ pub fn load_profiles_from_disk(
         }
     }
 
+    // Idempotent migration: re-apply owner-only access to the existing
+    // profiles file in case it was created by an older version of the app
+    // before fs_secure existed.
+    if let Err(e) = fs_secure::harden_existing(&path) {
+        tracing::warn!("Failed to harden existing profiles file: {e}");
+    }
+
     profiles.sort_by_key(|p| p.display_order);
     Ok(profiles)
 }
 
-/// Save all profiles to disk (atomic write via temp file)
+/// Save all profiles to disk via fs_secure: atomic temp-file write with
+/// owner-only permissions/ACL applied BEFORE rename.
 pub fn save_profiles_to_disk(
     profiles: &[ConnectionProfile],
     app_data_dir: Option<&PathBuf>,
@@ -233,24 +245,8 @@ pub fn save_profiles_to_disk(
 
     let json = serde_json::to_string_pretty(profiles)?;
 
-    // Write to temp file then rename for atomicity
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)
-        .map_err(|e| AppError::ProfileError(format!("Failed to write profiles: {e}")))?;
-
-    std::fs::rename(&tmp_path, &path)
-        .map_err(|e| AppError::ProfileError(format!("Failed to finalize profiles write: {e}")))?;
-
-    // Restrict file permissions to owner-only on Unix (0o600)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&path, perms)
-            .map_err(|e| AppError::ProfileError(format!("Failed to set file permissions: {e}")))?;
-    }
-
-    Ok(())
+    fs_secure::secure_write(&path, json.as_bytes())
+        .map_err(|e| AppError::ProfileError(format!("Failed to write profiles: {e}")))
 }
 
 // ─── Tests ──────────────────────────────────────────────
