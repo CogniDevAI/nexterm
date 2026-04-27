@@ -12,7 +12,8 @@
 // Transfer progress is streamed via Tauri Channel. The command returns
 // the TransferId once the transfer completes (or fails/cancels).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
@@ -28,6 +29,152 @@ use crate::state::{
     AppState, FileContent, FileEntry, FileType, SearchResult, SessionId, TransferDirection,
     TransferEvent, TransferId, TransferState,
 };
+
+fn open_with_selected_app(path: &Path, app_path: &str) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("open")
+            .arg("-a")
+            .arg(app_path)
+            .arg(path)
+            .output()
+            .map_err(|e| {
+                AppError::Sftp(format!(
+                    "Failed to open '{}' with selected app '{}': {e}",
+                    path.display(),
+                    app_path
+                ))
+            })?;
+
+        if !output.status.success() {
+            return Err(AppError::Sftp(format!(
+                "Failed to open '{}' with selected app '{}': {}",
+                path.display(),
+                app_path,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new(app_path).arg(path).spawn().map_err(|e| {
+            AppError::Sftp(format!(
+                "Failed to open '{}' with selected app '{}': {e}",
+                path.display(),
+                app_path
+            ))
+        })?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new(app_path).arg(path).spawn().map_err(|e| {
+            AppError::Sftp(format!(
+                "Failed to open '{}' with selected app '{}': {e}",
+                path.display(),
+                app_path
+            ))
+        })?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err(AppError::Sftp(
+        "Open With is not supported on this platform".to_string(),
+    ))
+}
+
+#[tauri::command]
+pub async fn choose_application(prompt: Option<String>) -> Result<Option<String>, AppError> {
+    let prompt = prompt.unwrap_or_else(|| "Choose application".to_string());
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "POSIX path of (choose application with prompt {})",
+            apple_script_string(&prompt)
+        );
+
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| AppError::Sftp(format!("Failed to open application chooser: {e}")))?;
+
+        if output.status.success() {
+            let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if selected.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(selected));
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("User canceled") || stderr.contains("-128") {
+            return Ok(None);
+        }
+
+        return Err(AppError::Sftp(format!(
+            "Failed to choose application: {}",
+            stderr.trim()
+        )));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            r#"
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = '{title}'
+$dialog.Filter = 'Applications (*.exe)|*.exe|All files (*.*)|*.*'
+$dialog.CheckFileExists = $true
+$dialog.Multiselect = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
+  [Console]::Out.Write($dialog.FileName)
+}}
+"#,
+            title = powershell_single_quoted(&prompt)
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-STA", "-Command", &script])
+            .output()
+            .map_err(|e| AppError::Sftp(format!("Failed to open application chooser: {e}")))?;
+
+        if output.status.success() {
+            let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if selected.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(selected));
+        }
+
+        return Err(AppError::Sftp(format!(
+            "Failed to choose application: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        Ok(None)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apple_script_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_single_quoted(value: &str) -> String {
+    value.replace("'", "''")
+}
 
 // ─── Helper: ensure SFTP is open + return Arc clone ─────
 
@@ -538,6 +685,39 @@ pub async fn sftp_open_external(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn sftp_open_with_app(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+    remote_path: String,
+    file_name: String,
+    app_path: String,
+    on_progress: Channel<TransferEvent>,
+) -> Result<String, AppError> {
+    let sftp_session = ensure_sftp(&state, session_id).await?;
+
+    let temp_dir = std::env::temp_dir().join("nexterm");
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(AppError::Io)?;
+
+    let unique_name = format!("{}_{}", Uuid::new_v4(), file_name);
+    let local_path = temp_dir.join(&unique_name);
+
+    sftp::download_to_path_with_progress(
+        &sftp_session,
+        &remote_path,
+        &local_path,
+        &file_name,
+        &on_progress,
+    )
+    .await?;
+
+    open_with_selected_app(&local_path, &app_path)?;
+
+    Ok(local_path.to_string_lossy().to_string())
+}
+
 // ─── Save As & Reveal in File Manager ───────────────────
 
 /// Download a remote file to a user-chosen local path and reveal it in
@@ -806,5 +986,22 @@ pub async fn open_local_file(path: String) -> Result<(), AppError> {
     })?;
 
     tracing::info!("Opened local file with system app: {}", path);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_local_file_with(path: String, app_path: String) -> Result<(), AppError> {
+    let file_path = Path::new(&path);
+
+    if !file_path.exists() {
+        return Err(AppError::Sftp(format!(
+            "File does not exist: {}",
+            path
+        )));
+    }
+
+    open_with_selected_app(file_path, &app_path)?;
+
+    tracing::info!("Opened local file with selected app: {}", path);
     Ok(())
 }

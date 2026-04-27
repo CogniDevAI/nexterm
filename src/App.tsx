@@ -13,6 +13,7 @@ import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
 import { TerminalTabs } from "./features/terminal/TerminalTabs";
 import { SftpBrowser } from "./features/sftp/SftpBrowser";
+import { RemoteEditCoordinator } from "./features/sftp/RemoteEditCoordinator";
 import { TunnelManager } from "./features/tunnel/TunnelManager";
 import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
@@ -236,6 +237,7 @@ function App() {
       {/* Update modals */}
       <UpdateDialog />
       <CriticalUpdateScreen />
+      <RemoteEditCoordinator />
     </>
   );
 }

@@ -22,6 +22,6 @@ export interface PaneState {
 }
 
 export interface FileAction {
-  type: "download" | "upload" | "rename" | "delete" | "newFolder" | "refresh" | "copyPath" | "open" | "openExternal" | "saveAsAndOpen";
+  type: "download" | "upload" | "rename" | "delete" | "newFolder" | "refresh" | "copyPath" | "open" | "openWith" | "openExternal" | "saveAsAndOpen";
   entry?: FileEntry;
 }

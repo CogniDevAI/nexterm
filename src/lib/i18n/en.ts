@@ -192,9 +192,18 @@ export const en = {
   "sftp.largeFileMessage": "This file is {size}. Loading large files may take a moment and use significant memory.",
   "sftp.openAnyway": "Open Anyway",
   "sftp.openExternal": "Open with System App",
+  "sftp.openWith": "Open With...",
   "sftp.downloading": "Downloading to open...",
   "sftp.downloadingProgress": "Downloading {name}...",
   "sftp.savingAs": "Saving {name}...",
+  "sftp.chooseApp": "Choose application",
+  "sftp.remoteEdit.title": "Save changes to server",
+  "sftp.remoteEdit.message": "The file \"{name}\" was saved locally. Upload those changes back to the server?",
+  "sftp.remoteEdit.closeMessage": "There are pending remote file changes. Upload them before closing?",
+  "sftp.remoteEdit.upload": "Upload changes",
+  "sftp.remoteEdit.discard": "Discard",
+  "sftp.remoteEdit.cancel": "Cancel",
+  "sftp.remoteEdit.uploading": "Uploading {name}...",
 
   // SFTP drag & drop (PR2)
   "sftp.dropToUpload": "Drop files here to upload",
@@ -209,6 +218,7 @@ export const en = {
   "ctx.copyPath": "Copy Path",
   "ctx.newFolder": "New Folder...",
   "ctx.openExternal": "Open with System App",
+  "ctx.openWith": "Open With...",
   "ctx.saveAsAndOpen": "Save As & Open...",
   "ctx.refresh": "Refresh",
 

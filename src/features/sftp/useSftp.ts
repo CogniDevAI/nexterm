@@ -15,6 +15,7 @@ import type {
   TransferEvent,
 } from "../../lib/types";
 import type { PaneState } from "./sftp.types";
+import type { WorkspacePaneSnapshot } from "../../stores/workspaceStore";
 
 const INITIAL_PANE_STATE: PaneState = {
   path: "",
@@ -25,7 +26,21 @@ const INITIAL_PANE_STATE: PaneState = {
   historyIndex: -1,
 };
 
-export function useSftp(sessionId: SessionId) {
+interface UseSftpOptions {
+  initialLocalPane?: WorkspacePaneSnapshot;
+  initialRemotePane?: WorkspacePaneSnapshot;
+}
+
+function toPaneState(snapshot?: WorkspacePaneSnapshot): PaneState {
+  return {
+    ...INITIAL_PANE_STATE,
+    path: snapshot?.path ?? "",
+    history: [...(snapshot?.history ?? [])],
+    historyIndex: snapshot?.historyIndex ?? -1,
+  };
+}
+
+export function useSftp(sessionId: SessionId, options?: UseSftpOptions) {
   const [sftpInitialized, setSftpInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const initializingRef = useRef(false);
@@ -34,8 +49,12 @@ export function useSftp(sessionId: SessionId) {
   // Store the remote home directory returned by sftp_open (H2 fix)
   const [remoteHome, setRemoteHome] = useState<string | null>(null);
 
-  const [localPane, setLocalPane] = useState<PaneState>({ ...INITIAL_PANE_STATE });
-  const [remotePane, setRemotePane] = useState<PaneState>({ ...INITIAL_PANE_STATE });
+  const [localPane, setLocalPane] = useState<PaneState>(() =>
+    toPaneState(options?.initialLocalPane),
+  );
+  const [remotePane, setRemotePane] = useState<PaneState>(() =>
+    toPaneState(options?.initialRemotePane),
+  );
 
   const { addTransfer, updateProgress, completeTransfer, failTransfer } =
     useTransferStore();
@@ -70,9 +89,9 @@ export function useSftp(sessionId: SessionId) {
     setSftpInitialized(false);
     setInitError(null);
     setRemoteHome(null);
-    setRemotePane({ ...INITIAL_PANE_STATE });
-    setLocalPane({ ...INITIAL_PANE_STATE });
-  }, []);
+    setRemotePane(toPaneState(options?.initialRemotePane));
+    setLocalPane(toPaneState(options?.initialLocalPane));
+  }, [options?.initialLocalPane, options?.initialRemotePane]);
 
   // Reset SFTP state when the active session changes.
   //
@@ -91,10 +110,10 @@ export function useSftp(sessionId: SessionId) {
       setSftpInitialized(false);
       setInitError(null);
       setRemoteHome(null);
-      setRemotePane({ ...INITIAL_PANE_STATE });
-      setLocalPane({ ...INITIAL_PANE_STATE });
+      setRemotePane(toPaneState(options?.initialRemotePane));
+      setLocalPane(toPaneState(options?.initialLocalPane));
     }
-  }, [sessionId]);
+  }, [options?.initialLocalPane, options?.initialRemotePane, sessionId]);
 
   // ─── Remote Operations ────────────────────────────────
 
@@ -341,6 +360,28 @@ export function useSftp(sessionId: SessionId) {
     [sessionId],
   );
 
+  const openWithApp = useCallback(
+    async (
+      remotePath: string,
+      fileName: string,
+      appPath: string,
+      onProgress?: (event: TransferEvent) => void,
+    ) => {
+      const channel = new Channel<TransferEvent>();
+      if (onProgress) {
+        channel.onmessage = onProgress;
+      }
+      return await tauriInvoke<string>("sftp_open_with_app", {
+        sessionId,
+        remotePath,
+        fileName,
+        appPath,
+        onProgress: channel,
+      });
+    },
+    [sessionId],
+  );
+
   // ─── Save As & Reveal ────────────────────────────────
 
   const saveAsAndReveal = useCallback(
@@ -505,6 +546,7 @@ export function useSftp(sessionId: SessionId) {
     readFile,
     searchFiles,
     openExternal,
+    openWithApp,
     saveAsAndReveal,
 
     // Transfers

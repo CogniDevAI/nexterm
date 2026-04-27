@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { FilePane, type SearchMode } from "./FilePane";
 import { TransferOverlay } from "./TransferOverlay";
 import { FileContextMenu } from "./FileContextMenu";
@@ -18,6 +18,36 @@ import { useI18n } from "../../lib/i18n";
 import { tauriInvoke } from "../../lib/tauri";
 import type { SessionId, FileEntry, SearchResult, TransferEvent } from "../../lib/types";
 import type { PaneSource, FileAction } from "./sftp.types";
+import { useProfileStore } from "../../stores/profileStore";
+import { useSessionStore } from "../../stores/sessionStore";
+import {
+  buildWorkspaceKey,
+  useWorkspaceStore,
+} from "../../stores/workspaceStore";
+import {
+  buildRemoteEditId,
+  useRemoteEditStore,
+} from "../../stores/remoteEditStore";
+
+async function selectApplicationPath(title: string): Promise<string | null> {
+  const isMac = navigator.userAgent.includes("Mac") || navigator.platform.includes("Mac");
+  const isWindows = navigator.userAgent.includes("Windows") || navigator.platform.includes("Win");
+
+  if (isMac || isWindows) {
+    return await tauriInvoke<string | null>("choose_application", { prompt: title });
+  }
+
+  const selected = await openDialog({
+    title,
+    multiple: false,
+  });
+
+  if (Array.isArray(selected)) {
+    return selected[0] ?? null;
+  }
+
+  return selected;
+}
 
 interface SftpBrowserProps {
   sessionId: SessionId;
@@ -25,7 +55,25 @@ interface SftpBrowserProps {
 
 export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   const { t } = useI18n();
-  const sftp = useSftp(sessionId);
+  const session = useSessionStore((state) => state.sessions.get(sessionId));
+  const profiles = useProfileStore((state) => state.profiles);
+  const workspaceKey = session
+    ? buildWorkspaceKey(session.profileId, session.userId)
+    : null;
+  const workspaceSnapshot = useWorkspaceStore((state) =>
+    workspaceKey ? state.workspaces[workspaceKey] : undefined,
+  );
+  const setSftpSnapshot = useWorkspaceStore((state) => state.setSftpSnapshot);
+  const upsertRemoteEditSession = useRemoteEditStore(
+    (state) => state.upsertSession,
+  );
+  const startupDirectory = session
+    ? profiles.find((profile) => profile.id === session.profileId)?.startupDirectory
+    : undefined;
+  const sftp = useSftp(sessionId, {
+    initialLocalPane: workspaceSnapshot?.sftp.local,
+    initialRemotePane: workspaceSnapshot?.sftp.remote,
+  });
 
   // Selection state per pane
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
@@ -80,8 +128,12 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   }, []);
 
   // Search state
-  const [searchMode, setSearchMode] = useState<SearchMode>("filter");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>(
+    () => workspaceSnapshot?.sftp.searchMode ?? "filter",
+  );
+  const [searchQuery, setSearchQuery] = useState(
+    () => workspaceSnapshot?.sftp.searchQuery ?? "",
+  );
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
@@ -94,9 +146,19 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   const localPaneRef = useRef<HTMLDivElement>(null);
 
   // Resizable split
-  const [splitPosition, setSplitPosition] = useState(50); // percentage
+  const [splitPosition, setSplitPosition] = useState(
+    () => workspaceSnapshot?.sftp.splitPosition ?? 50,
+  ); // percentage
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    setSearchMode(workspaceSnapshot?.sftp.searchMode ?? "filter");
+    setSearchQuery(workspaceSnapshot?.sftp.searchQuery ?? "");
+    setSearchResults([]);
+    setSearchLoading(false);
+    setSplitPosition(workspaceSnapshot?.sftp.splitPosition ?? 50);
+  }, [workspaceKey]);
 
   // ─── Initialize SFTP on mount ─────────────────────────
 
@@ -107,18 +169,66 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   // Load initial directories once SFTP is ready
   useEffect(() => {
     if (sftp.sftpInitialized) {
-      // Load remote home directory using the path returned by sftp_open (H2 fix)
-      if (!sftp.remotePane.path && sftp.remoteHome) {
-        void sftp.listRemoteDir(sftp.remoteHome);
+      const initialRemotePath =
+        sftp.remotePane.path || startupDirectory || sftp.remoteHome;
+      if (initialRemotePath) {
+        if (sftp.remotePane.path === initialRemotePath) {
+          sftp.refreshRemote();
+        } else {
+          void sftp.listRemoteDir(initialRemotePath);
+        }
       }
       // Load local home directory (use Tauri path API for cross-platform support)
-      if (!sftp.localPane.path) {
+      if (sftp.localPane.path) {
+        sftp.refreshLocal();
+      } else {
         void homeDir()
           .then((home) => sftp.listLocalDir(home))
           .catch(() => sftp.listLocalDir("/"));
       }
     }
-  }, [sftp.sftpInitialized, sftp.remoteHome, sftp.remotePane.path, sftp.localPane.path, sftp.listRemoteDir, sftp.listLocalDir]);
+  }, [
+    sftp.sftpInitialized,
+    sftp.remoteHome,
+    sftp.remotePane.path,
+    sftp.localPane.path,
+    sftp.listRemoteDir,
+    sftp.listLocalDir,
+    sftp.refreshLocal,
+    sftp.refreshRemote,
+    startupDirectory,
+  ]);
+
+  useEffect(() => {
+    if (!workspaceKey) return;
+    setSftpSnapshot(workspaceKey, {
+      local: {
+        path: sftp.localPane.path,
+        history: sftp.localPane.history,
+        historyIndex: sftp.localPane.historyIndex,
+      },
+      remote: {
+        path: sftp.remotePane.path,
+        history: sftp.remotePane.history,
+        historyIndex: sftp.remotePane.historyIndex,
+      },
+      splitPosition,
+      searchMode,
+      searchQuery,
+    });
+  }, [
+    searchMode,
+    searchQuery,
+    sftp.localPane.history,
+    sftp.localPane.historyIndex,
+    sftp.localPane.path,
+    sftp.remotePane.history,
+    sftp.remotePane.historyIndex,
+    sftp.remotePane.path,
+    setSftpSnapshot,
+    splitPosition,
+    workspaceKey,
+  ]);
 
   // ─── OS Drag & Drop via Tauri (PR2) ────────────────────
 
@@ -371,6 +481,82 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             });
           break;
         }
+        case "openWith": {
+          if (!action.entry) return;
+          const entry = action.entry;
+          if (entry.fileType !== "file" && !(entry.fileType === "symlink" && entry.linkTarget === "file")) return;
+
+          const appPath = await selectApplicationPath(t("sftp.chooseApp"));
+          if (!appPath) return;
+
+          const editId = buildRemoteEditId(sessionId, entry.path);
+          const existing = useRemoteEditStore.getState().sessions[editId];
+          if (existing) {
+            await tauriInvoke<void>("open_local_file_with", {
+              path: existing.localPath,
+              appPath,
+            });
+            return;
+          }
+
+          setExternalDownload({
+            fileName: entry.name,
+            bytesTransferred: 0,
+            totalBytes: entry.size || 0,
+            label: t("sftp.downloadingProgress", { name: entry.name }),
+          });
+
+          sftp
+            .openWithApp(entry.path, entry.name, appPath, (event: TransferEvent) => {
+              switch (event.event) {
+                case "progress":
+                  setExternalDownload((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          bytesTransferred: event.data.bytesTransferred,
+                          totalBytes: event.data.totalBytes,
+                        }
+                      : null,
+                  );
+                  break;
+                case "completed":
+                  setExternalDownload(null);
+                  break;
+                case "failed":
+                  setExternalDownload(null);
+                  setTooLargeMessage(event.data.error);
+                  tooLargeTimerRef.current = setTimeout(() => {
+                    setTooLargeMessage(null);
+                    tooLargeTimerRef.current = null;
+                  }, 4000);
+                  break;
+              }
+            })
+            .then((localPath) => {
+              setExternalDownload(null);
+              upsertRemoteEditSession({
+                id: editId,
+                sessionId,
+                remotePath: entry.path,
+                localPath,
+                fileName: entry.name,
+                dirty: false,
+                syncing: false,
+                lastKnownMtime: null,
+              });
+            })
+            .catch((err) => {
+              setExternalDownload(null);
+              const message = err instanceof Error ? err.message : String(err);
+              setTooLargeMessage(message);
+              tooLargeTimerRef.current = setTimeout(() => {
+                setTooLargeMessage(null);
+                tooLargeTimerRef.current = null;
+              }, 4000);
+            });
+          break;
+        }
         case "upload": {
           if (!action.entry) return;
           const remoteDest = sftp.remotePane.path + "/" + action.entry.name;
@@ -485,7 +671,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
         }
       }
     },
-    [sftp, contextMenu, closeContextMenu],
+    [sftp, contextMenu, closeContextMenu, sessionId, t, upsertRemoteEditSession],
   );
 
   // ─── Local File Actions ───────────────────────────────
@@ -514,6 +700,29 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           }
           break;
         }
+        case "openWith": {
+          if (!action.entry) return;
+          const entry = action.entry;
+          if (entry.fileType !== "file" && !(entry.fileType === "symlink" && entry.linkTarget === "file")) return;
+
+          const appPath = await selectApplicationPath(t("sftp.chooseApp"));
+          if (!appPath) return;
+
+          try {
+            await tauriInvoke<void>("open_local_file_with", {
+              path: entry.path,
+              appPath,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            setTooLargeMessage(message);
+            tooLargeTimerRef.current = setTimeout(() => {
+              setTooLargeMessage(null);
+              tooLargeTimerRef.current = null;
+            }, 4000);
+          }
+          break;
+        }
         case "upload": {
           if (!action.entry) return;
           const remoteDest = sftp.remotePane.path + "/" + action.entry.name;
@@ -536,7 +745,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           break;
       }
     },
-    [sftp, closeContextMenu, handleFileAction],
+    [sftp, closeContextMenu, handleFileAction, t],
   );
 
   // ─── Dialog Actions ───────────────────────────────────

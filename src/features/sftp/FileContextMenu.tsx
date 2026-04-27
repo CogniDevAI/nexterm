@@ -78,6 +78,7 @@ export function FileContextMenu({
     // Open action — for regular files and symlinks to files
     if (isFilelike(entry)) {
       items.push({ label: t("ctx.open"), action: { type: "open", entry } });
+      items.push({ label: t("ctx.openWith"), action: { type: "openWith", entry } });
     }
 
     // Save As & Open — remote files only (lets user choose where to save)

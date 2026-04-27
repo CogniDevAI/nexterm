@@ -194,9 +194,18 @@ export const es: Record<TranslationKey, string> = {
   "sftp.largeFileMessage": "Este archivo pesa {size}. Cargar archivos grandes puede tomar un momento y usar mucha memoria.",
   "sftp.openAnyway": "Abrir de Todos Modos",
   "sftp.openExternal": "Abrir con App del Sistema",
+  "sftp.openWith": "Abrir con...",
   "sftp.downloading": "Descargando para abrir...",
   "sftp.downloadingProgress": "Descargando {name}...",
   "sftp.savingAs": "Guardando {name}...",
+  "sftp.chooseApp": "Elegí la aplicación",
+  "sftp.remoteEdit.title": "Guardar cambios en el servidor",
+  "sftp.remoteEdit.message": "El archivo \"{name}\" fue guardado localmente. ¿Querés subir esos cambios al servidor?",
+  "sftp.remoteEdit.closeMessage": "Hay cambios pendientes en archivos remotos. ¿Querés subirlos antes de cerrar?",
+  "sftp.remoteEdit.upload": "Subir cambios",
+  "sftp.remoteEdit.discard": "Descartar",
+  "sftp.remoteEdit.cancel": "Cancelar",
+  "sftp.remoteEdit.uploading": "Subiendo {name}...",
 
   // SFTP drag & drop (PR2)
   "sftp.dropToUpload": "Soltá los archivos acá para subir",
@@ -211,6 +220,7 @@ export const es: Record<TranslationKey, string> = {
   "ctx.copyPath": "Copiar Ruta",
   "ctx.newFolder": "Nueva Carpeta...",
   "ctx.openExternal": "Abrir con App del Sistema",
+  "ctx.openWith": "Abrir con...",
   "ctx.saveAsAndOpen": "Guardar Como y Abrir...",
   "ctx.refresh": "Actualizar",
 

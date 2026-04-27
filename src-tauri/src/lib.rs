@@ -81,10 +81,13 @@ pub fn run() {
             commands::sftp::sftp_read_file,
             commands::sftp::sftp_search,
             commands::sftp::sftp_cancel_transfer,
+            commands::sftp::choose_application,
             commands::sftp::sftp_open_external,
+            commands::sftp::sftp_open_with_app,
             commands::sftp::sftp_save_and_reveal,
             commands::sftp::list_local_dir,
             commands::sftp::open_local_file,
+            commands::sftp::open_local_file_with,
             // Tunnel
             commands::tunnel::create_tunnel,
             commands::tunnel::start_tunnel,
