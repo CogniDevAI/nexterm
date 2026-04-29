@@ -2457,7 +2457,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexterm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2482,12 +2482,14 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-shell",
  "tauri-plugin-updater",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "windows 0.61.3",
  "zeroize",
 ]
 
