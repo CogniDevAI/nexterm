@@ -572,6 +572,90 @@ pub async fn sftp_download(
     result
 }
 
+/// Recursively download a remote directory tree to the local filesystem.
+///
+/// Reports progress as ONE aggregate transfer (total bytes summed from a
+/// pre-walk of the remote tree) so the UI shows a single entry in the
+/// transfer overlay rather than one per file.
+///
+/// Lock strategy: same as sftp_download — clone Arc, drop lock,
+/// run I/O without holding the global sessions lock.
+#[tauri::command]
+pub async fn sftp_download_folder(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+    remote_path: String,
+    local_path: String,
+    on_progress: Channel<TransferEvent>,
+) -> Result<TransferId, AppError> {
+    let local = PathBuf::from(&local_path);
+    let folder_name = remote_path
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or("folder")
+        .to_string();
+
+    let cancel_token = CancellationToken::new();
+    let transfer_id = Uuid::new_v4();
+
+    let sftp_session = {
+        let mut sessions = state.sessions.lock().await;
+        let handle = sessions
+            .get_mut(&session_id)
+            .ok_or(AppError::SessionNotFound(session_id))?;
+
+        if handle.state != crate::state::SessionState::Connected {
+            return Err(AppError::NotConnected);
+        }
+
+        if handle.sftp.is_none() {
+            let ssh = handle.ssh_handle.as_ref().ok_or(AppError::NotConnected)?;
+            let sftp_handle = sftp::open_sftp(ssh).await?;
+            handle.sftp = Some(sftp_handle);
+            tracing::info!("SFTP subsystem opened for session {session_id}");
+        }
+
+        let sftp_handle = handle.sftp.as_mut().expect("SFTP just ensured above");
+
+        // total_bytes is computed during the recursive walk inside download_dir,
+        // so we register the transfer with 0 and let the Started event update the UI.
+        sftp_handle.active_transfers.insert(
+            transfer_id,
+            TransferState {
+                id: transfer_id,
+                direction: TransferDirection::Download,
+                file_name: folder_name,
+                total_bytes: 0,
+                bytes_transferred: 0,
+                cancel_token: cancel_token.clone(),
+            },
+        );
+
+        sftp_handle.session.clone()
+    };
+
+    let result = sftp::download_dir(
+        &sftp_session,
+        &remote_path,
+        &local,
+        transfer_id,
+        on_progress,
+        cancel_token,
+    )
+    .await;
+
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(handle) = sessions.get_mut(&session_id) {
+            if let Some(ref mut sftp_handle) = handle.sftp {
+                sftp_handle.active_transfers.remove(&transfer_id);
+            }
+        }
+    }
+
+    result
+}
+
 /// Cancel an active file transfer.
 #[tauri::command]
 pub async fn sftp_cancel_transfer(

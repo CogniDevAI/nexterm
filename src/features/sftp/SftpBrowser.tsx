@@ -566,7 +566,14 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
         case "download": {
           if (!action.entry) return;
           const localDest = sftp.localPane.path + "/" + action.entry.name;
-          void sftp.downloadFile(action.entry.path, localDest);
+          const isDir =
+            action.entry.fileType === "directory" ||
+            (action.entry.fileType === "symlink" && action.entry.linkTarget === "directory");
+          if (isDir) {
+            void sftp.downloadFolder(action.entry.path, localDest);
+          } else {
+            void sftp.downloadFile(action.entry.path, localDest);
+          }
           break;
         }
         case "rename": {
@@ -849,11 +856,20 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   }, [localSelected, sftp]);
 
   const handleDownload = useCallback(() => {
-    // Download all selected remote files to local
+    // Download all selected remote files and folders to local
     for (const path of remoteSelected) {
       const entry = sftp.remotePane.entries.find((e) => e.path === path);
-      if (entry && (entry.fileType === "file" || (entry.fileType === "symlink" && entry.linkTarget === "file"))) {
-        const localDest = sftp.localPane.path + "/" + entry.name;
+      if (!entry) continue;
+      const localDest = sftp.localPane.path + "/" + entry.name;
+      const isDir =
+        entry.fileType === "directory" ||
+        (entry.fileType === "symlink" && entry.linkTarget === "directory");
+      const isFile =
+        entry.fileType === "file" ||
+        (entry.fileType === "symlink" && entry.linkTarget === "file");
+      if (isDir) {
+        void sftp.downloadFolder(entry.path, localDest);
+      } else if (isFile) {
         void sftp.downloadFile(entry.path, localDest);
       }
     }
@@ -863,10 +879,17 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   const handleLocalDrop = useCallback(
     (entries: FileEntry[]) => {
-      // Dropped from remote → download
+      // Dropped from remote → download (file or folder)
       for (const entry of entries) {
         const localDest = sftp.localPane.path + "/" + entry.name;
-        void sftp.downloadFile(entry.path, localDest);
+        const isDir =
+          entry.fileType === "directory" ||
+          (entry.fileType === "symlink" && entry.linkTarget === "directory");
+        if (isDir) {
+          void sftp.downloadFolder(entry.path, localDest);
+        } else {
+          void sftp.downloadFile(entry.path, localDest);
+        }
       }
     },
     [sftp],
