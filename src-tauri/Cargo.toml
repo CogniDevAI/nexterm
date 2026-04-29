@@ -1,6 +1,6 @@
 [package]
 name = "nexterm"
-version = "0.2.0"
+version = "0.2.1"
 description = "NexTerm — Cross-platform SSH client with terminal, SFTP, and tunneling"
 authors = ["you"]
 edition = "2021"
@@ -75,3 +75,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+# Windows-only — used by fs_secure::windows for owner-only NTFS DACLs.
+# Already pulled transitively via tauri-plugin-updater; declared explicitly
+# here because we use it directly. Zero binary-size impact.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"

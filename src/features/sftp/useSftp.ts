@@ -509,6 +509,49 @@ export function useSftp(sessionId: SessionId, options?: UseSftpOptions) {
     [sessionId, addTransfer, updateProgress, completeTransfer, failTransfer, refreshLocal],
   );
 
+  const downloadFolder = useCallback(
+    async (remotePath: string, localPath: string) => {
+      const channel = new Channel<TransferEvent>();
+
+      channel.onmessage = (message) => {
+        switch (message.event) {
+          case "started":
+            addTransfer({
+              id: message.data.transferId,
+              fileName: message.data.fileName,
+              direction: message.data.direction,
+              totalBytes: message.data.totalBytes,
+              bytesTransferred: 0,
+              status: "active",
+            });
+            break;
+          case "progress":
+            updateProgress(
+              message.data.transferId,
+              message.data.bytesTransferred,
+              message.data.totalBytes,
+            );
+            break;
+          case "completed":
+            completeTransfer(message.data.transferId);
+            refreshLocal();
+            break;
+          case "failed":
+            failTransfer(message.data.transferId, message.data.error);
+            break;
+        }
+      };
+
+      await tauriInvoke<void>("sftp_download_folder", {
+        sessionId,
+        remotePath,
+        localPath,
+        onProgress: channel,
+      });
+    },
+    [sessionId, addTransfer, updateProgress, completeTransfer, failTransfer, refreshLocal],
+  );
+
   return {
     // State
     sftpInitialized,
@@ -552,5 +595,6 @@ export function useSftp(sessionId: SessionId, options?: UseSftpOptions) {
     // Transfers
     uploadFile,
     downloadFile,
+    downloadFolder,
   };
 }

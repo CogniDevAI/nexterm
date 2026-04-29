@@ -892,6 +892,207 @@ pub async fn download_to_path_with_progress(
     Ok(())
 }
 
+// ─── Recursive Folder Download ──────────────────────────
+
+/// Walk a remote directory tree and collect every dir/file pair to mirror locally.
+///
+/// Returns `(dirs, files, total_bytes)` where:
+/// - `dirs` is parent-before-child ordered, so `create_dir_all` calls work in sequence
+/// - `files` lists `(remote_path, local_path, size)` for every regular file
+/// - `total_bytes` is the sum of file sizes — used as the aggregate progress denominator
+///
+/// Symlinks and other non-regular entries are skipped to avoid loops and ambiguity.
+async fn walk_remote_dir(
+    sftp: &SftpSession,
+    remote_root: &str,
+    local_root: &Path,
+) -> Result<
+    (
+        Vec<std::path::PathBuf>,
+        Vec<(String, std::path::PathBuf, u64)>,
+        u64,
+    ),
+    AppError,
+> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    let mut files: Vec<(String, std::path::PathBuf, u64)> = Vec::new();
+    let mut total_bytes: u64 = 0;
+    let mut stack: Vec<(String, std::path::PathBuf)> =
+        vec![(remote_root.to_string(), local_root.to_path_buf())];
+
+    while let Some((rdir, ldir)) = stack.pop() {
+        dirs.push(ldir.clone());
+        let entries = list_dir(sftp, &rdir).await?;
+        for entry in entries {
+            let local_child = ldir.join(&entry.name);
+            match entry.file_type {
+                FileType::Directory => {
+                    stack.push((entry.path.clone(), local_child));
+                }
+                FileType::File => {
+                    total_bytes += entry.size;
+                    files.push((entry.path.clone(), local_child, entry.size));
+                }
+                FileType::Symlink | FileType::Other => {
+                    tracing::warn!(
+                        "Skipping non-regular entry during folder download: {}",
+                        entry.path
+                    );
+                }
+            }
+        }
+    }
+
+    Ok((dirs, files, total_bytes))
+}
+
+/// Recursively download a remote directory tree to a local path.
+///
+/// Reports a single aggregate transfer: pre-walks the tree to compute total bytes,
+/// emits a `Started` event with the folder name, then accumulates `bytes_transferred`
+/// across every file and emits `Progress` events as chunks land. Cancellation is
+/// honored both between files and inside chunk loops.
+///
+/// Local directories are created with `create_dir_all` (parents first). On failure
+/// or cancellation, partial files are left on disk for the user to inspect — they're
+/// not auto-cleaned because a partial multi-GB transfer may still be useful.
+pub async fn download_dir(
+    sftp: &SftpSession,
+    remote_path: &str,
+    local_path: &Path,
+    transfer_id: TransferId,
+    on_progress: Channel<TransferEvent>,
+    cancel_token: CancellationToken,
+) -> Result<TransferId, AppError> {
+    let folder_name = remote_path
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or("folder")
+        .to_string();
+
+    // Pre-walk (cancellable). Computes total bytes for accurate progress.
+    let (dirs, files, total_bytes) = tokio::select! {
+        _ = cancel_token.cancelled() => {
+            let _ = on_progress.send(TransferEvent::Failed {
+                transfer_id,
+                error: "Transfer cancelled".to_string(),
+            });
+            return Err(AppError::TransferCancelled);
+        }
+        result = walk_remote_dir(sftp, remote_path, local_path) => {
+            match result {
+                Ok(v) => v,
+                Err(e) => {
+                    let _ = on_progress.send(TransferEvent::Failed {
+                        transfer_id,
+                        error: format!("Failed to walk remote directory: {e}"),
+                    });
+                    return Err(e);
+                }
+            }
+        }
+    };
+
+    let _ = on_progress.send(TransferEvent::Started {
+        transfer_id,
+        file_name: folder_name,
+        total_bytes,
+        direction: TransferDirection::Download,
+    });
+
+    for ldir in &dirs {
+        if let Err(e) = tokio::fs::create_dir_all(ldir).await {
+            let error_msg = format!(
+                "Failed to create local directory '{}': {e}",
+                ldir.display()
+            );
+            let _ = on_progress.send(TransferEvent::Failed {
+                transfer_id,
+                error: error_msg.clone(),
+            });
+            return Err(AppError::Io(e));
+        }
+    }
+
+    let mut bytes_transferred: u64 = 0;
+    let mut buf = vec![0u8; TRANSFER_CHUNK_SIZE];
+
+    for (rfile, lfile, _size) in &files {
+        if cancel_token.is_cancelled() {
+            let _ = on_progress.send(TransferEvent::Failed {
+                transfer_id,
+                error: "Transfer cancelled".to_string(),
+            });
+            return Err(AppError::TransferCancelled);
+        }
+
+        let mut remote_file = sftp.open(rfile).await.map_err(|e| {
+            let error_msg = format!("Failed to open remote file '{rfile}': {e}");
+            let _ = on_progress.send(TransferEvent::Failed {
+                transfer_id,
+                error: error_msg.clone(),
+            });
+            AppError::Sftp(error_msg)
+        })?;
+
+        let mut local_file = tokio::fs::File::create(lfile).await.map_err(|e| {
+            let _ = on_progress.send(TransferEvent::Failed {
+                transfer_id,
+                error: format!("Failed to create local file '{}': {e}", lfile.display()),
+            });
+            AppError::Io(e)
+        })?;
+
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    let _ = local_file.flush().await;
+                    drop(local_file);
+                    let _ = on_progress.send(TransferEvent::Failed {
+                        transfer_id,
+                        error: "Transfer cancelled".to_string(),
+                    });
+                    return Err(AppError::TransferCancelled);
+                }
+                result = remote_file.read(&mut buf) => {
+                    match result {
+                        Ok(0) => {
+                            local_file.flush().await.map_err(AppError::Io)?;
+                            break;
+                        }
+                        Ok(n) => {
+                            local_file.write_all(&buf[..n]).await.map_err(|e| {
+                                let _ = on_progress.send(TransferEvent::Failed {
+                                    transfer_id,
+                                    error: format!("Failed to write local file: {e}"),
+                                });
+                                AppError::Io(e)
+                            })?;
+                            bytes_transferred += n as u64;
+                            let _ = on_progress.send(TransferEvent::Progress {
+                                transfer_id,
+                                bytes_transferred,
+                                total_bytes,
+                            });
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Failed to read remote file '{rfile}': {e}");
+                            let _ = on_progress.send(TransferEvent::Failed {
+                                transfer_id,
+                                error: error_msg.clone(),
+                            });
+                            return Err(AppError::Sftp(error_msg));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = on_progress.send(TransferEvent::Completed { transfer_id });
+    Ok(transfer_id)
+}
+
 // ─── Tests ──────────────────────────────────────────────
 
 #[cfg(test)]

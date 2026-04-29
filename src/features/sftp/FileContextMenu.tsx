@@ -74,6 +74,11 @@ export function FileContextMenu({
   const isFilelike = (e: FileEntry) =>
     e.fileType === "file" || (e.fileType === "symlink" && e.linkTarget === "file");
 
+  // A directory (or symlink resolving to one) — folder transfers walk recursively
+  const isDirlike = (e: FileEntry) =>
+    e.fileType === "directory" ||
+    (e.fileType === "symlink" && e.linkTarget === "directory");
+
   if (entry) {
     // Open action — for regular files and symlinks to files
     if (isFilelike(entry)) {
@@ -93,7 +98,7 @@ export function FileContextMenu({
     if (source === "local" && isFilelike(entry)) {
       items.push({ label: t("ctx.upload"), action: { type: "upload", entry } });
     }
-    if (source === "remote" && isFilelike(entry)) {
+    if (source === "remote" && (isFilelike(entry) || isDirlike(entry))) {
       items.push({ label: t("ctx.download"), action: { type: "download", entry } });
     }
 

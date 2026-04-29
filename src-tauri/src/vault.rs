@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::error::AppError;
+use crate::fs_secure;
 
 /// Vault file name in the app data directory.
 const VAULT_FILE: &str = "vault.json";
@@ -152,6 +153,13 @@ impl Vault {
         // Validate the password by trying to decrypt the first credential
         if let Some((key, _)) = vault.credentials.iter().next() {
             vault.get(key).map_err(|_| AppError::VaultWrongPassword)?;
+        }
+
+        // Idempotent migration: re-apply owner-only access to the existing
+        // vault file in case it was created by an older version of the app
+        // that didn't tighten permissions, or before fs_secure existed.
+        if let Err(e) = fs_secure::harden_existing(&vault.file_path) {
+            tracing::warn!("Failed to harden existing vault file: {e}");
         }
 
         Ok(vault)
@@ -294,7 +302,8 @@ impl Vault {
             .map_err(|e| AppError::VaultError(format!("Invalid UTF-8 in credential: {e}")))
     }
 
-    /// Save vault to disk (atomic write via temp file, 0o600 permissions on Unix).
+    /// Save vault to disk via fs_secure: atomic temp-file write with
+    /// owner-only permissions/ACL applied BEFORE rename.
     fn save_to_disk(&self) -> Result<(), AppError> {
         // Encode credentials to base64
         let mut encoded_creds = HashMap::new();
@@ -318,24 +327,7 @@ impl Vault {
             })?;
         }
 
-        // Write to temp file then rename for atomicity
-        let tmp_path = self.file_path.with_extension("json.tmp");
-        std::fs::write(&tmp_path, &json)
-            .map_err(|e| AppError::VaultError(format!("Failed to write vault: {e}")))?;
-
-        std::fs::rename(&tmp_path, &self.file_path)
-            .map_err(|e| AppError::VaultError(format!("Failed to finalize vault write: {e}")))?;
-
-        // Restrict file permissions to owner-only on Unix (0o600)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(&self.file_path, perms).map_err(|e| {
-                AppError::VaultError(format!("Failed to set vault file permissions: {e}"))
-            })?;
-        }
-
-        Ok(())
+        fs_secure::secure_write(&self.file_path, json.as_bytes())
+            .map_err(|e| AppError::VaultError(format!("Failed to write vault: {e}")))
     }
 }
