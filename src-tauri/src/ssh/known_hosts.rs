@@ -4,7 +4,7 @@
 // Supports plain hostnames and [host]:port format for non-standard ports.
 // Hashed hostnames are recognized but not generated (we add plain entries).
 
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 use russh::keys::ssh_key::PublicKey;
@@ -15,8 +15,25 @@ use crate::state::HostKeyStatus;
 
 // ─── Known Hosts Entry ──────────────────────────────────
 
+/// OpenSSH line marker. A line may be prefixed with `@revoked` or
+/// `@cert-authority`; everything after the marker is parsed as a normal
+/// `hostpattern keytype keydata` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Marker {
+    /// Plain host-key entry (no leading `@` token).
+    #[default]
+    None,
+    /// `@revoked` — this exact key is revoked for the matching host(s).
+    Revoked,
+    /// `@cert-authority` — the key is a CA that signs host certificates,
+    /// NOT a literal host key.
+    CertAuthority,
+}
+
 #[derive(Debug, Clone)]
 pub struct KnownHostEntry {
+    /// Line marker (`@revoked` / `@cert-authority` / none).
+    pub marker: Marker,
     /// Raw hostname pattern from the file (may be hashed, may include port)
     pub host_pattern: String,
     /// Key type string (e.g., "ssh-ed25519", "ssh-rsa")
@@ -141,21 +158,17 @@ fn entry_matches_host(entry: &KnownHostEntry, host: &str, port: u16) -> bool {
 
 // ─── Load Known Hosts ───────────────────────────────────
 
-/// Load and parse the known_hosts file
-pub fn load_known_hosts() -> Result<KnownHostsDb, AppError> {
-    let path = known_hosts_path();
-
-    if !path.exists() {
-        return Ok(KnownHostsDb::default());
-    }
-
-    let file = std::fs::File::open(&path)?;
-    let reader = std::io::BufReader::new(file);
-
+/// Parse known_hosts file contents into a `KnownHostsDb`. Pure function — no
+/// I/O — so it is directly unit-testable. `load_known_hosts` reads the file
+/// then delegates here.
+///
+/// Recognized line shapes:
+///   `[@marker] hostpattern keytype keydata [comment]`
+/// where `@marker` is an optional leading `@revoked` / `@cert-authority` token.
+pub fn parse_known_hosts_str(contents: &str) -> KnownHostsDb {
     let mut entries = Vec::new();
 
-    for line in reader.lines() {
-        let line = line?;
+    for line in contents.lines() {
         let line = line.trim();
 
         // Skip empty lines and comments
@@ -163,9 +176,17 @@ pub fn load_known_hosts() -> Result<KnownHostsDb, AppError> {
             continue;
         }
 
-        // Skip @cert-authority and @revoked markers for now
+        // A line may begin with a `@revoked` / `@cert-authority` marker. Parse
+        // it off, then parse the REMAINING `hostpattern keytype keydata` as a
+        // normal entry.
+        let (marker, rest) = match line.split_once(char::is_whitespace) {
+            Some(("@revoked", rest)) => (Marker::Revoked, rest.trim_start()),
+            Some(("@cert-authority", rest)) => (Marker::CertAuthority, rest.trim_start()),
+            _ => (Marker::None, line),
+        };
+
         // Format: hostname key-type base64-key [comment]
-        let parts: Vec<&str> = line.splitn(3, char::is_whitespace).collect();
+        let parts: Vec<&str> = rest.splitn(3, char::is_whitespace).collect();
         if parts.len() < 3 {
             continue; // malformed line
         }
@@ -178,6 +199,7 @@ pub fn load_known_hosts() -> Result<KnownHostsDb, AppError> {
         let is_hashed = host_pattern.starts_with("|1|");
 
         entries.push(KnownHostEntry {
+            marker,
             host_pattern,
             key_type,
             key_data,
@@ -185,14 +207,32 @@ pub fn load_known_hosts() -> Result<KnownHostsDb, AppError> {
         });
     }
 
-    Ok(KnownHostsDb { entries })
+    KnownHostsDb { entries }
+}
+
+/// Load and parse the known_hosts file
+pub fn load_known_hosts() -> Result<KnownHostsDb, AppError> {
+    let path = known_hosts_path();
+
+    if !path.exists() {
+        return Ok(KnownHostsDb::default());
+    }
+
+    let contents = std::fs::read_to_string(&path)?;
+    Ok(parse_known_hosts_str(&contents))
 }
 
 // ─── Verify Host Key ────────────────────────────────────
 
-/// Verify a server's host key against the known_hosts database
-pub fn verify_host_key(host: &str, port: u16, key: &PublicKey) -> Result<HostKeyStatus, AppError> {
-    let db = load_known_hosts()?;
+/// Classify a server's host key against an already-loaded known_hosts database.
+/// Pure function — no I/O — so it is directly unit-testable. `verify_host_key`
+/// loads the db then delegates here.
+pub fn classify_host_key(
+    db: &KnownHostsDb,
+    host: &str,
+    port: u16,
+    key: &PublicKey,
+) -> HostKeyStatus {
     let incoming_type = key_type_str(key);
     let incoming_fp = fingerprint(key);
 
@@ -203,11 +243,35 @@ pub fn verify_host_key(host: &str, port: u16, key: &PublicKey) -> Result<HostKey
         base64::engine::general_purpose::STANDARD.encode(&key_bytes)
     };
 
+    // ── Revocation has PRECEDENCE over everything else ──
+    // If an admin marked this exact key `@revoked` for a matching host, reject
+    // it outright — even if a separate trusted entry exists for the same host.
+    for entry in &db.entries {
+        if entry.marker == Marker::Revoked
+            && entry.key_data == incoming_b64
+            && entry_matches_host(entry, host, port)
+        {
+            return HostKeyStatus::Revoked;
+        }
+    }
+
     // Check all entries that match this host
     let mut found_host = false;
     let mut different_type_entry: Option<&KnownHostEntry> = None;
 
     for entry in &db.entries {
+        // Marked entries are NOT literal host keys for normal matching:
+        //  - `@revoked` keys were already handled above (and must never count
+        //    as Trusted/Changed/found here).
+        //  - `@cert-authority` keys are CA signing keys, not host keys.
+        // TODO(security): full @cert-authority host-certificate validation
+        // (verifying a server-presented certificate against the CA key) is out
+        // of scope; we only ensure a CA entry can't be mistaken for a regular
+        // host-key match here.
+        if entry.marker != Marker::None {
+            continue;
+        }
+
         if !entry_matches_host(entry, host, port) {
             continue;
         }
@@ -217,16 +281,16 @@ pub fn verify_host_key(host: &str, port: u16, key: &PublicKey) -> Result<HostKey
         // Same key type — compare key data
         if entry.key_type == incoming_type {
             if entry.key_data == incoming_b64 {
-                return Ok(HostKeyStatus::Trusted);
+                return HostKeyStatus::Trusted;
             } else {
                 // KEY CHANGED — potential MITM
                 let old_fp = fingerprint_from_base64(&entry.key_data);
-                return Ok(HostKeyStatus::Changed {
+                return HostKeyStatus::Changed {
                     old_fingerprint: old_fp,
                     new_fingerprint: incoming_fp,
                     key_type: incoming_type,
                     old_key_type: None,
-                });
+                };
             }
         } else {
             // Host matched but with a different key type — remember it
@@ -241,24 +305,30 @@ pub fn verify_host_key(host: &str, port: u16, key: &PublicKey) -> Result<HostKey
         // attacker-controlled key under a new algorithm. We therefore treat it
         // as a key change that requires explicit user verification — never auto-trust.
         let old_fp = fingerprint_from_base64(&entry.key_data);
-        Ok(HostKeyStatus::Changed {
+        HostKeyStatus::Changed {
             old_fingerprint: old_fp,
             new_fingerprint: incoming_fp,
             key_type: incoming_type,
             old_key_type: Some(entry.key_type.clone()),
-        })
+        }
     } else if !found_host {
         // Unknown host
-        Ok(HostKeyStatus::Unknown {
+        HostKeyStatus::Unknown {
             fingerprint: incoming_fp,
             key_type: incoming_type,
-        })
+        }
     } else {
         // Host was found with a matching key type — already returned early
         // inside the loop (Trusted or Changed). This branch is logically
         // unreachable, but Rust cannot prove it statically.
-        Ok(HostKeyStatus::Trusted)
+        HostKeyStatus::Trusted
     }
+}
+
+/// Verify a server's host key against the known_hosts database
+pub fn verify_host_key(host: &str, port: u16, key: &PublicKey) -> Result<HostKeyStatus, AppError> {
+    let db = load_known_hosts()?;
+    Ok(classify_host_key(&db, host, port, key))
 }
 
 // ─── Add Host Key ───────────────────────────────────────
@@ -293,6 +363,76 @@ pub fn add_host_key(host: &str, port: u16, key: &PublicKey) -> Result<(), AppErr
     Ok(())
 }
 
+/// Pure core of `update_host_key`: take the existing known_hosts contents,
+/// drop every PLAIN host-key line whose host matches `host:port`, preserve
+/// everything else (comments, blank lines, marker lines, other hosts), then
+/// append `new_entry_line`. No I/O — directly unit-testable.
+///
+/// Matching is hash-aware (Fix A): on systems with `HashKnownHosts yes`
+/// (Debian/Ubuntu default) the stored host_part is `|1|salt|hash`, which the
+/// old plaintext comma-split compare could never match — leaving the STALE
+/// hashed entry behind so `classify_host_key` could still match the superseded
+/// key and return Trusted, defeating the rotation. We now detect a hashed
+/// host_part and compare via `hashed_pattern_matches`.
+///
+/// Marker lines (`@revoked` / `@cert-authority`) are intentionally LEFT IN
+/// PLACE even when their host matches: a `@revoked` marker must survive a
+/// key-accept (the admin revoked a specific key; accepting a new one must not
+/// silently erase that revocation), and a `@cert-authority` line is a CA
+/// trust anchor, not a literal host key being rotated. Only plain host-key
+/// lines for the target host are removed.
+pub fn rewrite_known_hosts_contents(
+    contents: &str,
+    host: &str,
+    port: u16,
+    new_entry_line: &str,
+) -> String {
+    let pattern = format_host_pattern(host, port);
+    let mut out = String::new();
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+
+        // Preserve blank lines and comments verbatim.
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Preserve marker lines (@revoked / @cert-authority) regardless of host:
+        // revocations and CA anchors must outlive a key-accept.
+        if trimmed.starts_with('@') {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Drop plain host-key lines whose host_part matches the target host.
+        if let Some(host_part) = trimmed.split_whitespace().next() {
+            let matches = if host_part.starts_with("|1|") {
+                // Hashed host_part — recompute HMAC against the canonical pattern.
+                hashed_pattern_matches(host_part, &pattern)
+            } else {
+                // Plaintext host_part — keep the existing comma-split compare.
+                host_part.split(',').any(|h| h.trim() == pattern)
+            };
+            if matches {
+                continue; // Remove old entry for this host
+            }
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    // Append the new key entry.
+    out.push_str(new_entry_line);
+    out.push('\n');
+
+    out
+}
+
 /// Remove existing entries for a host and add the new key.
 /// Used when the user explicitly accepts a changed key.
 ///
@@ -318,33 +458,12 @@ pub fn update_host_key(host: &str, port: u16, key: &PublicKey) -> Result<(), App
 
     // Read existing content (if any), filter out old entries for this host,
     // append the new key, and write atomically via temp file + rename.
-    let mut new_contents = String::new();
-
-    if path.exists() {
-        let contents = std::fs::read_to_string(&path)?;
-        let pattern = format_host_pattern(host, port);
-
-        for line in contents.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                new_contents.push_str(line);
-                new_contents.push('\n');
-                continue;
-            }
-            // Check if this line's host pattern matches — if so, skip it
-            if let Some(host_part) = trimmed.split_whitespace().next() {
-                if host_part.split(',').any(|h| h.trim() == pattern) {
-                    continue; // Remove old entry for this host
-                }
-            }
-            new_contents.push_str(line);
-            new_contents.push('\n');
-        }
-    }
-
-    // Append the new key entry
-    new_contents.push_str(&new_entry_line);
-    new_contents.push('\n');
+    let existing = if path.exists() {
+        std::fs::read_to_string(&path)?
+    } else {
+        String::new()
+    };
+    let new_contents = rewrite_known_hosts_contents(&existing, host, port, &new_entry_line);
 
     // Atomic write: write to a temp file in the same directory, then rename.
     // rename() on the same filesystem is atomic on POSIX systems.
@@ -394,6 +513,7 @@ mod tests {
     #[test]
     fn entry_matches_plain_host() {
         let entry = KnownHostEntry {
+            marker: Marker::None,
             host_pattern: "example.com".to_string(),
             key_type: "ssh-ed25519".to_string(),
             key_data: "AAAA".to_string(),
@@ -406,6 +526,7 @@ mod tests {
     #[test]
     fn entry_matches_with_port() {
         let entry = KnownHostEntry {
+            marker: Marker::None,
             host_pattern: "[example.com]:2222".to_string(),
             key_type: "ssh-ed25519".to_string(),
             key_data: "AAAA".to_string(),
@@ -418,6 +539,7 @@ mod tests {
     #[test]
     fn entry_matches_comma_separated() {
         let entry = KnownHostEntry {
+            marker: Marker::None,
             host_pattern: "example.com,192.168.1.1".to_string(),
             key_type: "ssh-rsa".to_string(),
             key_data: "AAAA".to_string(),
@@ -472,6 +594,7 @@ mod tests {
         let host_pattern = format!("|1|{}|{}", engine.encode(salt), engine.encode(digest));
 
         let entry = KnownHostEntry {
+            marker: Marker::None,
             host_pattern,
             key_type: "ssh-ed25519".to_string(),
             key_data: "AAAA".to_string(),
@@ -504,6 +627,7 @@ mod tests {
 
         // And end-to-end through entry_matches_host (port 22 canonical form).
         let entry = KnownHostEntry {
+            marker: Marker::None,
             host_pattern: pattern.to_string(),
             key_type: "ssh-ed25519".to_string(),
             key_data: "AAAA".to_string(),
@@ -526,5 +650,260 @@ mod tests {
         // Third part includes key + comment
         let key_data = parts[2].split_whitespace().next().unwrap();
         assert_eq!(key_data, "AAAAC3NzaC1lZDI1NTE5AAAAITest");
+    }
+
+    // ─── Test helpers: deterministic Ed25519 keys ──────────
+
+    /// Build a deterministic Ed25519 `PublicKey` from a fixed 32-byte seed.
+    /// Same seed → same key, so tests are reproducible and two different seeds
+    /// yield two genuinely different keys (real crypto, not stubs).
+    fn ed25519_pubkey(seed: [u8; 32]) -> PublicKey {
+        use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
+        use ssh_key::public::Ed25519PublicKey;
+
+        let private = Ed25519PrivateKey::from_bytes(&seed);
+        let keypair = Ed25519Keypair::from(private);
+        PublicKey::from(Ed25519PublicKey::from(&keypair))
+    }
+
+    /// The canonical base64 wire encoding of a key, as stored in known_hosts.
+    fn key_b64(key: &PublicKey) -> String {
+        use base64::Engine;
+        let bytes = key.to_bytes().unwrap();
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    }
+
+    // ─── parse_known_hosts_str: markers ────────────────────
+
+    #[test]
+    fn parse_recognizes_revoked_marker() {
+        let key = ed25519_pubkey([7u8; 32]);
+        let line = format!("@revoked example.com ssh-ed25519 {}\n", key_b64(&key));
+
+        let db = parse_known_hosts_str(&line);
+        assert_eq!(db.entries.len(), 1);
+        let e = &db.entries[0];
+        assert_eq!(e.marker, Marker::Revoked);
+        assert_eq!(e.host_pattern, "example.com");
+        assert_eq!(e.key_type, "ssh-ed25519");
+        assert_eq!(e.key_data, key_b64(&key));
+        assert!(!e.is_hashed);
+    }
+
+    #[test]
+    fn parse_recognizes_cert_authority_marker() {
+        let key = ed25519_pubkey([8u8; 32]);
+        let line = format!(
+            "@cert-authority *.example.com ssh-ed25519 {}\n",
+            key_b64(&key)
+        );
+
+        let db = parse_known_hosts_str(&line);
+        assert_eq!(db.entries.len(), 1);
+        let e = &db.entries[0];
+        assert_eq!(e.marker, Marker::CertAuthority);
+        assert_eq!(e.host_pattern, "*.example.com");
+        assert_eq!(e.key_data, key_b64(&key));
+    }
+
+    #[test]
+    fn parse_plain_entry_has_no_marker() {
+        let key = ed25519_pubkey([9u8; 32]);
+        let line = format!("example.com ssh-ed25519 {}\n", key_b64(&key));
+        let db = parse_known_hosts_str(&line);
+        assert_eq!(db.entries.len(), 1);
+        assert_eq!(db.entries[0].marker, Marker::None);
+    }
+
+    // ─── Fix B: classify_host_key honors @revoked ──────────
+
+    #[test]
+    fn classify_revoked_key_returns_revoked() {
+        let key = ed25519_pubkey([1u8; 32]);
+        let line = format!("@revoked example.com ssh-ed25519 {}\n", key_b64(&key));
+        let db = parse_known_hosts_str(&line);
+
+        // Same host + same key as the @revoked entry → Revoked (no prompt).
+        let status = classify_host_key(&db, "example.com", 22, &key);
+        assert!(
+            matches!(status, HostKeyStatus::Revoked),
+            "expected Revoked, got {status:?}"
+        );
+    }
+
+    #[test]
+    fn classify_revoked_different_key_is_not_revoked() {
+        // @revoked covers a SPECIFIC key; a different key for the same host is
+        // not revoked — it should be Unknown (promptable), not silently rejected.
+        let revoked_key = ed25519_pubkey([1u8; 32]);
+        let other_key = ed25519_pubkey([2u8; 32]);
+        let line = format!(
+            "@revoked example.com ssh-ed25519 {}\n",
+            key_b64(&revoked_key)
+        );
+        let db = parse_known_hosts_str(&line);
+
+        let status = classify_host_key(&db, "example.com", 22, &other_key);
+        assert!(
+            matches!(status, HostKeyStatus::Unknown { .. }),
+            "expected Unknown, got {status:?}"
+        );
+    }
+
+    #[test]
+    fn classify_cert_authority_is_not_trusted_host_key() {
+        // A server presenting the exact CA key must NOT be auto-Trusted: a CA
+        // entry is a signing anchor, not a literal host key. It stays Unknown
+        // (and must not panic).
+        let ca_key = ed25519_pubkey([3u8; 32]);
+        let line = format!(
+            "@cert-authority example.com ssh-ed25519 {}\n",
+            key_b64(&ca_key)
+        );
+        let db = parse_known_hosts_str(&line);
+
+        let status = classify_host_key(&db, "example.com", 22, &ca_key);
+        assert!(
+            matches!(status, HostKeyStatus::Unknown { .. }),
+            "CA key must not be Trusted/Changed, got {status:?}"
+        );
+    }
+
+    #[test]
+    fn classify_revocation_wins_over_trusted_entry() {
+        // File has BOTH a normal trusted entry AND a @revoked entry for the same
+        // host + same key. Revocation must take precedence over Trusted.
+        let key = ed25519_pubkey([4u8; 32]);
+        let b64 = key_b64(&key);
+        let contents =
+            format!("example.com ssh-ed25519 {b64}\n@revoked example.com ssh-ed25519 {b64}\n");
+        let db = parse_known_hosts_str(&contents);
+
+        let status = classify_host_key(&db, "example.com", 22, &key);
+        assert!(
+            matches!(status, HostKeyStatus::Revoked),
+            "revocation must win over Trusted, got {status:?}"
+        );
+    }
+
+    #[test]
+    fn classify_plain_trusted_still_works() {
+        // Regression: a normal trusted entry still classifies as Trusted.
+        let key = ed25519_pubkey([5u8; 32]);
+        let line = format!("example.com ssh-ed25519 {}\n", key_b64(&key));
+        let db = parse_known_hosts_str(&line);
+
+        assert!(matches!(
+            classify_host_key(&db, "example.com", 22, &key),
+            HostKeyStatus::Trusted
+        ));
+    }
+
+    // ─── Fix A: hash-aware rewrite on accepted key change ──
+
+    /// Build a hashed host_part `|1|salt|hash` for a canonical host string,
+    /// mirroring OpenSSH's HashKnownHosts (HMAC-SHA1 over the canonical name).
+    fn hashed_host_part(canonical: &str, salt: &[u8]) -> String {
+        use base64::Engine;
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let mut mac = Hmac::<Sha1>::new_from_slice(salt).unwrap();
+        mac.update(canonical.as_bytes());
+        let digest = mac.finalize().into_bytes();
+        format!("|1|{}|{}", engine.encode(salt), engine.encode(digest))
+    }
+
+    #[test]
+    fn rewrite_removes_stale_hashed_entry_on_key_change() {
+        // Simulate a Debian/Ubuntu HashKnownHosts file: the OLD key for
+        // example.com is stored under a HASHED host_part. The user accepts a
+        // NEW key. After rewrite, the stale hashed line MUST be gone and the
+        // host MUST classify as Trusted against the NEW key only.
+        let old_key = ed25519_pubkey([10u8; 32]);
+        let new_key = ed25519_pubkey([11u8; 32]);
+
+        let hashed = hashed_host_part("example.com", b"some-fixed-salt!");
+        let old_contents = format!("{hashed} ssh-ed25519 {}\n", key_b64(&old_key));
+
+        let new_line = format!("example.com ssh-ed25519 {}", key_b64(&new_key));
+        let rewritten = rewrite_known_hosts_contents(&old_contents, "example.com", 22, &new_line);
+
+        // New line present.
+        assert!(rewritten.contains(&new_line), "rewritten:\n{rewritten}");
+        // Stale hashed line gone.
+        assert!(
+            !rewritten.contains(&hashed),
+            "stale hashed entry survived rewrite:\n{rewritten}"
+        );
+
+        // And it actually classifies correctly: new key Trusted, old key NOT
+        // Trusted (would be Changed since same type, different data).
+        let db = parse_known_hosts_str(&rewritten);
+        assert!(matches!(
+            classify_host_key(&db, "example.com", 22, &new_key),
+            HostKeyStatus::Trusted
+        ));
+        assert!(
+            !matches!(
+                classify_host_key(&db, "example.com", 22, &old_key),
+                HostKeyStatus::Trusted
+            ),
+            "old key must no longer be Trusted after rotation"
+        );
+    }
+
+    #[test]
+    fn rewrite_removes_plaintext_entry_regression() {
+        // Regression: plaintext entries are still removed (original behavior).
+        let old_key = ed25519_pubkey([12u8; 32]);
+        let new_key = ed25519_pubkey([13u8; 32]);
+        let old_contents = format!("example.com ssh-ed25519 {}\n", key_b64(&old_key));
+        let new_line = format!("example.com ssh-ed25519 {}", key_b64(&new_key));
+
+        let rewritten = rewrite_known_hosts_contents(&old_contents, "example.com", 22, &new_line);
+        assert!(rewritten.contains(&new_line));
+        assert!(!rewritten.contains(&key_b64(&old_key)));
+    }
+
+    #[test]
+    fn rewrite_preserves_comments_blank_lines_and_other_hosts() {
+        let new_key = ed25519_pubkey([14u8; 32]);
+        let other_key = ed25519_pubkey([15u8; 32]);
+        let target_old = ed25519_pubkey([16u8; 32]);
+
+        let other_line = format!("other.com ssh-ed25519 {}", key_b64(&other_key));
+        let old_contents = format!(
+            "# a comment\n\nexample.com ssh-ed25519 {}\n{other_line}\n",
+            key_b64(&target_old)
+        );
+        let new_line = format!("example.com ssh-ed25519 {}", key_b64(&new_key));
+
+        let rewritten = rewrite_known_hosts_contents(&old_contents, "example.com", 22, &new_line);
+        assert!(rewritten.contains("# a comment"));
+        assert!(
+            rewritten.contains(&other_line),
+            "other host dropped:\n{rewritten}"
+        );
+        assert!(rewritten.contains(&new_line));
+        assert!(!rewritten.contains(&key_b64(&target_old)));
+    }
+
+    #[test]
+    fn rewrite_preserves_revoked_marker_for_same_host() {
+        // A @revoked marker for the target host must SURVIVE a key-accept:
+        // accepting a new key must not silently erase an admin's revocation.
+        let revoked_key = ed25519_pubkey([17u8; 32]);
+        let new_key = ed25519_pubkey([18u8; 32]);
+        let revoked_line = format!("@revoked example.com ssh-ed25519 {}", key_b64(&revoked_key));
+        let old_contents = format!("{revoked_line}\n");
+        let new_line = format!("example.com ssh-ed25519 {}", key_b64(&new_key));
+
+        let rewritten = rewrite_known_hosts_contents(&old_contents, "example.com", 22, &new_line);
+        assert!(
+            rewritten.contains(&revoked_line),
+            "@revoked marker erased by rewrite:\n{rewritten}"
+        );
+        assert!(rewritten.contains(&new_line));
     }
 }
