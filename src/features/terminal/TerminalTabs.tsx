@@ -30,15 +30,20 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
     useSessionStore();
   const { closeTerminal } = useTerminal();
 
+  // Read session — may be undefined after disconnect/session-switch.
+  // ALL hooks must run unconditionally before any early return so the
+  // hook count stays stable across renders (Rules of Hooks).
   const session = sessions.get(sessionId);
-  if (!session) return null;
 
-  const { terminals, activeTerminalId } = session;
+  // Null-safe derived values — used by hooks below
+  const terminals = session?.terminals ?? [];
+  const activeTerminalId = session?.activeTerminalId;
 
   // Connection info for the info bar
   const hostLabel = useMemo(
-    () => `${session.username}@${session.host}`,
-    [session.username, session.host],
+    () => (session ? `${session.username}@${session.host}` : ""),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session?.username, session?.host],
   );
 
   // Tick elapsed time every 30s
@@ -47,7 +52,7 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
     const interval = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(interval);
   }, []);
-  const elapsed = formatElapsed(session.connectedAt);
+  const elapsed = session ? formatElapsed(session.connectedAt) : "";
 
   // Derive next label number from existing labels to avoid gaps
   const getNextTerminalNumber = useCallback((): number => {
@@ -67,6 +72,7 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
   // destroying the xterm.js DOM container and leaving the screen blank.
   const autoCreatedRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!session) return;
     if (terminals.length === 0 && autoCreatedRef.current !== sessionId) {
       autoCreatedRef.current = sessionId;
       const stableKey = crypto.randomUUID();
@@ -78,7 +84,7 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
         reactKey: stableKey,
       });
     }
-  }, [terminals.length, sessionId, addTerminalTab]);
+  }, [session, terminals.length, sessionId, addTerminalTab]);
 
   const handleNewTab = useCallback(async () => {
     const nextNum = getNextTerminalNumber();
@@ -103,6 +109,9 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
   );
 
   const tabBarRef = useRef<HTMLDivElement>(null);
+
+  // All hooks have run — safe to early-return now
+  if (!session) return null;
 
   return (
     <div className="terminal-tabs">
