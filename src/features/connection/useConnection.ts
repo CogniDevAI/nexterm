@@ -7,6 +7,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { tauriInvoke } from "../../lib/tauri";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useProfileStore } from "../../stores/profileStore";
+import { useTerminal } from "../terminal/useTerminal";
 import type {
   SessionId,
   SessionState,
@@ -39,6 +40,7 @@ interface UseConnectionReturn {
 export function useConnection(): UseConnectionReturn {
   const { addSession, removeSession, updateSessionState } = useSessionStore();
   const { storeCredential } = useProfileStore();
+  const { disposeSessionTerminals } = useTerminal();
 
   const [connecting, setConnecting] = useState(false);
   // H6 fix: Use a ref for the connecting guard so the double-connect check
@@ -169,12 +171,15 @@ export function useConnection(): UseConnectionReturn {
     async (sessionId: string) => {
       try {
         await tauriInvoke<void>("disconnect", { sessionId });
+        // Dispose xterm.js instances BEFORE removing the session from the store
+        // so any remaining references are cleaned up first (PTY leak fix).
+        disposeSessionTerminals(sessionId);
         removeSession(sessionId);
       } catch (err) {
         setConnectError(String(err));
       }
     },
-    [removeSession],
+    [removeSession, disposeSessionTerminals],
   );
 
   const respondHostKey = useCallback(
