@@ -6,6 +6,7 @@
 use serde::Serialize;
 use tauri::{Manager, State};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::error::AppError;
 use crate::state::AppState;
@@ -194,7 +195,7 @@ pub fn get_credential_from_vault(
     profile_id: &Uuid,
     user_id: Option<&Uuid>,
     credential_type: &str,
-) -> Result<Option<String>, AppError> {
+) -> Result<Option<Zeroizing<String>>, AppError> {
     let key = vault_key(profile_id, user_id, credential_type);
 
     // Try new-format key first

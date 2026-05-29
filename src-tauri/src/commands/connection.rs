@@ -543,7 +543,7 @@ pub async fn test_connection(
     let result: Result<TestConnectionResult, AppError> = match auth {
         Some(session::AuthMethod::Password(pw)) => {
             let authenticated = ssh_handle
-                .authenticate_password(&username, &pw)
+                .authenticate_password(&username, &*pw)
                 .await
                 .map_err(AppError::Ssh)?;
             if authenticated {

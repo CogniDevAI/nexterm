@@ -30,8 +30,12 @@ const MAX_KEEPALIVE_FAILURES: usize = 3;
 
 /// Authentication method for runtime use (not persisted)
 pub enum AuthMethod {
-    Password(String),
-    PublicKey { key: Box<ssh_key::PrivateKey> },
+    /// Plaintext password held in `Zeroizing` so it is wiped from the heap when
+    /// the auth attempt completes (success or failure) and the value is dropped.
+    Password(zeroize::Zeroizing<String>),
+    PublicKey {
+        key: Box<ssh_key::PrivateKey>,
+    },
 }
 
 // ─── Connect ────────────────────────────────────────────
@@ -148,7 +152,7 @@ pub async fn authenticate(
 
     let authenticated = match auth {
         AuthMethod::Password(password) => ssh
-            .authenticate_password(username, &password)
+            .authenticate_password(username, &*password)
             .await
             .map_err(AppError::Ssh)?,
         AuthMethod::PublicKey { key } => {
@@ -191,7 +195,9 @@ pub fn resolve_auth_method(
         AuthMethodConfig::Password => {
             // Prefer explicitly-provided password
             if let Some(pw) = password {
-                return Ok(Some(AuthMethod::Password(pw.to_string())));
+                return Ok(Some(AuthMethod::Password(zeroize::Zeroizing::new(
+                    pw.to_string(),
+                ))));
             }
             // Fall back to vault
             if let Some(v) = vault {
@@ -233,7 +239,13 @@ pub fn resolve_auth_method(
                                     "passphrase",
                                 )?
                             {
-                                let key = keys::load_private_key(&path, Some(&passphrase))?;
+                                // `passphrase` is a `Zeroizing<String>`; pass it as
+                                // `&str` (deref coercion does not reach through
+                                // `Option`, so call `.as_str()` explicitly), then
+                                // drop it so the plaintext is wiped from the heap
+                                // immediately after the key is decrypted.
+                                let key = keys::load_private_key(&path, Some(passphrase.as_str()))?;
+                                drop(passphrase);
                                 return Ok(Some(AuthMethod::PublicKey { key: Box::new(key) }));
                             }
                         }

@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use ssh_key::PrivateKey;
+use zeroize::Zeroizing;
 
 use crate::error::AppError;
 
@@ -28,9 +29,12 @@ pub fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<Private
         )));
     }
 
-    let key_data = std::fs::read_to_string(path).map_err(|e| {
+    // Read the key file into a `Zeroizing` buffer so the raw key material
+    // (private key bytes, possibly an encrypted blob) is wiped from the heap
+    // when this function returns rather than lingering in a bare `String`.
+    let key_data = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
         AppError::KeyError(format!("Failed to read key file {}: {e}", path.display()))
-    })?;
+    })?);
 
     let key = if let Some(passphrase) = passphrase {
         PrivateKey::from_openssh(key_data.as_bytes())

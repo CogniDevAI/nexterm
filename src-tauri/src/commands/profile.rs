@@ -291,7 +291,10 @@ pub async fn export_profiles(
                         "password",
                     ) {
                         if j < exported[i].users.len() {
-                            exported[i].users[j].password = Some(password);
+                            // `password` is a `Zeroizing<String>`; the export format
+                            // requires a plain `String`, so deref into one here (the
+                            // export path intentionally materializes plaintext).
+                            exported[i].users[j].password = Some(password.to_string());
                         }
                     }
                 }

@@ -313,11 +313,15 @@ impl Vault {
     }
 
     /// Get a credential (decrypt from memory).
-    pub fn get(&self, key: &str) -> Result<Option<String>, AppError> {
+    ///
+    /// The decrypted plaintext is returned wrapped in `Zeroizing` so it is
+    /// wiped from the heap when the caller drops it. Callers should keep it
+    /// wrapped for as long as possible and avoid copying it into bare `String`s.
+    pub fn get(&self, key: &str) -> Result<Option<Zeroizing<String>>, AppError> {
         match self.credentials.get(key) {
             Some(encrypted) => {
                 let plaintext = self.decrypt(encrypted)?;
-                Ok(Some(plaintext))
+                Ok(Some(Zeroizing::new(plaintext)))
             }
             None => Ok(None),
         }
@@ -549,7 +553,7 @@ mod tests {
         let vault = Vault::unlock(dir.path(), "correct-horse").unwrap();
         assert!(vault.is_unlocked());
         assert_eq!(
-            vault.get("p1:password").unwrap(),
+            vault.get("p1:password").unwrap().map(|z| z.to_string()),
             Some("s3cr3t".to_string())
         );
     }
@@ -621,7 +625,7 @@ mod tests {
         // Correct password unlocks and decrypts the credential.
         let vault = Vault::unlock(dir.path(), password).unwrap();
         assert_eq!(
-            vault.get("p1:password").unwrap(),
+            vault.get("p1:password").unwrap().map(|z| z.to_string()),
             Some(plaintext.to_string())
         );
         drop(vault);
@@ -635,7 +639,7 @@ mod tests {
         // And it still opens with the correct password after migration.
         let reopened = Vault::unlock(dir.path(), password).unwrap();
         assert_eq!(
-            reopened.get("p1:password").unwrap(),
+            reopened.get("p1:password").unwrap().map(|z| z.to_string()),
             Some(plaintext.to_string())
         );
     }
@@ -671,7 +675,7 @@ mod tests {
         // New password works and credential survives.
         let vault = Vault::unlock(dir.path(), "new-pass").unwrap();
         assert_eq!(
-            vault.get("p1:password").unwrap(),
+            vault.get("p1:password").unwrap().map(|z| z.to_string()),
             Some("s3cr3t".to_string())
         );
     }
