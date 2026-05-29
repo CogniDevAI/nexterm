@@ -894,6 +894,27 @@ pub async fn download_to_path_with_progress(
 
 // ─── Recursive Folder Download ──────────────────────────
 
+/// Returns true iff `name` is a safe single local path component — i.e. it
+/// cannot be used to escape the download root. Rejects empty, "." / "..",
+/// names containing '/' or '\\', absolute paths, and OS path prefixes.
+/// `entry.name` comes from the (untrusted) remote server, so every name
+/// must pass this before being joined onto a local path.
+fn is_safe_component(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') {
+        return false;
+    }
+    // Must be exactly one normal path component equal to the original name
+    // (rejects absolute paths, Windows drive prefixes, etc.).
+    let mut comps = std::path::Path::new(name).components();
+    match (comps.next(), comps.next()) {
+        (Some(std::path::Component::Normal(c)), None) => c.to_str() == Some(name),
+        _ => false,
+    }
+}
+
 /// Walk a remote directory tree and collect every dir/file pair to mirror locally.
 ///
 /// Returns `(dirs, files, total_bytes)` where:
@@ -902,6 +923,8 @@ pub async fn download_to_path_with_progress(
 /// - `total_bytes` is the sum of file sizes — used as the aggregate progress denominator
 ///
 /// Symlinks and other non-regular entries are skipped to avoid loops and ambiguity.
+/// Entry names that cannot be safely mapped to a local path component are also skipped
+/// (with a warning) to guard against path-traversal attacks from malicious SFTP servers.
 async fn walk_remote_dir(
     sftp: &SftpSession,
     remote_root: &str,
@@ -924,6 +947,21 @@ async fn walk_remote_dir(
         dirs.push(ldir.clone());
         let entries = list_dir(sftp, &rdir).await?;
         for entry in entries {
+            // Silently skip "." and ".." — normally filtered by list_dir, but
+            // guard here as well for defense-in-depth.
+            if entry.name == "." || entry.name == ".." {
+                continue;
+            }
+            // Reject any name that cannot be safely used as a local path component.
+            // A malicious SFTP server could supply names like "../../../.ssh/authorized_keys"
+            // or "/etc/cron.d/evil" to escape the chosen download directory.
+            if !is_safe_component(&entry.name) {
+                tracing::warn!(
+                    "Skipping unsafe entry name from server: {:?}",
+                    entry.name
+                );
+                continue;
+            }
             let local_child = ldir.join(&entry.name);
             match entry.file_type {
                 FileType::Directory => {
@@ -1164,5 +1202,41 @@ mod tests {
     fn format_permissions_sticky_no_exec() {
         let perms = format_unix_permissions(0o1666, &FileType::Directory);
         assert_eq!(perms, "drw-rw-rwT");
+    }
+
+    // ── is_safe_component tests ──────────────────────────────────────────────
+
+    #[test]
+    fn is_safe_component_accepts_normal_names() {
+        assert!(is_safe_component("file.txt"));
+        assert!(is_safe_component("normal_name-1"));
+        assert!(is_safe_component("a.tar.gz"));
+        assert!(is_safe_component(".hidden"));
+        assert!(is_safe_component("..."));
+    }
+
+    #[test]
+    fn is_safe_component_rejects_dot_entries() {
+        assert!(!is_safe_component(""));
+        assert!(!is_safe_component("."));
+        assert!(!is_safe_component(".."));
+    }
+
+    #[test]
+    fn is_safe_component_rejects_traversal() {
+        assert!(!is_safe_component("../etc"));
+        assert!(!is_safe_component("../../.ssh/authorized_keys"));
+        assert!(!is_safe_component("..\\..\\x"));
+    }
+
+    #[test]
+    fn is_safe_component_rejects_absolute() {
+        assert!(!is_safe_component("/etc/passwd"));
+    }
+
+    #[test]
+    fn is_safe_component_rejects_separators() {
+        assert!(!is_safe_component("a/b"));
+        assert!(!is_safe_component("a\\b"));
     }
 }
