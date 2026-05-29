@@ -37,6 +37,35 @@ use crate::state::{
 /// Type alias for the shared sessions map (same as AppState.sessions, but Arc-wrapped)
 pub type SharedSessions = Arc<Mutex<HashMap<SessionId, SessionHandle>>>;
 
+/// Resolve the bind host for a local forward, defaulting to loopback.
+///
+/// Security: a local forward tunnels into the *remote* network. An unspecified
+/// bind host must NOT default to a world-/LAN-exposed address. When `bind_host`
+/// is empty or whitespace we bind `127.0.0.1`; otherwise we use the trimmed
+/// value verbatim (legitimate non-loopback binds are still allowed — see the
+/// warning emitted in `start_local_forward`).
+fn resolve_bind_host(bind_host: &str) -> String {
+    let trimmed = bind_host.trim();
+    if trimmed.is_empty() {
+        "127.0.0.1".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Returns true when `addr` is a loopback bind address (`127.0.0.0/8`, `::1`,
+/// or the literal `localhost`). Used to decide whether to warn that a local
+/// forward is exposed beyond the local machine.
+fn is_loopback_bind(addr: &str) -> bool {
+    if addr.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    match addr.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
 /// Start a local port forward (-L style).
 ///
 /// Binds a TCP listener on `config.bind_host:config.bind_port`.
@@ -58,8 +87,24 @@ pub async fn start_local_forward(
     let bytes_in = Arc::new(AtomicU64::new(0));
     let bytes_out = Arc::new(AtomicU64::new(0));
 
+    // Resolve the bind host: an empty/unset bind defaults to loopback so the
+    // forward is never silently exposed to the LAN. A non-loopback bind is
+    // allowed (legitimate use exists) but warned about, since a local forward
+    // tunnels into the remote network.
+    let bind_host = resolve_bind_host(&config.bind_host);
+    if !is_loopback_bind(&bind_host) {
+        tracing::warn!(
+            "Local tunnel {tunnel_id}: binding to non-loopback address '{bind_host}' exposes \
+             a tunnel into the remote network ({}:{}) to the local machine's network \
+             (e.g. 0.0.0.0 exposes it to the whole LAN). Bind 127.0.0.1 to restrict it to \
+             this machine.",
+            config.target_host,
+            config.target_port
+        );
+    }
+
     // Bind the local listener
-    let bind_addr = format!("{}:{}", config.bind_host, config.bind_port);
+    let bind_addr = format!("{}:{}", bind_host, config.bind_port);
     let listener = TcpListener::bind(&bind_addr).await.map_err(|e| {
         if e.kind() == std::io::ErrorKind::AddrInUse {
             AppError::TunnelError(format!("Port {} already in use", config.bind_port))
@@ -694,5 +739,36 @@ mod tests {
         // Subtracting more than the current value saturates to 0
         assert_eq!(atomic_saturating_sub(&counter, 100), 0);
         assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn resolve_bind_host_defaults_empty_to_loopback() {
+        assert_eq!(resolve_bind_host(""), "127.0.0.1");
+        assert_eq!(resolve_bind_host("   "), "127.0.0.1");
+    }
+
+    #[test]
+    fn resolve_bind_host_preserves_explicit_values() {
+        assert_eq!(resolve_bind_host("0.0.0.0"), "0.0.0.0");
+        assert_eq!(resolve_bind_host("127.0.0.1"), "127.0.0.1");
+        assert_eq!(resolve_bind_host("192.168.1.5"), "192.168.1.5");
+        // Surrounding whitespace is trimmed
+        assert_eq!(resolve_bind_host("  192.168.1.5  "), "192.168.1.5");
+    }
+
+    #[test]
+    fn is_loopback_bind_true_for_loopback_addresses() {
+        assert!(is_loopback_bind("127.0.0.1"));
+        assert!(is_loopback_bind("127.0.0.5"));
+        assert!(is_loopback_bind("::1"));
+        assert!(is_loopback_bind("localhost"));
+    }
+
+    #[test]
+    fn is_loopback_bind_false_for_exposed_addresses() {
+        assert!(!is_loopback_bind("0.0.0.0"));
+        assert!(!is_loopback_bind("192.168.1.5"));
+        assert!(!is_loopback_bind("::"));
+        assert!(!is_loopback_bind(""));
     }
 }
