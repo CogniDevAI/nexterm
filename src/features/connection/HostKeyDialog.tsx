@@ -116,14 +116,14 @@ export function HostKeyDialog({ open, request, onRespond }: HostKeyDialogProps) 
     ? request.host
     : `${request.host}:${request.port}`;
 
-  // ─── CHANGED (different key type): Benign algorithm upgrade ──
+  // ─── CHANGED (different key type): Dangerous — key type AND fingerprint differ ──
   if (isChanged && request.status.type === "changed" && request.status.oldKeyType) {
     return (
       <div className="hk-overlay" onClick={() => onRespond("reject")}>
-        <div className="hk-modal hk-modal-warning" onClick={(e) => e.stopPropagation()}>
+        <div className="hk-modal hk-modal-danger" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
-          <div className="hk-header hk-header-warning">
-            <div className="hk-header-icon hk-icon-warning">
+          <div className="hk-header hk-header-danger">
+            <div className="hk-header-icon hk-icon-danger">
               <ShieldAlertIcon />
             </div>
             <div className="hk-header-text">
@@ -131,12 +131,12 @@ export function HostKeyDialog({ open, request, onRespond }: HostKeyDialogProps) 
             </div>
           </div>
 
-          {/* Info banner — softer warning */}
-          <div className="hk-warning-banner">
-            <p className="hk-warning-text">
+          {/* Danger banner */}
+          <div className="hk-danger-banner">
+            <p className="hk-danger-text">
               {t("hostKey.keyTypeChangedWarning", { host: hostStr })}
             </p>
-            <p className="hk-warning-advice">
+            <p className="hk-danger-advice">
               {t("hostKey.keyTypeChangedAdvice")}
             </p>
           </div>
@@ -170,21 +170,21 @@ export function HostKeyDialog({ open, request, onRespond }: HostKeyDialogProps) 
             </div>
           </div>
 
-          {/* Actions — primary is Accept since this is generally benign */}
+          {/* Actions — safe default is Disconnect */}
           <div className="hk-actions">
             <button
-              className="hk-btn hk-btn-ghost"
-              onClick={() => onRespond("reject")}
-              type="button"
-            >
-              {t("hostKey.disconnect")}
-            </button>
-            <button
-              className="hk-btn hk-btn-primary"
+              className="hk-btn hk-btn-danger-outline"
               onClick={() => onRespond("acceptAndSave")}
               type="button"
             >
               {t("hostKey.acceptNewKey")}
+            </button>
+            <button
+              className="hk-btn hk-btn-primary"
+              onClick={() => onRespond("reject")}
+              type="button"
+            >
+              {t("hostKey.disconnect")}
             </button>
           </div>
         </div>

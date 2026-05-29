@@ -208,7 +208,11 @@ pub fn verify_host_key(host: &str, port: u16, key: &PublicKey) -> Result<HostKey
     }
 
     if let Some(entry) = different_type_entry {
-        // Host exists but with different key type — generally benign (algorithm upgrade)
+        // Host exists but the server now presents a key of a DIFFERENT type than
+        // the one we trusted. While this can be a legitimate algorithm upgrade
+        // (e.g. ssh-rsa → ssh-ed25519), it can EQUALLY be a MITM presenting an
+        // attacker-controlled key under a new algorithm. We therefore treat it
+        // as a key change that requires explicit user verification — never auto-trust.
         let old_fp = fingerprint_from_base64(&entry.key_data);
         Ok(HostKeyStatus::Changed {
             old_fingerprint: old_fp,
