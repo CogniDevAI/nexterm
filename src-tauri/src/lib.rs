@@ -64,6 +64,7 @@ pub fn run() {
             commands::connection::get_session_state,
             commands::connection::respond_host_key_verification,
             commands::connection::test_connection,
+            commands::connection::list_ssh_keys,
             // Terminal
             commands::terminal::open_terminal,
             commands::terminal::write_terminal,

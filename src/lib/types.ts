@@ -202,6 +202,16 @@ export interface TestConnectionResult {
   message: string;
 }
 
+// ─── SSH Key Discovery ───────────────────────────────
+
+/** Mirrors ssh/keys.rs KeyInfo (serde camelCase) */
+export interface KeyInfo {
+  path: string;
+  keyType: string;
+  isEncrypted: boolean;
+  comment: string | null;
+}
+
 // ─── Search Result (SFTP recursive search) ──────────
 
 export interface SearchResult {

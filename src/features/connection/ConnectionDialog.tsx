@@ -11,7 +11,7 @@ import { useProfileStore } from "../../stores/profileStore";
 import { tauriInvoke } from "../../lib/tauri";
 import { DEFAULT_SSH_PORT } from "../../lib/constants";
 import { useI18n } from "../../lib/i18n";
-import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult } from "../../lib/types";
+import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult, KeyInfo } from "../../lib/types";
 import { classifyTestResult, type TestTone } from "./testResult";
 
 interface ConnectionDialogProps {
@@ -100,6 +100,8 @@ export function ConnectionDialog({
   // Per-user test state
   const [testingUser, setTestingUser] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { tone: TestTone; message: string }>>({});
+  // Discovered SSH keys for the key picker dropdown
+  const [availableKeys, setAvailableKeys] = useState<KeyInfo[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -117,6 +119,15 @@ export function ConnectionDialog({
       setTestResults({});
     }
   }, [open, editProfileId, profiles]);
+
+  // Pre-fetch available SSH keys independently of profile changes.
+  // Separated to avoid re-running when `profiles` reference changes on save.
+  useEffect(() => {
+    if (!open) return;
+    void tauriInvoke<KeyInfo[]>("list_ssh_keys")
+      .then(setAvailableKeys)
+      .catch(() => setAvailableKeys([]));
+  }, [open]);
 
   // ─── User management helpers ─────────────────────────
 
@@ -138,6 +149,10 @@ export function ConnectionDialog({
     let authMethod: AuthMethodConfig;
     if (type === "publicKey") {
       authMethod = { type: "publicKey", privateKeyPath: "", passphraseInKeychain: false };
+      // Fetch (or refresh) available keys when switching to publicKey auth
+      void tauriInvoke<KeyInfo[]>("list_ssh_keys")
+        .then(setAvailableKeys)
+        .catch(() => setAvailableKeys([]));
     } else if (type === "keyboardInteractive") {
       authMethod = { type: "keyboardInteractive" };
     } else {
@@ -414,24 +429,73 @@ export function ConnectionDialog({
                       placeholder={t("connection.passwordPlaceholder")}
                     />
                   ) : (
-                    <input
-                      className={`cd-user-row-input ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
-                      value={user.authMethod.type === "publicKey" ? user.authMethod.privateKeyPath : ""}
-                      onChange={(e) => {
+                    // publicKey auth — dropdown picker + manual text fallback
+                    (() => {
+                      const currentPath =
+                        user.authMethod.type === "publicKey"
+                          ? user.authMethod.privateKeyPath
+                          : "";
+                      const passphraseInKeychain =
+                        user.authMethod.type === "publicKey"
+                          ? user.authMethod.passphraseInKeychain
+                          : false;
+                      // "other" means the current value is not in the list
+                      const isOther =
+                        currentPath !== "" &&
+                        !availableKeys.some((k) => k.path === currentPath);
+
+                      function setKeyPath(path: string) {
                         updateUser(user.id, {
                           authMethod: {
                             type: "publicKey",
-                            privateKeyPath: e.target.value,
-                            passphraseInKeychain:
-                              user.authMethod.type === "publicKey"
-                                ? user.authMethod.passphraseInKeychain
-                                : false,
+                            privateKeyPath: path,
+                            passphraseInKeychain,
                           },
                         });
-                      }}
-                      placeholder="~/.ssh/id_ed25519"
-                      spellCheck={false}
-                    />
+                      }
+
+                      return (
+                        <div className="cd-key-picker">
+                          <select
+                            data-testid="key-picker-select"
+                            className={`cd-user-row-input cd-key-picker-select ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
+                            value={isOther ? "__other__" : currentPath}
+                            onChange={(e) => {
+                              if (e.target.value === "__other__") {
+                                setKeyPath(currentPath || "");
+                              } else {
+                                setKeyPath(e.target.value);
+                              }
+                            }}
+                          >
+                            <option value="">
+                              {availableKeys.length === 0
+                                ? "~/.ssh/id_ed25519"
+                                : t("connection.privateKeyPath")}
+                            </option>
+                            {availableKeys.map((key) => (
+                              <option key={key.path} value={key.path}>
+                                {key.keyType}
+                                {key.comment ? ` — ${key.comment}` : ""}
+                                {key.isEncrypted ? " (encrypted)" : ""}
+                              </option>
+                            ))}
+                            <option value="__other__">Other…</option>
+                          </select>
+                          {(isOther ||
+                            (currentPath === "" &&
+                              availableKeys.length === 0)) && (
+                            <input
+                              className={`cd-user-row-input cd-key-picker-manual ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
+                              value={currentPath}
+                              onChange={(e) => setKeyPath(e.target.value)}
+                              placeholder="~/.ssh/id_ed25519"
+                              spellCheck={false}
+                            />
+                          )}
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
 

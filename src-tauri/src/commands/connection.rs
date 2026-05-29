@@ -358,6 +358,13 @@ pub async fn respond_host_key_verification(
     }
 }
 
+// ─── SSH Key Discovery ──────────────────────────────────────
+
+#[tauri::command]
+pub fn list_ssh_keys() -> Result<Vec<crate::ssh::keys::KeyInfo>, AppError> {
+    crate::ssh::keys::list_available_keys()
+}
+
 // ─── Test Connection ────────────────────────────────────
 
 use crate::state::HostKeyStatus;
