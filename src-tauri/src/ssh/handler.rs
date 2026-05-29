@@ -13,17 +13,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use russh::client::DisconnectReason;
 use russh::client::Handler;
 use russh::client::Msg;
 use russh::keys::ssh_key::PublicKey;
-use russh::client::DisconnectReason;
 use russh::{Channel, ChannelId};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use crate::ssh::known_hosts;
 use crate::ssh::tunnel::{
-    handle_remote_forward_connection, RemoteForwardKey, RemoteForwardRegistry,
-    new_remote_forward_registry,
+    handle_remote_forward_connection, new_remote_forward_registry, RemoteForwardKey,
+    RemoteForwardRegistry,
 };
 use crate::state::{HostKeyStatus, HostKeyVerificationRequest, HostKeyVerificationResponse};
 
@@ -105,11 +105,7 @@ impl SshClientHandler {
     }
 
     /// Register a data sender for a channel
-    pub async fn register_channel_sender(
-        &self,
-        channel_id: ChannelId,
-        sender: ChannelDataSender,
-    ) {
+    pub async fn register_channel_sender(&self, channel_id: ChannelId, sender: ChannelDataSender) {
         let mut senders = self.channel_senders.lock().await;
         senders.insert(channel_id, sender);
     }
@@ -137,13 +133,12 @@ impl Handler for SshClientHandler {
         &mut self,
         server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        let status =
-            known_hosts::verify_host_key(&self.host, self.port, server_public_key)
-                .map_err(|e| {
-                    russh::Error::Keys(russh::keys::Error::from(
-                        std::io::Error::other(e.to_string()),
-                    ))
-                })?;
+        let status = known_hosts::verify_host_key(&self.host, self.port, server_public_key)
+            .map_err(|e| {
+                russh::Error::Keys(russh::keys::Error::from(std::io::Error::other(
+                    e.to_string(),
+                )))
+            })?;
 
         match &status {
             HostKeyStatus::Trusted => {
@@ -256,13 +251,8 @@ impl Handler for SshClientHandler {
                 // Spawn a task to handle the connection
                 let orig_addr = originator_address.to_string();
                 tokio::spawn(async move {
-                    handle_remote_forward_connection(
-                        channel,
-                        entry,
-                        orig_addr,
-                        originator_port,
-                    )
-                    .await;
+                    handle_remote_forward_connection(channel, entry, orig_addr, originator_port)
+                        .await;
                 });
                 Ok(())
             }

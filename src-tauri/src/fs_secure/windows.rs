@@ -23,9 +23,9 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
 use windows::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
 use windows::Win32::Security::{
-    AddAccessAllowedAceEx, GetLengthSid, GetTokenInformation, InitializeAcl, TokenUser, ACCESS_ALLOWED_ACE,
-    ACL, ACL_REVISION, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSID,
-    TOKEN_QUERY, TOKEN_USER,
+    AddAccessAllowedAceEx, GetLengthSid, GetTokenInformation, InitializeAcl, TokenUser,
+    ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, DACL_SECURITY_INFORMATION,
+    PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
 };
 use windows::Win32::System::Memory::{LocalAlloc, LPTR};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -82,7 +82,9 @@ pub(super) fn set_owner_only(path: &Path) -> io::Result<()> {
         let _ = GetTokenInformation(token.0, TokenUser, None, 0, &mut needed);
     }
     if needed == 0 {
-        return Err(io::Error::other("GetTokenInformation size query returned 0"));
+        return Err(io::Error::other(
+            "GetTokenInformation size query returned 0",
+        ));
     }
 
     // 3. Allocate the buffer and re-call to fill it.

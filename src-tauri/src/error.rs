@@ -131,7 +131,7 @@ mod tests {
         let id = uuid::Uuid::nil();
         let variants: Vec<AppError> = vec![
             AppError::Sftp("test".into()),
-            AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+            AppError::Io(std::io::Error::other("test")),
             AppError::SessionNotFound(id),
             AppError::NotConnected,
             AppError::AuthFailed("test".into()),

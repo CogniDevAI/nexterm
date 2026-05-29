@@ -142,19 +142,15 @@ pub async fn authenticate(
     auth: AuthMethod,
     username: &str,
 ) -> Result<(), AppError> {
-    let ssh = handle
-        .ssh_handle
-        .as_mut()
-        .ok_or(AppError::NotConnected)?;
+    let ssh = handle.ssh_handle.as_mut().ok_or(AppError::NotConnected)?;
 
     handle.state = SessionState::Authenticating;
 
     let authenticated = match auth {
-        AuthMethod::Password(password) => {
-            ssh.authenticate_password(username, &password)
-                .await
-                .map_err(AppError::Ssh)?
-        }
+        AuthMethod::Password(password) => ssh
+            .authenticate_password(username, &password)
+            .await
+            .map_err(AppError::Ssh)?,
         AuthMethod::PublicKey { key } => {
             let arc_key = Arc::new(*key);
             ssh.authenticate_publickey(username, arc_key)
@@ -199,14 +195,12 @@ pub fn resolve_auth_method(
             }
             // Fall back to vault
             if let Some(v) = vault {
-                if let Some(stored) =
-                    crate::commands::vault::get_credential_from_vault(
-                        v,
-                        profile_id,
-                        Some(&user.id),
-                        "password",
-                    )?
-                {
+                if let Some(stored) = crate::commands::vault::get_credential_from_vault(
+                    v,
+                    profile_id,
+                    Some(&user.id),
+                    "password",
+                )? {
                     return Ok(Some(AuthMethod::Password(stored)));
                 }
             }
@@ -217,9 +211,7 @@ pub fn resolve_auth_method(
             private_key_path,
             passphrase_in_keychain,
         } => {
-            let path = std::path::PathBuf::from(
-                shellexpand::tilde(private_key_path).to_string(),
-            );
+            let path = std::path::PathBuf::from(shellexpand::tilde(private_key_path).to_string());
 
             // Try loading without passphrase first
             match keys::load_private_key(&path, None) {
@@ -241,8 +233,7 @@ pub fn resolve_auth_method(
                                     "passphrase",
                                 )?
                             {
-                                let key =
-                                    keys::load_private_key(&path, Some(&passphrase))?;
+                                let key = keys::load_private_key(&path, Some(&passphrase))?;
                                 return Ok(Some(AuthMethod::PublicKey { key: Box::new(key) }));
                             }
                         }
@@ -273,7 +264,9 @@ pub async fn disconnect(handle: &mut SessionHandle) -> Result<(), AppError> {
     // or when the sender is dropped.
     for (_, terminal) in handle.terminals.drain() {
         // Best-effort send — if channel is full or task already exited, that's fine
-        let _ = terminal.command_tx.try_send(crate::state::TerminalCommand::Close);
+        let _ = terminal
+            .command_tx
+            .try_send(crate::state::TerminalCommand::Close);
         // Drop the sender — this also signals the reader task to exit if Close didn't
         drop(terminal.command_tx);
         // Abort the reader task as a safety net (in case it's stuck in SSH wait)

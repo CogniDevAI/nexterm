@@ -313,9 +313,7 @@ pub async fn start_remote_forward(
         // Wait for cancellation
         cancel.cancelled().await;
 
-        tracing::info!(
-            "Remote tunnel {tunnel_id}: cancelled, cleaning up"
-        );
+        tracing::info!("Remote tunnel {tunnel_id}: cancelled, cleaning up");
 
         // Remove from registry
         {
@@ -571,8 +569,7 @@ impl Clone for RemoteForwardEntry {
 }
 
 /// Type alias for the shared remote forward registry
-pub type RemoteForwardRegistry =
-    Arc<Mutex<HashMap<RemoteForwardKey, RemoteForwardEntry>>>;
+pub type RemoteForwardRegistry = Arc<Mutex<HashMap<RemoteForwardKey, RemoteForwardEntry>>>;
 
 /// Create a new empty remote forward registry
 pub fn new_remote_forward_registry() -> RemoteForwardRegistry {

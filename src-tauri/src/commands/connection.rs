@@ -25,7 +25,10 @@ use crate::state::{
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "event", content = "data", rename_all = "camelCase")]
 pub enum SessionStateEvent {
-    StateChanged { session_id: SessionId, state: SessionState },
+    StateChanged {
+        session_id: SessionId,
+        state: SessionState,
+    },
     HostKeyVerification(HostKeyVerificationRequest),
 }
 
@@ -33,16 +36,19 @@ pub enum SessionStateEvent {
 
 /// We store the response_tx for pending host key verifications
 /// keyed by session_id so the `respond_host_key_verification` command can find it.
-type PendingVerifications =
-    tokio::sync::Mutex<std::collections::HashMap<SessionId, oneshot::Sender<HostKeyVerificationResponse>>>;
+type PendingVerifications = tokio::sync::Mutex<
+    std::collections::HashMap<SessionId, oneshot::Sender<HostKeyVerificationResponse>>,
+>;
 
 /// Lazy-initialized global storage for pending host key verification channels.
 /// This is necessary because the handler's oneshot bridge needs to be accessible
 /// from the `respond_host_key_verification` command.
-static PENDING_HK_VERIFICATIONS: std::sync::OnceLock<PendingVerifications> = std::sync::OnceLock::new();
+static PENDING_HK_VERIFICATIONS: std::sync::OnceLock<PendingVerifications> =
+    std::sync::OnceLock::new();
 
 fn pending_hk() -> &'static PendingVerifications {
-    PENDING_HK_VERIFICATIONS.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+    PENDING_HK_VERIFICATIONS
+        .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 // ─── Commands ───────────────────────────────────────────
@@ -69,14 +75,12 @@ pub async fn connect(
 
     // Resolve which user to connect as
     let resolved_user: UserCredential = match user_id {
-        Some(uid) => {
-            profile
-                .users
-                .iter()
-                .find(|u| u.id == uid)
-                .cloned()
-                .ok_or(AppError::UserNotFound(uid))?
-        }
+        Some(uid) => profile
+            .users
+            .iter()
+            .find(|u| u.id == uid)
+            .cloned()
+            .ok_or(AppError::UserNotFound(uid))?,
         None => {
             if profile.users.len() == 1 {
                 profile.users[0].clone()
@@ -272,16 +276,17 @@ pub async fn connect(
         }
     });
 
-    tracing::info!("Session {session_id} connected to {}:{}", profile.host, profile.port);
+    tracing::info!(
+        "Session {session_id} connected to {}:{}",
+        profile.host,
+        profile.port
+    );
 
     Ok(session_id)
 }
 
 #[tauri::command]
-pub async fn disconnect(
-    state: State<'_, AppState>,
-    session_id: SessionId,
-) -> Result<(), AppError> {
+pub async fn disconnect(state: State<'_, AppState>, session_id: SessionId) -> Result<(), AppError> {
     let mut sessions = state.sessions.lock().await;
     let handle = sessions
         .get_mut(&session_id)
@@ -298,9 +303,7 @@ pub async fn disconnect(
 }
 
 #[tauri::command]
-pub async fn list_sessions(
-    state: State<'_, AppState>,
-) -> Result<Vec<SessionInfo>, AppError> {
+pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, AppError> {
     let sessions = state.sessions.lock().await;
 
     let infos: Vec<SessionInfo> = sessions

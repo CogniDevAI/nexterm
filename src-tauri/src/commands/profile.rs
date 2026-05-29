@@ -285,14 +285,12 @@ pub async fn export_profiles(
             for (i, profile) in profiles.iter().enumerate() {
                 for (j, user) in profile.users.iter().enumerate() {
                     // Try new key format first, then legacy
-                    if let Ok(Some(password)) =
-                        crate::commands::vault::get_credential_from_vault(
-                            vault,
-                            &profile.id,
-                            Some(&user.id),
-                            "password",
-                        )
-                    {
+                    if let Ok(Some(password)) = crate::commands::vault::get_credential_from_vault(
+                        vault,
+                        &profile.id,
+                        Some(&user.id),
+                        "password",
+                    ) {
                         if j < exported[i].users.len() {
                             exported[i].users[j].password = Some(password);
                         }
@@ -359,9 +357,8 @@ pub async fn import_profiles(
             .map_err(|e| AppError::ProfileError(format!("Invalid file encoding: {e}")))?
     };
 
-    let envelope: ExportEnvelope = serde_json::from_str(&contents).map_err(|e| {
-        AppError::ProfileError(format!("Invalid import file format: {e}"))
-    })?;
+    let envelope: ExportEnvelope = serde_json::from_str(&contents)
+        .map_err(|e| AppError::ProfileError(format!("Invalid import file format: {e}")))?;
 
     if envelope.app != "NexTerm" {
         return Err(AppError::ProfileError(
@@ -379,9 +376,9 @@ pub async fn import_profiles(
 
     for ep in &envelope.profiles {
         // Duplicate check: same name + host
-        let is_duplicate = profiles.iter().any(|existing| {
-            existing.name == ep.name && existing.host == ep.host
-        });
+        let is_duplicate = profiles
+            .iter()
+            .any(|existing| existing.name == ep.name && existing.host == ep.host);
 
         if is_duplicate {
             skipped += 1;
@@ -422,7 +419,10 @@ pub async fn import_profiles(
         } else if let Some(ref username) = ep.username {
             // v1 format: single user from top-level fields
             if username.trim().is_empty() {
-                errors.push(format!("Skipped invalid profile: '{}' (no username)", ep.name));
+                errors.push(format!(
+                    "Skipped invalid profile: '{}' (no username)",
+                    ep.name
+                ));
                 continue;
             }
             let auth_method = match ep.auth_method.as_deref().unwrap_or("password") {
@@ -565,12 +565,16 @@ fn encrypt_export_data(plaintext: &[u8], password: &str) -> Result<Vec<u8>, AppE
 fn decrypt_export_data(data: &[u8], password: &str) -> Result<Vec<u8>, AppError> {
     let header_size = ENCRYPTED_EXPORT_MAGIC.len() + EXPORT_SALT_SIZE + EXPORT_NONCE_SIZE;
     if data.len() < header_size + 16 {
-        return Err(AppError::ProfileError("Encrypted file is too short".to_string()));
+        return Err(AppError::ProfileError(
+            "Encrypted file is too short".to_string(),
+        ));
     }
 
     let magic = &data[..ENCRYPTED_EXPORT_MAGIC.len()];
     if magic != ENCRYPTED_EXPORT_MAGIC {
-        return Err(AppError::ProfileError("Not a valid encrypted export file".to_string()));
+        return Err(AppError::ProfileError(
+            "Not a valid encrypted export file".to_string(),
+        ));
     }
 
     let salt_start = ENCRYPTED_EXPORT_MAGIC.len();
@@ -586,9 +590,9 @@ fn decrypt_export_data(data: &[u8], password: &str) -> Result<Vec<u8>, AppError>
         .map_err(|e| AppError::ProfileError(format!("Cipher init failed: {e}")))?;
 
     let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| AppError::ProfileError("Wrong export password or corrupted file".to_string()))?;
+    let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|_| {
+        AppError::ProfileError("Wrong export password or corrupted file".to_string())
+    })?;
 
     Ok(plaintext)
 }

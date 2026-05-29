@@ -118,9 +118,8 @@ pub async fn vault_reset(
     // 1. Delete the vault file from disk (if it exists)
     let vault_path = data_dir.join("vault.json");
     if vault_path.exists() {
-        std::fs::remove_file(&vault_path).map_err(|e| {
-            AppError::VaultError(format!("Failed to delete vault file: {e}"))
-        })?;
+        std::fs::remove_file(&vault_path)
+            .map_err(|e| AppError::VaultError(format!("Failed to delete vault file: {e}")))?;
     }
     // Also remove any lingering temp file from atomic writes
     let tmp_path = vault_path.with_extension("json.tmp");
@@ -149,9 +148,7 @@ pub async fn store_credential(
     value: String,
 ) -> Result<(), AppError> {
     let mut vault_guard = state.vault.lock().await;
-    let vault = vault_guard
-        .as_mut()
-        .ok_or(AppError::VaultLocked)?;
+    let vault = vault_guard.as_mut().ok_or(AppError::VaultLocked)?;
 
     let key = vault_key(&profile_id, user_id.as_ref(), &credential_type);
     vault.store(&key, &value)
@@ -165,9 +162,7 @@ pub async fn has_credential(
     credential_type: String,
 ) -> Result<bool, AppError> {
     let vault_guard = state.vault.lock().await;
-    let vault = vault_guard
-        .as_ref()
-        .ok_or(AppError::VaultLocked)?;
+    let vault = vault_guard.as_ref().ok_or(AppError::VaultLocked)?;
 
     let key = vault_key(&profile_id, user_id.as_ref(), &credential_type);
     Ok(vault.has(&key))
@@ -181,9 +176,7 @@ pub async fn delete_credential(
     credential_type: String,
 ) -> Result<(), AppError> {
     let mut vault_guard = state.vault.lock().await;
-    let vault = vault_guard
-        .as_mut()
-        .ok_or(AppError::VaultLocked)?;
+    let vault = vault_guard.as_mut().ok_or(AppError::VaultLocked)?;
 
     let key = vault_key(&profile_id, user_id.as_ref(), &credential_type);
     vault.delete(&key)
@@ -217,9 +210,7 @@ pub fn get_credential_from_vault(
             // NOTE: We can't mutate vault here since we only have &Vault.
             // Migration will happen lazily on next store_credential call or
             // can be triggered explicitly. For now, just return the legacy value.
-            tracing::info!(
-                "Found legacy vault key '{legacy}', should be migrated to '{key}'"
-            );
+            tracing::info!("Found legacy vault key '{legacy}', should be migrated to '{key}'");
             return Ok(Some(value));
         }
     }

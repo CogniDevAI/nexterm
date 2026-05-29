@@ -510,7 +510,11 @@ mod tests {
             is_hashed: true,
         };
         assert!(entry_matches_host(&entry, "nexterm-test.example.org", 22));
-        assert!(!entry_matches_host(&entry, "nexterm-test.example.org", 2222));
+        assert!(!entry_matches_host(
+            &entry,
+            "nexterm-test.example.org",
+            2222
+        ));
     }
 
     #[test]
