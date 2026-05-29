@@ -61,6 +61,9 @@ dirs = "6"
 # Cryptographic hashing (for host key fingerprints)
 sha2 = "0.10"
 base64 = "0.22"
+# HMAC-SHA1 for matching OpenSSH hashed known_hosts entries (|1|salt|hash)
+hmac = "0.12"
+sha1 = "0.10"
 
 # Shell path expansion (~/ to home dir)
 shellexpand = "3"

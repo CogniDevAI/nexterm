@@ -98,15 +98,42 @@ fn format_host_pattern(host: &str, port: u16) -> String {
     }
 }
 
-/// Check if a known_hosts entry matches a given host:port
-fn entry_matches_host(entry: &KnownHostEntry, host: &str, port: u16) -> bool {
-    if entry.is_hashed {
-        // We can't match hashed entries without the salt — skip
-        // (OpenSSH's hashing uses HMAC-SHA1 with a per-entry salt)
+/// Match an already port-qualified host string against an OpenSSH hashed
+/// known_hosts pattern "|1|<b64salt>|<b64hash>" (hash = HMAC-SHA1(salt, host)).
+/// Returns false on any malformed pattern or decode error (fail-closed).
+fn hashed_pattern_matches(pattern: &str, host_pattern: &str) -> bool {
+    use base64::Engine;
+    use hmac::{Hmac, Mac};
+    use sha1::Sha1;
+
+    let parts: Vec<&str> = pattern.split('|').collect();
+    // Expected shape: ["", "1", salt_b64, hash_b64]
+    if parts.len() != 4 || parts[1] != "1" {
         return false;
     }
+    let engine = base64::engine::general_purpose::STANDARD;
+    let (salt, expected) = match (engine.decode(parts[2]), engine.decode(parts[3])) {
+        (Ok(s), Ok(h)) => (s, h),
+        _ => return false,
+    };
+    let mut mac = match Hmac::<Sha1>::new_from_slice(&salt) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mac.update(host_pattern.as_bytes());
+    mac.verify_slice(&expected).is_ok() // constant-time compare
+}
 
+/// Check if a known_hosts entry matches a given host:port
+fn entry_matches_host(entry: &KnownHostEntry, host: &str, port: u16) -> bool {
     let pattern = format_host_pattern(host, port);
+
+    if entry.is_hashed {
+        // OpenSSH hashes hostnames with HMAC-SHA1 and a per-entry salt
+        // (HashKnownHosts yes — the default on Debian/Ubuntu). Recompute the
+        // HMAC over the canonical host string and compare against the stored hash.
+        return hashed_pattern_matches(&entry.host_pattern, &pattern);
+    }
 
     // The host_pattern field may contain comma-separated hostnames
     entry.host_pattern.split(',').any(|h| h.trim() == pattern)
@@ -401,16 +428,89 @@ mod tests {
         assert!(!entry_matches_host(&entry, "other.com", 22));
     }
 
+    // ─── Hashed Host Matching ───────────────────────────
+
+    /// GOLD-STANDARD, non-circular: RFC 2202 HMAC-SHA1 Test Case 2.
+    ///   key/salt  = b"Jefe"
+    ///   message   = "what do ya want for nothing?"
+    ///   HMAC-SHA1 = effcdf6ae5eb2fa2d27416d5f184df9c259a7c79 (published constant)
+    /// Because the digest is the RFC's published value (NOT recomputed here),
+    /// a passing test proves our HMAC-SHA1 wiring is correct, not just consistent.
     #[test]
-    fn hashed_entry_does_not_match() {
+    fn hashed_pattern_matches_rfc2202_vector() {
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        let salt = b"Jefe";
+        let digest: [u8; 20] = [
+            0xef, 0xfc, 0xdf, 0x6a, 0xe5, 0xeb, 0x2f, 0xa2, 0xd2, 0x74, 0x16, 0xd5, 0xf1, 0x84,
+            0xdf, 0x9c, 0x25, 0x9a, 0x7c, 0x79,
+        ];
+        let pattern = format!("|1|{}|{}", engine.encode(salt), engine.encode(digest));
+
+        assert!(hashed_pattern_matches(
+            &pattern,
+            "what do ya want for nothing?"
+        ));
+        assert!(!hashed_pattern_matches(&pattern, "different host"));
+    }
+
+    /// Round-trip through entry_matches_host for the [host]:port canonical form.
+    #[test]
+    fn entry_matches_hashed_host_with_port() {
+        use base64::Engine;
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        // Hash the canonical port-qualified host string with a fixed salt.
+        let salt: &[u8] = b"fixed-salt-bytes";
+        let canonical = "[example.com]:2222";
+        let mut mac = Hmac::<Sha1>::new_from_slice(salt).unwrap();
+        mac.update(canonical.as_bytes());
+        let digest = mac.finalize().into_bytes();
+        let host_pattern = format!("|1|{}|{}", engine.encode(salt), engine.encode(digest));
+
         let entry = KnownHostEntry {
-            host_pattern: "|1|salt|hash".to_string(),
+            host_pattern,
             key_type: "ssh-ed25519".to_string(),
             key_data: "AAAA".to_string(),
             is_hashed: true,
         };
-        // Hashed entries can't be matched without the salt
+
+        assert!(entry_matches_host(&entry, "example.com", 2222));
         assert!(!entry_matches_host(&entry, "example.com", 22));
+    }
+
+    /// Malformed patterns must fail closed (return false) without panicking.
+    #[test]
+    fn hashed_pattern_malformed_fails_closed() {
+        // Too few parts.
+        assert!(!hashed_pattern_matches("|1|onlytwo", "x"));
+        // Wrong hash id (not SHA-1).
+        assert!(!hashed_pattern_matches("|2|a|b", "x"));
+        // Invalid base64 in both salt and hash slots.
+        assert!(!hashed_pattern_matches("|1|!!!notbase64!!!|@@@", "x"));
+    }
+
+    /// Real OpenSSH compatibility: a line produced by `ssh-keygen -H` for the
+    /// hostname "nexterm-test.example.org" (port 22 → plain hostname canonical
+    /// form). Proves byte-for-byte interop with real OpenSSH hashing.
+    #[test]
+    fn hashed_pattern_matches_real_ssh_keygen_vector() {
+        let pattern = "|1|TCRWaBiLmieu2rtDS1GKt2c87qU=|8OW88QaCVj66I1DOxvYkXZXi+44=";
+        assert!(hashed_pattern_matches(pattern, "nexterm-test.example.org"));
+        assert!(!hashed_pattern_matches(pattern, "wrong.example.org"));
+
+        // And end-to-end through entry_matches_host (port 22 canonical form).
+        let entry = KnownHostEntry {
+            host_pattern: pattern.to_string(),
+            key_type: "ssh-ed25519".to_string(),
+            key_data: "AAAA".to_string(),
+            is_hashed: true,
+        };
+        assert!(entry_matches_host(&entry, "nexterm-test.example.org", 22));
+        assert!(!entry_matches_host(&entry, "nexterm-test.example.org", 2222));
     }
 
     #[test]
