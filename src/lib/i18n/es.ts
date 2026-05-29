@@ -87,6 +87,9 @@ export const es: Record<TranslationKey, string> = {
   "connection.testingUser": "Probando\u2026",
   "connection.testSuccess": "Conexi\u00f3n exitosa",
   "connection.testFailed": "Conexi\u00f3n fallida",
+  "connection.testAuthFailed": "Credenciales rechazadas",
+  "connection.testUntrusted": "Clave de host no confiable",
+  "connection.testMitm": "Clave de host cambiada o revocada",
 
   // Host key dialog
   "hostKey.unknownTitle": "Host Nuevo",

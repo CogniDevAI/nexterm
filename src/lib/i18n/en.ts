@@ -85,6 +85,9 @@ export const en = {
   "connection.testingUser": "Testing\u2026",
   "connection.testSuccess": "Connection successful",
   "connection.testFailed": "Connection failed",
+  "connection.testAuthFailed": "Credentials rejected",
+  "connection.testUntrusted": "Host key not trusted",
+  "connection.testMitm": "Host key changed or revoked",
 
   // Host key dialog
   "hostKey.unknownTitle": "New Host",

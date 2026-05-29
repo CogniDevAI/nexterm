@@ -2287,6 +2287,22 @@ dialog::backdrop {
   background-color: var(--danger-subtle);
 }
 
+.cd-user-row-connect-auth-failed {
+  color: var(--danger);
+}
+
+.cd-user-row-connect-auth-failed:hover:not(:disabled) {
+  background-color: var(--danger-subtle);
+}
+
+.cd-user-row-connect-untrusted {
+  color: var(--warning);
+}
+
+.cd-user-row-connect-untrusted:hover:not(:disabled) {
+  background-color: var(--warning-subtle);
+}
+
 @keyframes cd-spin {
   to { transform: rotate(360deg); }
 }

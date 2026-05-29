@@ -11,7 +11,8 @@ import { useProfileStore } from "../../stores/profileStore";
 import { tauriInvoke } from "../../lib/tauri";
 import { DEFAULT_SSH_PORT } from "../../lib/constants";
 import { useI18n } from "../../lib/i18n";
-import type { ConnectionProfile, AuthMethodConfig, UserCredential } from "../../lib/types";
+import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult } from "../../lib/types";
+import { classifyTestResult, type TestTone } from "./testResult";
 
 interface ConnectionDialogProps {
   open: boolean;
@@ -98,7 +99,7 @@ export function ConnectionDialog({
   const [passwords, setPasswords] = useState<Record<string, string>>({});
   // Per-user test state
   const [testingUser, setTestingUser] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [testResults, setTestResults] = useState<Record<string, { tone: TestTone; message: string }>>({});
 
   useEffect(() => {
     if (open) {
@@ -240,7 +241,7 @@ export function ConnectionDialog({
 
     try {
       const pw = passwords[userId] ?? "";
-      const message = await tauriInvoke<string>("test_connection", {
+      const result = await tauriInvoke<TestConnectionResult>("test_connection", {
         host: profile.host,
         port: profile.port,
         username: user.username,
@@ -252,24 +253,29 @@ export function ConnectionDialog({
             : null,
       });
 
-      // Connection works! Save profile + password automatically
-      try {
-        const id = await saveProfile(profile);
-        if (pw.trim()) {
-          await storeCredential(id, user.id, pw);
+      const cls = classifyTestResult(result);
+
+      // Save profile + credential ONLY when authentication was confirmed
+      if (cls.shouldSave) {
+        try {
+          const id = await saveProfile(profile);
+          if (pw.trim()) {
+            await storeCredential(id, user.id, pw);
+          }
+          // Update profile ID for subsequent saves (new profile case)
+          setProfile((p) => ({ ...p, id }));
+        } catch {
+          // Save failed but connection worked — still show success
         }
-        // Update profile ID for subsequent saves (new profile case)
-        setProfile((p) => ({ ...p, id }));
-      } catch {
-        // Save failed but connection worked — still show success
       }
 
-      setTestResults((prev) => ({ ...prev, [userId]: { ok: true, message } }));
+      setTestResults((prev) => ({ ...prev, [userId]: { tone: cls.tone, message: result.message } }));
     } catch (err) {
+      // Genuine network/unreachable error — Rust returned Err(AppError)
       setTestResults((prev) => ({
         ...prev,
         [userId]: {
-          ok: false,
+          tone: "danger" as TestTone,
           message: err instanceof Error ? err.message : String(err),
         },
       }));
@@ -430,22 +436,40 @@ export function ConnectionDialog({
                 </div>
 
                 {/* Test connection for this user (stays in dialog) */}
+                {(() => {
+                  const tr = testResults[user.id];
+                  const connClass = tr?.tone === "success" ? "cd-user-row-connect-ok" :
+                    tr?.tone === "untrusted" ? "cd-user-row-connect-untrusted" :
+                    tr?.tone === "authFailed" ? "cd-user-row-connect-auth-failed" :
+                    tr?.tone === "danger" ? "cd-user-row-connect-fail" : "";
+                  const connTitle = tr?.tone === "success" ? t("connection.testSuccess") :
+                    tr?.tone === "authFailed" ? `${t("connection.testAuthFailed")}: ${tr.message}` :
+                    tr?.tone === "untrusted" ? `${t("connection.testUntrusted")}: ${tr.message}` :
+                    tr?.tone === "danger" ? `${t("connection.testMitm")}: ${tr.message}` :
+                    t("connection.testUser");
+                  return (
                 <button
                   type="button"
-                  className={`cd-user-row-connect ${testResults[user.id]?.ok ? "cd-user-row-connect-ok" : ""} ${testResults[user.id] && !testResults[user.id]?.ok ? "cd-user-row-connect-fail" : ""}`}
+                  className={`cd-user-row-connect ${connClass}`}
                   onClick={() => handleTestAndSave(user.id)}
                   disabled={testingUser !== null || !user.username.trim() || !profile.host.trim()}
-                  title={testResults[user.id]?.ok ? t("connection.testSuccess") : testResults[user.id]?.message ?? t("connection.testUser")}
+                  title={connTitle}
                 >
                   {testingUser === user.id ? (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="cd-spin">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
-                  ) : testResults[user.id]?.ok ? (
+                  ) : testResults[user.id]?.tone === "success" ? (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
-                  ) : testResults[user.id] && !testResults[user.id]?.ok ? (
+                  ) : testResults[user.id]?.tone === "untrusted" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                  ) : testResults[user.id] ? (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18" />
                       <line x1="6" y1="6" x2="18" y2="18" />
@@ -456,6 +480,8 @@ export function ConnectionDialog({
                     </svg>
                   )}
                 </button>
+                  );
+                })()}
 
                 {/* Delete button */}
                 <button

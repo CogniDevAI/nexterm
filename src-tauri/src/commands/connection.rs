@@ -357,10 +357,52 @@ pub async fn respond_host_key_verification(
 
 // ─── Test Connection ────────────────────────────────────
 
-/// Minimal SSH handler that auto-accepts all host keys.
-/// Used exclusively by `test_connection` to avoid triggering the
-/// host key verification dialog flow.
-struct TestConnectionHandler;
+use crate::state::HostKeyStatus;
+use serde::Serialize;
+
+/// Serializable result returned by `test_connection`.
+/// The frontend uses `authenticated` to decide whether to save credentials.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestConnectionResult {
+    /// True only if the credential was actually validated against the server.
+    pub authenticated: bool,
+    /// Host-key verification outcome: "trusted" | "unknown" | "changed" | "revoked".
+    pub host_key: String,
+    /// Human-readable summary.
+    pub message: String,
+}
+
+/// Map a HostKeyStatus to its wire-format label string.
+/// Pure and side-effect free — tested in unit tests below.
+fn host_key_label(status: &HostKeyStatus) -> &'static str {
+    match status {
+        HostKeyStatus::Trusted => "trusted",
+        HostKeyStatus::Unknown { .. } => "unknown",
+        HostKeyStatus::Changed { .. } => "changed",
+        HostKeyStatus::Revoked => "revoked",
+    }
+}
+
+/// `test_connection` may send credentials ONLY to an already-trusted host.
+/// Pure, side-effect-free decision gate so it can be unit-tested in isolation.
+fn may_authenticate(status: &HostKeyStatus) -> bool {
+    matches!(status, HostKeyStatus::Trusted)
+}
+
+/// SSH handler used exclusively by `test_connection`.
+///
+/// Unlike the interactive flow, it never prompts the user. Instead it verifies
+/// the server's key against known_hosts and captures the result so the command
+/// can refuse to authenticate against any host that is not already `Trusted`.
+struct TestConnectionHandler {
+    host: String,
+    port: u16,
+    /// Captured verification result (shared so `test_connection` can read it
+    /// after the handshake completes). `None` means verification could not run
+    /// (e.g. the handshake failed before/at key check).
+    status: std::sync::Arc<std::sync::Mutex<Option<HostKeyStatus>>>,
+}
 
 #[async_trait::async_trait]
 impl russh::client::Handler for TestConnectionHandler {
@@ -368,10 +410,22 @@ impl russh::client::Handler for TestConnectionHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // Auto-accept for test — we only care about reachability + auth
-        Ok(true)
+        // Verify against known_hosts. We do NOT prompt and we do NOT save keys
+        // here — test_connection must never authenticate to an unverified host.
+        match crate::ssh::known_hosts::verify_host_key(&self.host, self.port, server_public_key) {
+            Ok(status) => {
+                let allow = may_authenticate(&status);
+                *self.status.lock().unwrap() = Some(status);
+                // Returning false aborts the handshake → no auth is ever attempted.
+                Ok(allow)
+            }
+            Err(_) => {
+                *self.status.lock().unwrap() = None;
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -386,7 +440,7 @@ pub async fn test_connection(
     auth_method_type: String,
     password: Option<String>,
     private_key_path: Option<String>,
-) -> Result<String, AppError> {
+) -> Result<TestConnectionResult, AppError> {
     use crate::profile::{AuthMethodConfig, UserCredential};
 
     let password: Option<Zeroizing<String>> = password.map(Zeroizing::new);
@@ -409,19 +463,70 @@ pub async fn test_connection(
     };
     let temp_profile_id = Uuid::nil();
 
-    // ── TCP + SSH handshake with auto-accept host key handler ──
+    // ── TCP + SSH handshake with a known_hosts-verifying handler ──
+    // The handler captures the verification result; we inspect it AFTER the
+    // handshake to decide whether sending credentials is safe.
     let config = russh::client::Config {
         ..Default::default()
     };
     let addr = (host.as_str(), port);
 
-    let mut ssh_handle = tokio::time::timeout(
+    let hk_status: Arc<std::sync::Mutex<Option<HostKeyStatus>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let handler = TestConnectionHandler {
+        host: host.clone(),
+        port,
+        status: Arc::clone(&hk_status),
+    };
+
+    let connect_result = tokio::time::timeout(
         Duration::from_secs(TEST_CONNECTION_TIMEOUT_SECS),
-        russh::client::connect(Arc::new(config), addr, TestConnectionHandler),
+        russh::client::connect(Arc::new(config), addr, handler),
     )
     .await
-    .map_err(|_| AppError::ConnectionTimeout)?
-    .map_err(AppError::Ssh)?;
+    .map_err(|_| AppError::ConnectionTimeout)?;
+
+    // Take the captured verification status BEFORE interpreting connect_result.
+    // When check_server_key returns Ok(false) (Unknown/Changed), `connect`
+    // returns Err — so we must branch on the captured status first; only a
+    // `None` status means the failure was a genuine network/protocol error.
+    let captured_status = hk_status.lock().unwrap().take();
+
+    let mut ssh_handle = match captured_status {
+        // Host key verified and trusted → handshake succeeded, proceed to auth.
+        Some(HostKeyStatus::Trusted) => connect_result.map_err(AppError::Ssh)?,
+        // Reachable but not yet trusted → never send credentials.
+        Some(ref status @ HostKeyStatus::Unknown { .. }) => {
+            return Ok(TestConnectionResult {
+                authenticated: false,
+                host_key: host_key_label(status).to_string(),
+                message: "Host reachable, but its host key is not trusted yet. \
+                    Connect once to verify and save the key, then test credentials."
+                    .to_string(),
+            });
+        }
+        // Key changed → possible MITM → refuse, surface as structured result.
+        Some(ref status @ HostKeyStatus::Changed { .. }) => {
+            return Ok(TestConnectionResult {
+                authenticated: false,
+                host_key: host_key_label(status).to_string(),
+                message: "Host key has CHANGED — possible MITM. \
+                    Connect to review and explicitly accept the new key first."
+                    .to_string(),
+            });
+        }
+        // Revoked key → refuse outright.
+        Some(ref status @ HostKeyStatus::Revoked) => {
+            return Ok(TestConnectionResult {
+                authenticated: false,
+                host_key: host_key_label(status).to_string(),
+                message: "Host key is REVOKED.".to_string(),
+            });
+        }
+        // No status captured → check_server_key never produced a result, so the
+        // failure is a genuine network/protocol error. Preserve existing handling.
+        None => connect_result.map_err(AppError::Ssh)?,
+    };
 
     // ── Resolve auth method and authenticate ──
     // test_connection uses a temp user — no vault lookup needed (password always explicit)
@@ -432,18 +537,24 @@ pub async fn test_connection(
         None,
     )?;
 
-    let result: Result<String, AppError> = match auth {
+    let result: Result<TestConnectionResult, AppError> = match auth {
         Some(session::AuthMethod::Password(pw)) => {
             let authenticated = ssh_handle
                 .authenticate_password(&username, &pw)
                 .await
                 .map_err(AppError::Ssh)?;
             if authenticated {
-                Ok("Connection successful".to_string())
+                Ok(TestConnectionResult {
+                    authenticated: true,
+                    host_key: "trusted".to_string(),
+                    message: "Connection successful".to_string(),
+                })
             } else {
-                Err(AppError::AuthFailed(format!(
-                    "Server rejected authentication for user '{username}'"
-                )))
+                Ok(TestConnectionResult {
+                    authenticated: false,
+                    host_key: "trusted".to_string(),
+                    message: format!("Server rejected authentication for user '{username}'"),
+                })
             }
         }
         Some(session::AuthMethod::PublicKey { key }) => {
@@ -453,11 +564,17 @@ pub async fn test_connection(
                 .await
                 .map_err(AppError::Ssh)?;
             if authenticated {
-                Ok("Connection successful".to_string())
+                Ok(TestConnectionResult {
+                    authenticated: true,
+                    host_key: "trusted".to_string(),
+                    message: "Connection successful".to_string(),
+                })
             } else {
-                Err(AppError::AuthFailed(format!(
-                    "Server rejected public key for user '{username}'"
-                )))
+                Ok(TestConnectionResult {
+                    authenticated: false,
+                    host_key: "trusted".to_string(),
+                    message: format!("Server rejected public key for user '{username}'"),
+                })
             }
         }
         None => Err(AppError::AuthFailed(
@@ -471,4 +588,80 @@ pub async fn test_connection(
         .await;
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::HostKeyStatus;
+
+    #[test]
+    fn may_authenticate_allows_trusted() {
+        assert!(may_authenticate(&HostKeyStatus::Trusted));
+    }
+
+    #[test]
+    fn may_authenticate_refuses_unknown() {
+        let status = HostKeyStatus::Unknown {
+            fingerprint: "SHA256:abc".to_string(),
+            key_type: "ssh-ed25519".to_string(),
+        };
+        assert!(!may_authenticate(&status));
+    }
+
+    #[test]
+    fn may_authenticate_refuses_changed_same_key_type() {
+        // old_key_type: None → genuine fingerprint change on the same algorithm
+        let status = HostKeyStatus::Changed {
+            old_fingerprint: "SHA256:old".to_string(),
+            new_fingerprint: "SHA256:new".to_string(),
+            key_type: "ssh-ed25519".to_string(),
+            old_key_type: None,
+        };
+        assert!(!may_authenticate(&status));
+    }
+
+    #[test]
+    fn may_authenticate_refuses_changed_different_key_type() {
+        // old_key_type: Some(..) → algorithm changed; still treated as a key change
+        let status = HostKeyStatus::Changed {
+            old_fingerprint: "SHA256:old".to_string(),
+            new_fingerprint: "SHA256:new".to_string(),
+            key_type: "ssh-ed25519".to_string(),
+            old_key_type: Some("ssh-rsa".to_string()),
+        };
+        assert!(!may_authenticate(&status));
+    }
+
+    // ── host_key_label tests (RED until helper is added) ──────────────────
+
+    #[test]
+    fn host_key_label_trusted() {
+        assert_eq!(host_key_label(&HostKeyStatus::Trusted), "trusted");
+    }
+
+    #[test]
+    fn host_key_label_unknown() {
+        let status = HostKeyStatus::Unknown {
+            fingerprint: "SHA256:abc".to_string(),
+            key_type: "ssh-ed25519".to_string(),
+        };
+        assert_eq!(host_key_label(&status), "unknown");
+    }
+
+    #[test]
+    fn host_key_label_changed() {
+        let status = HostKeyStatus::Changed {
+            old_fingerprint: "SHA256:old".to_string(),
+            new_fingerprint: "SHA256:new".to_string(),
+            key_type: "ssh-ed25519".to_string(),
+            old_key_type: None,
+        };
+        assert_eq!(host_key_label(&status), "changed");
+    }
+
+    #[test]
+    fn host_key_label_revoked() {
+        assert_eq!(host_key_label(&HostKeyStatus::Revoked), "revoked");
+    }
 }

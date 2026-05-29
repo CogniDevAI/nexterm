@@ -191,6 +191,17 @@ export type HostKeyVerificationResponse =
   | "acceptAndSave"
   | "reject";
 
+// ─── Test Connection Result ──────────────────────────
+
+export interface TestConnectionResult {
+  /** True only if the credential was actually validated against the server. */
+  authenticated: boolean;
+  /** Host-key verification outcome. */
+  hostKey: "trusted" | "unknown" | "changed" | "revoked";
+  /** Human-readable summary. */
+  message: string;
+}
+
 // ─── Search Result (SFTP recursive search) ──────────
 
 export interface SearchResult {
