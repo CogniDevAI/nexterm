@@ -367,6 +367,16 @@ pub async fn prepare_bastion_channel(
                 "keyboard-interactive auth is not supported for the bastion hop".to_string(),
             ));
         }
+        // `resolve_jump_auth` only ever yields Password / PublicKey
+        // (`JumpAuthConfig` has no agent variant), so this arm is unreachable in
+        // practice. The bastion picker that would let a user choose agent auth
+        // for the jump host is a deferred frontend slice. Refuse explicitly
+        // rather than panic, mirroring the keyboard-interactive arm above.
+        AuthMethod::Agent { .. } => {
+            return Err(AppError::Agent(
+                "SSH agent auth is not supported for the bastion hop".to_string(),
+            ));
+        }
     };
 
     if !authenticated {
@@ -416,6 +426,69 @@ pub enum AuthMethod {
     /// [`KeyboardInteractiveBridge`]. The `String` is the SSH username (kept for
     /// symmetry with the other variants / clearer matching at the call site).
     KeyboardInteractive(String),
+    /// SSH agent auth. Carries NO key material — only an optional pin
+    /// (`key_id`) used to narrow to one agent identity. The running agent
+    /// performs all signing during `authenticate`; the private key never leaves
+    /// the agent process. See [`authenticate_agent`].
+    Agent {
+        key_id: Option<String>,
+    },
+}
+
+// ─── SSH Agent ──────────────────────────────────────────
+
+/// Upper bound on how many agent identities we will attempt during a single
+/// authentication. Each attempt is a full publickey round-trip; an agent
+/// stuffed with hundreds of keys could otherwise blow past the server's
+/// `MaxAuthTries` (locking us out) and waste time. 16 comfortably covers a real
+/// developer's key set while bounding the work. OpenSSH applies a similar
+/// practical limit via `MaxAuthTries` on the server side.
+pub(crate) const MAX_AGENT_IDENTITIES: usize = 16;
+
+/// Pure predicate: does agent identity `key` match the profile-pinned `pin`?
+///
+/// A pin matches when it equals EITHER the key's SHA-256 fingerprint
+/// (`SHA256:...`, computed via the same [`crate::ssh::known_hosts::fingerprint`]
+/// the rest of the app uses, so the user can paste a fingerprint they already
+/// saw) OR the key's comment. An empty/whitespace pin never matches anything —
+/// otherwise a blank pin would silently latch onto the first comment-less key.
+/// Side-effect free so identity selection is unit-testable without a live agent.
+pub(crate) fn agent_pin_matches(key: &ssh_key::PublicKey, pin: &str) -> bool {
+    let pin = pin.trim();
+    if pin.is_empty() {
+        return false;
+    }
+    if crate::ssh::known_hosts::fingerprint(key) == pin {
+        return true;
+    }
+    let comment = key.comment();
+    !comment.is_empty() && comment == pin
+}
+
+/// Pure selection: from the agent's reported `identities`, choose which ones to
+/// attempt, in order.
+///
+/// - No `pin` → try every identity OpenSSH-style, capped at
+///   [`MAX_AGENT_IDENTITIES`].
+/// - `Some(pin)` → restrict to the identities whose fingerprint/comment matches
+///   the pin (normally exactly one; the cap still applies defensively). An empty
+///   result means the pinned key is not loaded in the agent — the caller turns
+///   that into a precise error.
+///
+/// Returns borrowed references (no key cloning) so the auth loop can hand each
+/// `PublicKey` to russh. Side-effect free for unit testing.
+pub(crate) fn select_agent_identities<'a>(
+    identities: &'a [ssh_key::PublicKey],
+    pin: Option<&str>,
+) -> Vec<&'a ssh_key::PublicKey> {
+    identities
+        .iter()
+        .filter(|key| match pin {
+            Some(p) => agent_pin_matches(key, p),
+            None => true,
+        })
+        .take(MAX_AGENT_IDENTITIES)
+        .collect()
 }
 
 /// Bridge that drives the keyboard-interactive challenge/response loop between
@@ -658,6 +731,9 @@ pub async fn authenticate(
             })?;
             authenticate_keyboard_interactive(ssh, &ki_username, bridge).await?
         }
+        AuthMethod::Agent { key_id } => {
+            authenticate_agent(ssh, username, key_id.as_deref()).await?
+        }
     };
 
     if authenticated {
@@ -757,6 +833,127 @@ async fn authenticate_keyboard_interactive(
             }
         }
     }
+}
+
+/// Authenticate `ssh` using the local SSH agent.
+///
+/// Platform split (using russh-keys' OWN connectors so we never hand-roll the
+/// agent protocol or guess socket layouts):
+/// - **unix**: `AgentClient::connect_env()` reads `$SSH_AUTH_SOCK` and dials the
+///   Unix-domain socket. A missing/empty env var or an unreachable socket yields
+///   a clear [`AppError::Agent`] ("agent unavailable") rather than a raw IO error.
+/// - **windows** (cfg-gated, thin — NOT compiled/tested on this macOS box): try
+///   the default OpenSSH agent named pipe first, then fall back to Pageant.
+///   `connect_named_pipe`/`connect_pageant` are russh-keys' own constructors, so
+///   this stays minimal and correct by construction.
+///
+/// Each branch keeps the agent's CONCRETE stream type (unix `UnixStream`, windows
+/// named-pipe/Pageant) and hands it to the shared, generic [`agent_authenticate`]
+/// core. We deliberately do NOT erase it to `Box<dyn AgentStream>`: a boxed
+/// trait object trips a higher-ranked `Send` bound when the resulting
+/// `authenticate_publickey_with` future is awaited inside the (Send-required)
+/// Tauri command, whereas a concrete `Send + 'static` stream monomorphizes
+/// cleanly.
+#[cfg(unix)]
+async fn authenticate_agent(
+    ssh: &mut russh::client::Handle<SshClientHandler>,
+    username: &str,
+    pin: Option<&str>,
+) -> Result<bool, AppError> {
+    let agent = russh_keys::agent::client::AgentClient::connect_env()
+        .await
+        .map_err(|e| {
+            AppError::Agent(format!(
+                "SSH agent unavailable (is ssh-agent running and SSH_AUTH_SOCK set?): {e}"
+            ))
+        })?;
+    agent_authenticate(ssh, username, pin, agent).await
+}
+
+/// Windows agent path — thin, cfg-gated, NOT compile-verified on this macOS dev
+/// box. Tries the default OpenSSH agent named pipe first, then Pageant. The two
+/// connectors yield different concrete stream types, so each is driven through
+/// the shared generic [`agent_authenticate`] core in its own branch.
+#[cfg(windows)]
+async fn authenticate_agent(
+    ssh: &mut russh::client::Handle<SshClientHandler>,
+    username: &str,
+    pin: Option<&str>,
+) -> Result<bool, AppError> {
+    // Default Win32-OpenSSH agent pipe (same path OpenSSH for Windows uses).
+    const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    match russh_keys::agent::client::AgentClient::connect_named_pipe(OPENSSH_AGENT_PIPE).await {
+        Ok(agent) => agent_authenticate(ssh, username, pin, agent).await,
+        Err(_) => {
+            // Fall back to Pageant (PuTTY's agent). `connect_pageant` is
+            // infallible in russh-keys (it constructs the stream lazily).
+            let agent = russh_keys::agent::client::AgentClient::connect_pageant().await;
+            agent_authenticate(ssh, username, pin, agent).await
+        }
+    }
+}
+
+/// Shared agent-auth core, generic over the agent's concrete stream `R`.
+///
+/// Flow (russh-keys 0.48.1 + russh 0.48.2, NO hand-rolled protocol):
+/// 1. `request_identities()` — the agent reports its public keys. An empty list
+///    is a precise error so the user knows to `ssh-add` a key.
+/// 2. [`select_agent_identities`] picks which identities to try (all, capped, or
+///    the single pinned one).
+/// 3. For each selected identity, call
+///    `handle.authenticate_publickey_with(user, key, &mut agent)`. russh drives
+///    the sign round-trip THROUGH the agent — the private key NEVER leaves the
+///    agent process. Stop at the first `Ok(true)`.
+///
+/// Returns `Ok(true)` on success, `Ok(false)` if every identity was rejected, so
+/// the caller's uniform accepted/rejected handling applies. The signer's
+/// `AgentAuthError` is mapped to [`AppError::Agent`].
+async fn agent_authenticate<R>(
+    ssh: &mut russh::client::Handle<SshClientHandler>,
+    username: &str,
+    pin: Option<&str>,
+    mut agent: russh_keys::agent::client::AgentClient<R>,
+) -> Result<bool, AppError>
+where
+    R: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let identities = agent
+        .request_identities()
+        .await
+        .map_err(|e| AppError::Agent(format!("failed to list agent identities: {e}")))?;
+
+    if identities.is_empty() {
+        return Err(AppError::Agent(
+            "no identities in agent — add a key with `ssh-add` first".to_string(),
+        ));
+    }
+
+    let selected = select_agent_identities(&identities, pin);
+    if selected.is_empty() {
+        // A pin was set but no loaded identity matched it.
+        return Err(AppError::Agent(format!(
+            "pinned agent key '{}' is not loaded in the agent",
+            pin.unwrap_or("")
+        )));
+    }
+
+    // Try each selected identity until one is accepted (OpenSSH-style). The
+    // `PublicKey` is cloned (cheap, public material only) because
+    // `authenticate_publickey_with` takes it by value; the PRIVATE key stays in
+    // the agent — russh asks the agent to sign via the `Signer` impl on
+    // `AgentClient`, so no secret is ever extracted here.
+    for key in selected {
+        match ssh
+            .authenticate_publickey_with(username, key.clone(), &mut agent)
+            .await
+        {
+            Ok(true) => return Ok(true),
+            Ok(false) => continue,
+            Err(e) => return Err(AppError::Agent(format!("agent signing failed: {e}"))),
+        }
+    }
+
+    Ok(false)
 }
 
 /// Read a stored credential for auth, routing through
@@ -876,6 +1073,14 @@ pub fn resolve_auth_method(
             // `KeyboardInteractiveBridge`. Carry the username so the auth loop can
             // initiate the exchange.
             Ok(Some(AuthMethod::KeyboardInteractive(user.username.clone())))
+        }
+        AuthMethodConfig::Agent { key_id } => {
+            // No stored secret to resolve: the running ssh-agent holds the
+            // private key(s) and signs during `authenticate`. Carry only the
+            // optional pin used to narrow to one identity.
+            Ok(Some(AuthMethod::Agent {
+                key_id: key_id.clone(),
+            }))
         }
     }
 }
@@ -1130,6 +1335,122 @@ mod tests {
         match resolved {
             Some(AuthMethod::KeyboardInteractive(name)) => assert_eq!(name, "alice"),
             _ => panic!("expected KeyboardInteractive auth method carrying the username"),
+        }
+    }
+
+    // ─── SSH Agent: pure cores ──────────────────────────────────────
+
+    /// Build a deterministic Ed25519 public key from a fixed seed (real crypto,
+    /// reproducible) — mirrors the known_hosts test helper.
+    fn agent_pubkey(seed: [u8; 32]) -> ssh_key::PublicKey {
+        use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
+        use ssh_key::public::Ed25519PublicKey;
+        let private = Ed25519PrivateKey::from_bytes(&seed);
+        let keypair = Ed25519Keypair::from(private);
+        ssh_key::PublicKey::from(Ed25519PublicKey::from(&keypair))
+    }
+
+    #[test]
+    fn agent_pin_matches_by_fingerprint() {
+        let key = agent_pubkey([3u8; 32]);
+        let fp = crate::ssh::known_hosts::fingerprint(&key);
+        assert!(agent_pin_matches(&key, &fp));
+        // A different fingerprint must NOT match.
+        assert!(!agent_pin_matches(&key, "SHA256:definitely-not-it"));
+    }
+
+    #[test]
+    fn agent_pin_matches_by_comment() {
+        let mut key = agent_pubkey([4u8; 32]);
+        key.set_comment("my-laptop@host");
+        assert!(agent_pin_matches(&key, "my-laptop@host"));
+        assert!(!agent_pin_matches(&key, "some-other-comment"));
+    }
+
+    #[test]
+    fn agent_pin_matches_empty_comment_never_matches_empty_pin() {
+        // A key with no comment must not be matched by an empty/whitespace pin —
+        // that would silently pin "the first key with a blank comment".
+        let key = agent_pubkey([5u8; 32]);
+        assert_eq!(key.comment(), "");
+        assert!(!agent_pin_matches(&key, ""));
+        assert!(!agent_pin_matches(&key, "   "));
+    }
+
+    #[test]
+    fn select_identities_no_pin_returns_all_capped() {
+        // No pin → try every identity, in agent order, up to the cap.
+        let keys: Vec<ssh_key::PublicKey> = (0u8..3).map(|i| agent_pubkey([i; 32])).collect();
+        let selected = select_agent_identities(&keys, None);
+        assert_eq!(selected.len(), 3);
+    }
+
+    #[test]
+    fn select_identities_caps_at_max() {
+        // More identities than the cap → only the first MAX_AGENT_IDENTITIES are
+        // tried, protecting against an agent stuffed with hundreds of keys
+        // (each attempt is a network round-trip that can fail-count us out).
+        let keys: Vec<ssh_key::PublicKey> = (0u8..(MAX_AGENT_IDENTITIES as u8 + 5))
+            .map(|i| agent_pubkey([i; 32]))
+            .collect();
+        let selected = select_agent_identities(&keys, None);
+        assert_eq!(selected.len(), MAX_AGENT_IDENTITIES);
+    }
+
+    #[test]
+    fn select_identities_with_pin_returns_only_match() {
+        let keys: Vec<ssh_key::PublicKey> = (10u8..14).map(|i| agent_pubkey([i; 32])).collect();
+        let target_fp = crate::ssh::known_hosts::fingerprint(&keys[2]);
+        let selected = select_agent_identities(&keys, Some(&target_fp));
+        assert_eq!(selected.len(), 1);
+        // The single selected identity must be the pinned one.
+        assert_eq!(crate::ssh::known_hosts::fingerprint(selected[0]), target_fp);
+    }
+
+    #[test]
+    fn select_identities_with_unmatched_pin_returns_empty() {
+        // A pin that matches none of the agent's identities yields an empty set —
+        // the caller turns that into a precise "pinned key not in agent" error.
+        let keys: Vec<ssh_key::PublicKey> = (20u8..23).map(|i| agent_pubkey([i; 32])).collect();
+        let selected = select_agent_identities(&keys, Some("SHA256:nope"));
+        assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn resolve_auth_method_returns_agent_without_pin() {
+        use crate::profile::{AuthMethodConfig, UserCredential};
+        let user = UserCredential {
+            id: Uuid::nil(),
+            username: "bob".to_string(),
+            auth_method: AuthMethodConfig::Agent { key_id: None },
+            is_default: true,
+        };
+        let resolved =
+            resolve_auth_method(&user, &Uuid::nil(), None, None, None).expect("must resolve");
+        match resolved {
+            Some(AuthMethod::Agent { key_id }) => assert_eq!(key_id, None),
+            _ => panic!("expected Agent auth method"),
+        }
+    }
+
+    #[test]
+    fn resolve_auth_method_returns_agent_with_pin() {
+        use crate::profile::{AuthMethodConfig, UserCredential};
+        let user = UserCredential {
+            id: Uuid::nil(),
+            username: "bob".to_string(),
+            auth_method: AuthMethodConfig::Agent {
+                key_id: Some("SHA256:pinned".to_string()),
+            },
+            is_default: true,
+        };
+        let resolved =
+            resolve_auth_method(&user, &Uuid::nil(), None, None, None).expect("must resolve");
+        match resolved {
+            Some(AuthMethod::Agent { key_id }) => {
+                assert_eq!(key_id, Some("SHA256:pinned".to_string()));
+            }
+            _ => panic!("expected Agent auth method with pin"),
         }
     }
 

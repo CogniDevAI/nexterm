@@ -758,6 +758,14 @@ pub async fn test_connection(
         Some(session::AuthMethod::KeyboardInteractive(_)) => Err(AppError::KeyboardInteractive(
             "keyboard-interactive auth cannot be tested non-interactively".to_string(),
         )),
+        // `test_connection` builds its auth config from raw form values that map
+        // only to Password / PublicKey, so resolve_auth_method never returns
+        // Agent here. Refuse explicitly (mirrors the KeyboardInteractive arm)
+        // rather than leaving the match non-total — agent auth is exercised
+        // through the live connect path, not the one-shot tester.
+        Some(session::AuthMethod::Agent { .. }) => Err(AppError::Agent(
+            "SSH agent auth cannot be tested non-interactively".to_string(),
+        )),
         None => Err(AppError::AuthFailed(
             "Password or passphrase required".to_string(),
         )),

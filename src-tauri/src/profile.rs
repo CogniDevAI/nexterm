@@ -160,6 +160,20 @@ pub enum AuthMethodConfig {
     },
     /// Keyboard-interactive auth
     KeyboardInteractive,
+    /// SSH agent auth — the running ssh-agent holds the private key(s) and
+    /// performs the signing; no key material is ever read or stored by us.
+    ///
+    /// Backward-compat: this is a NEW enum variant, so profiles written before
+    /// it existed never carried it and are unaffected. `key_id` is an OPTIONAL
+    /// pin used to narrow auth to a single agent identity when the agent holds
+    /// several. It accepts either the key's SHA-256 fingerprint (`SHA256:...`,
+    /// matching [`crate::ssh::known_hosts::fingerprint`]) or its comment. When
+    /// absent (the common case), every agent identity is tried OpenSSH-style.
+    /// `#[serde(default)]` lets the minimal marker `{"type":"agent"}` load.
+    Agent {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key_id: Option<String>,
+    },
 }
 
 impl Default for ConnectionProfile {
@@ -386,6 +400,100 @@ mod tests {
         let json = serde_json::to_string(&auth).unwrap();
         assert!(json.contains("\"type\":\"publicKey\""));
         assert!(json.contains("privateKeyPath"));
+    }
+
+    #[test]
+    fn agent_auth_serializes_with_type_tag() {
+        // A bare agent marker (no pinned key) serializes with the discriminant
+        // and omits keyId (skip_serializing_if keeps the JSON clean).
+        let auth = AuthMethodConfig::Agent { key_id: None };
+        let json = serde_json::to_string(&auth).unwrap();
+        assert!(json.contains("\"type\":\"agent\""), "got: {json}");
+        assert!(
+            !json.contains("keyId"),
+            "keyId must be omitted when None, got: {json}"
+        );
+    }
+
+    #[test]
+    fn agent_auth_with_pinned_key_roundtrips() {
+        let auth = AuthMethodConfig::Agent {
+            key_id: Some("SHA256:abc123".to_string()),
+        };
+        let json = serde_json::to_string(&auth).unwrap();
+        assert!(json.contains("\"type\":\"agent\""), "got: {json}");
+        assert!(json.contains("keyId"), "got: {json}");
+
+        let back: AuthMethodConfig = serde_json::from_str(&json).unwrap();
+        match back {
+            AuthMethodConfig::Agent { key_id } => {
+                assert_eq!(key_id, Some("SHA256:abc123".to_string()));
+            }
+            _ => panic!("expected Agent variant"),
+        }
+    }
+
+    #[test]
+    fn agent_auth_bare_marker_deserializes_without_key_id() {
+        // Backward-compat: an agent config written without keyId (the minimal
+        // marker form) must still deserialize, with key_id defaulting to None.
+        let json = r#"{"type":"agent"}"#;
+        let back: AuthMethodConfig = serde_json::from_str(json).unwrap();
+        match back {
+            AuthMethodConfig::Agent { key_id } => assert_eq!(key_id, None),
+            _ => panic!("expected Agent variant"),
+        }
+    }
+
+    #[test]
+    fn profile_with_agent_user_validates() {
+        // A profile whose user authenticates via the agent is valid; the agent
+        // marker carries no secret to validate.
+        let profile = ConnectionProfile {
+            name: "Agent Host".to_string(),
+            host: "example.com".to_string(),
+            users: vec![UserCredential {
+                id: Uuid::new_v4(),
+                username: "deploy".to_string(),
+                auth_method: AuthMethodConfig::Agent { key_id: None },
+                is_default: true,
+            }],
+            ..ConnectionProfile::default()
+        };
+        assert!(profile.validate().is_ok());
+    }
+
+    #[test]
+    fn profile_with_agent_user_roundtrips_on_disk() {
+        let dir = std::env::temp_dir().join(format!("agent_profile_test_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let profiles = vec![ConnectionProfile {
+            name: "Agent Host".to_string(),
+            host: "agent.example.com".to_string(),
+            users: vec![UserCredential {
+                id: Uuid::new_v4(),
+                username: "deploy".to_string(),
+                auth_method: AuthMethodConfig::Agent {
+                    key_id: Some("my-laptop-key".to_string()),
+                },
+                is_default: true,
+            }],
+            ..ConnectionProfile::default()
+        }];
+
+        save_profiles_to_disk(&profiles, Some(&dir)).unwrap();
+        let loaded = load_profiles_from_disk(Some(&dir)).unwrap();
+
+        assert_eq!(loaded.len(), 1);
+        match &loaded[0].users[0].auth_method {
+            AuthMethodConfig::Agent { key_id } => {
+                assert_eq!(key_id.as_deref(), Some("my-laptop-key"));
+            }
+            other => panic!("expected Agent auth, got {other:?}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

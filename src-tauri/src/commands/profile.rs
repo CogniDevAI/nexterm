@@ -231,6 +231,13 @@ impl From<&ConnectionProfile> for ExportedProfile {
                     AuthMethodConfig::KeyboardInteractive => {
                         ("keyboard-interactive".to_string(), None)
                     }
+                    // Agent auth carries no key path — only the optional pin,
+                    // which is non-secret and exported via the token suffix so a
+                    // re-import preserves it (see the import arms below).
+                    AuthMethodConfig::Agent { key_id } => match key_id {
+                        Some(id) => (format!("agent:{id}"), None),
+                        None => ("agent".to_string(), None),
+                    },
                 };
                 ExportedUser {
                     username: u.username.clone(),
@@ -408,6 +415,10 @@ pub async fn import_profiles(
                             passphrase_in_keychain: false,
                         },
                         "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
+                        "agent" => AuthMethodConfig::Agent { key_id: None },
+                        other if other.starts_with("agent:") => AuthMethodConfig::Agent {
+                            key_id: Some(other["agent:".len()..].to_string()),
+                        },
                         _ => AuthMethodConfig::Password,
                     };
                     UserCredential {
@@ -436,6 +447,10 @@ pub async fn import_profiles(
                     passphrase_in_keychain: false,
                 },
                 "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
+                "agent" => AuthMethodConfig::Agent { key_id: None },
+                other if other.starts_with("agent:") => AuthMethodConfig::Agent {
+                    key_id: Some(other["agent:".len()..].to_string()),
+                },
                 _ => AuthMethodConfig::Password,
             };
             vec![UserCredential {
