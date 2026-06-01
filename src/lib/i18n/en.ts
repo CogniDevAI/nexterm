@@ -121,10 +121,27 @@ export const en = {
   "auth.cancel": "Cancel",
   "auth.connect": "Connect",
 
-  // Welcome
+  // Welcome / empty state (Lamplight launchpad)
   "welcome.title": "NexTerm",
   "welcome.connecting": "Connecting...",
   "welcome.message": "Select a profile to connect, or create a new one.",
+  "welcome.headline": "Ready when you are",
+  "welcome.subline": "Open a server to start a session.",
+  "welcome.cta": "Connect to a server",
+  "welcome.hint": "or press ⌘N",
+  "welcome.recent": "Recent",
+  "welcome.reconnect": "Reconnect",
+  "welcome.connectingTo": "Connecting to {host}...",
+  "welcome.cancelConnect": "Cancel",
+  // Sidebar groups (derived, presentational only)
+  "sidebar.group.production": "PRODUCTION",
+  "sidebar.group.development": "DEVELOPMENT",
+  "sidebar.group.certification": "CERTIFICATION",
+  "sidebar.group.staging": "STAGING",
+  "sidebar.group.other": "PROFILES",
+  // Sidebar credentials label
+  "sidebar.credentials": "{n} credentials",
+  "sidebar.overflow": "More actions",
 
   // Tab bar (features)
   "tabbar.terminal": "Terminal",

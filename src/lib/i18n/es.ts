@@ -123,10 +123,27 @@ export const es: Record<TranslationKey, string> = {
   "auth.cancel": "Cancelar",
   "auth.connect": "Conectar",
 
-  // Welcome
+  // Welcome / empty state (Lamplight launchpad)
   "welcome.title": "NexTerm",
   "welcome.connecting": "Conectando...",
   "welcome.message": "Selecciona un perfil para conectar, o crea uno nuevo.",
+  "welcome.headline": "Listo cuando vos quieras",
+  "welcome.subline": "Abri un servidor para iniciar una sesión.",
+  "welcome.cta": "Conectar a un servidor",
+  "welcome.hint": "o presioná ⌘N",
+  "welcome.recent": "Recientes",
+  "welcome.reconnect": "Reconectar",
+  "welcome.connectingTo": "Conectando a {host}...",
+  "welcome.cancelConnect": "Cancelar",
+  // Sidebar groups (derived, presentational only)
+  "sidebar.group.production": "PRODUCCIÓN",
+  "sidebar.group.development": "DESARROLLO",
+  "sidebar.group.certification": "CERTIFICACIÓN",
+  "sidebar.group.staging": "STAGING",
+  "sidebar.group.other": "PERFILES",
+  // Sidebar credentials label
+  "sidebar.credentials": "{n} credenciales",
+  "sidebar.overflow": "Más acciones",
 
   // Tab bar (features)
   "tabbar.terminal": "Terminal",
