@@ -135,6 +135,8 @@ pub struct ConnectionProfile {
     #[serde(default)]
     pub users: Vec<UserCredential>,
     pub startup_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub startup_commands: Vec<String>,
     pub tunnels: Vec<TunnelConfig>,
     #[serde(default)]
     pub display_order: i32,
@@ -188,6 +190,7 @@ impl Default for ConnectionProfile {
             auth_method: None,
             users: Vec::new(),
             startup_directory: None,
+            startup_commands: Vec::new(),
             tunnels: Vec::new(),
             display_order: 0,
             created_at: Utc::now(),
@@ -845,6 +848,62 @@ mod tests {
             auth_method: JumpAuthConfig::Password,
         });
         assert!(profile.validate().is_ok());
+    }
+
+    #[test]
+    fn startup_commands_roundtrips_on_disk() {
+        let dir = std::env::temp_dir().join(format!("startup_cmds_test_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let profiles = vec![ConnectionProfile {
+            name: "Startup Server".to_string(),
+            host: "startup.example.com".to_string(),
+            users: vec![UserCredential {
+                id: Uuid::new_v4(),
+                username: "deploy".to_string(),
+                auth_method: AuthMethodConfig::Password,
+                is_default: true,
+            }],
+            startup_commands: vec!["ls -la".to_string(), "uptime".to_string()],
+            ..ConnectionProfile::default()
+        }];
+
+        save_profiles_to_disk(&profiles, Some(&dir)).unwrap();
+        let loaded = load_profiles_from_disk(Some(&dir)).unwrap();
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].startup_commands, vec!["ls -la", "uptime"]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn old_profile_without_startup_commands_defaults_empty() {
+        // A profile written before startup_commands existed must deserialize
+        // cleanly with an empty vec (via #[serde(default)]).
+        let old_json = r#"{
+            "id": "00000000-0000-0000-0000-000000000010",
+            "name": "Pre-startup Server",
+            "host": "legacy.example.com",
+            "port": 22,
+            "users": [{
+                "id": "00000000-0000-0000-0000-000000000011",
+                "username": "root",
+                "authMethod": {"type": "password"},
+                "isDefault": true
+            }],
+            "startupDirectory": null,
+            "tunnels": [],
+            "displayOrder": 0,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z"
+        }"#;
+
+        let profile: ConnectionProfile = serde_json::from_str(old_json).unwrap();
+        assert!(
+            profile.startup_commands.is_empty(),
+            "startup_commands must default to empty for old profiles"
+        );
     }
 
     #[test]

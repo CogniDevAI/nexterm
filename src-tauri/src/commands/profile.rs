@@ -479,6 +479,7 @@ pub async fn import_profiles(
             auth_method: None,
             users: users.clone(),
             startup_directory: None,
+            startup_commands: Vec::new(),
             tunnels: Vec::new(),
             display_order: max_order + 1,
             created_at: now,
