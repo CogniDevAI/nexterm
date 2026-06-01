@@ -13,6 +13,7 @@ import { DEFAULT_SSH_PORT } from "../../lib/constants";
 import { useI18n } from "../../lib/i18n";
 import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult, KeyInfo } from "../../lib/types";
 import { classifyTestResult, type TestTone } from "./testResult";
+import { normalizeStartupCommands } from "./startupCommands";
 
 interface ConnectionDialogProps {
   open: boolean;
@@ -79,6 +80,7 @@ function newProfile(): ConnectionProfile {
     host: "",
     port: DEFAULT_SSH_PORT,
     users: [defaultUser],
+    startupCommands: [],
     tunnels: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -221,7 +223,8 @@ export function ConnectionDialog({
     if (!validate()) return;
     setSaving(true);
     try {
-      const id = await saveProfile(profile);
+      const normalized = normalizeStartupCommands(profile.startupCommands ?? []);
+      const id = await saveProfile({ ...profile, startupCommands: normalized });
       // Store ALL passwords that have content in vault
       for (const user of profile.users) {
         const pw = passwords[user.id];
@@ -574,6 +577,30 @@ export function ConnectionDialog({
             <UserPlusIcon />
             <span>{t("connection.addUser")}</span>
           </button>
+        </div>
+      </div>
+
+      {/* ─── Section: Startup Commands ─── */}
+      <div className="cd-section">
+        <div className="cd-section-label">{t("connection.sectionStartup")}</div>
+        <div className="cd-section-content">
+          <label htmlFor="startup-commands" className="sr-only">
+            {t("connection.sectionStartup")}
+          </label>
+          <textarea
+            id="startup-commands"
+            className="cd-startup-textarea"
+            value={(profile.startupCommands ?? []).join("\n")}
+            onChange={(e) =>
+              setProfile((p) => ({
+                ...p,
+                startupCommands: e.target.value.split("\n"),
+              }))
+            }
+            placeholder={t("connection.startupPlaceholder")}
+            rows={4}
+            spellCheck={false}
+          />
         </div>
       </div>
 

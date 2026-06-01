@@ -30,6 +30,7 @@ export interface ConnectionProfile {
   port: number;
   users: UserCredential[];
   startupDirectory?: string;
+  startupCommands?: string[];
   tunnels: TunnelConfig[];
   displayOrder?: number;
   createdAt: string; // ISO 8601

@@ -90,6 +90,8 @@ export const es: Record<TranslationKey, string> = {
   "connection.testAuthFailed": "Credenciales rechazadas",
   "connection.testUntrusted": "Clave de host no confiable",
   "connection.testMitm": "Clave de host cambiada o revocada",
+  "connection.sectionStartup": "Comandos de Inicio",
+  "connection.startupPlaceholder": "Un comando por línea — se ejecutan al conectar",
 
   // Host key dialog
   "hostKey.unknownTitle": "Host Nuevo",
@@ -368,6 +370,12 @@ export const es: Record<TranslationKey, string> = {
   "tour.done": "Listo",
   "tour.stepOf": "{current} de {total}",
   "tour.helpButton": "Tour",
+
+  // Startup commands preview dialog
+  "startup.title": "¿Ejecutar comandos de inicio?",
+  "startup.subtitle": "Estos comandos se ejecutarán en la nueva sesión. Revísalos antes de confirmar.",
+  "startup.run": "Ejecutar",
+  "startup.cancel": "Omitir",
 
   // General
   "general.ok": "OK",

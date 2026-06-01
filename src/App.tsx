@@ -8,6 +8,7 @@ import { TabBar } from "./components/layout/TabBar";
 import { ConnectionDialog } from "./features/connection/ConnectionDialog";
 import { HostKeyDialog } from "./features/connection/HostKeyDialog";
 import { AuthPrompt } from "./features/connection/AuthPrompt";
+import { StartupCommandsDialog } from "./features/connection/StartupCommandsDialog";
 import { VaultScreen } from "./features/vault/VaultScreen";
 import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
@@ -18,6 +19,7 @@ import { TunnelManager } from "./features/tunnel/TunnelManager";
 import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
 import { useProfileStore } from "./stores/profileStore";
+import type { StartupPreview } from "./stores/sessionStore";
 import { useConnection } from "./features/connection/useConnection";
 import { useUpdater } from "./features/updater/useUpdater";
 import { useI18n } from "./lib/i18n";
@@ -202,7 +204,8 @@ function WelcomeLaunchpad({
 }
 
 function App() {
-  const { sessions, activeSessionId, activeFeature } = useSessionStore();
+  const { sessions, activeSessionId, activeFeature, startupPreview, clearStartupPreview } =
+    useSessionStore();
   const { profiles } = useProfileStore();
 
   const {
@@ -219,6 +222,7 @@ function App() {
     submitPassword,
     cancelConnect,
     clearError,
+    runStartupCommands,
   } = useConnection();
 
   // ── Vault state ──────────────────────────────────────
@@ -408,6 +412,20 @@ function App() {
       <UpdateDialog />
       <CriticalUpdateScreen />
       <RemoteEditCoordinator />
+
+      <StartupCommandsDialog
+        open={startupPreview !== null}
+        commands={startupPreview?.commands ?? []}
+        profileName={startupPreview?.profileName}
+        onConfirm={() => {
+          const preview: StartupPreview | null = startupPreview;
+          if (preview) {
+            void runStartupCommands(preview.sessionId, preview.commands);
+          }
+          clearStartupPreview();
+        }}
+        onCancel={clearStartupPreview}
+      />
     </>
   );
 }

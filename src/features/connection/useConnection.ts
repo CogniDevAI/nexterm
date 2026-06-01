@@ -8,6 +8,7 @@ import { tauriInvoke } from "../../lib/tauri";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useProfileStore } from "../../stores/profileStore";
 import { useTerminal } from "../terminal/useTerminal";
+import { normalizeStartupCommands } from "./startupCommands";
 import type {
   SessionId,
   SessionState,
@@ -35,10 +36,12 @@ interface UseConnectionReturn {
   submitPassword: (password: string, remember: boolean) => void;
   cancelConnect: () => void;
   clearError: () => void;
+  runStartupCommands: (sessionId: string, commands: string[]) => Promise<void>;
 }
 
 export function useConnection(): UseConnectionReturn {
-  const { addSession, removeSession, updateSessionState } = useSessionStore();
+  const { addSession, removeSession, updateSessionState, setStartupPreview } =
+    useSessionStore();
   const { storeCredential } = useProfileStore();
   const { disposeSessionTerminals } = useTerminal();
 
@@ -143,6 +146,18 @@ export function useConnection(): UseConnectionReturn {
           activeTerminalId: null,
         });
 
+        // Trigger startup commands preview if the profile has any
+        const commands = normalizeStartupCommands(
+          profile.startupCommands ?? [],
+        );
+        if (commands.length > 0) {
+          setStartupPreview({
+            sessionId,
+            commands,
+            profileName: profile.name,
+          });
+        }
+
         setConnecting(false);
         connectingProfileIdRef.current = null;
         setConnectingProfileId(null);
@@ -164,7 +179,7 @@ export function useConnection(): UseConnectionReturn {
         }
       }
     },
-    [addSession, updateSessionState],
+    [addSession, updateSessionState, setStartupPreview],
   );
 
   const disconnect = useCallback(
@@ -230,6 +245,43 @@ export function useConnection(): UseConnectionReturn {
     setConnectError(null);
   }, []);
 
+  // Inject startup commands into the active terminal PTY sequentially.
+  // Guards against a missing activeTerminalId (acceptable — confirm latency
+  // means the terminal is essentially always ready, but we never crash).
+  const runStartupCommands = useCallback(
+    async (sessionId: string, commands: string[]) => {
+      // The preview can be confirmed before the PTY is ready: activeTerminalId
+      // is null until TerminalTabs mounts, then a placeholder 'pending-<uuid>'
+      // until onTerminalOpened swaps in the real id. Writing to either is a
+      // no-op (null) or a backend reject (pending). Wait briefly for a real id.
+      const isReady = (id: string | null | undefined): id is string =>
+        !!id && !id.startsWith("pending-");
+
+      let terminalId =
+        useSessionStore.getState().sessions.get(sessionId)?.activeTerminalId;
+      for (let i = 0; i < 50 && !isReady(terminalId); i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        terminalId =
+          useSessionStore.getState().sessions.get(sessionId)?.activeTerminalId;
+      }
+      if (!isReady(terminalId)) return;
+
+      try {
+        for (const cmd of commands) {
+          const data = Array.from(new TextEncoder().encode(cmd + "\n"));
+          await tauriInvoke<void>("write_terminal", {
+            sessionId,
+            terminalId,
+            data,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to run startup commands", err);
+      }
+    },
+    [],
+  );
+
   return {
     connecting,
     connectingProfileId,
@@ -244,5 +296,6 @@ export function useConnection(): UseConnectionReturn {
     submitPassword,
     cancelConnect,
     clearError,
+    runStartupCommands,
   };
 }

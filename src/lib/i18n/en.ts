@@ -88,6 +88,8 @@ export const en = {
   "connection.testAuthFailed": "Credentials rejected",
   "connection.testUntrusted": "Host key not trusted",
   "connection.testMitm": "Host key changed or revoked",
+  "connection.sectionStartup": "Startup Commands",
+  "connection.startupPlaceholder": "One command per line — run after connect",
 
   // Host key dialog
   "hostKey.unknownTitle": "New Host",
@@ -366,6 +368,12 @@ export const en = {
   "tour.done": "Done",
   "tour.stepOf": "{current} of {total}",
   "tour.helpButton": "Tour",
+
+  // Startup commands preview dialog
+  "startup.title": "Run startup commands?",
+  "startup.subtitle": "These commands will run in the new session. Review before running.",
+  "startup.run": "Run",
+  "startup.cancel": "Skip",
 
   // General
   "general.ok": "OK",
