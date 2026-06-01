@@ -18,7 +18,8 @@ use crate::profile::{AuthMethodConfig, ConnectionProfile, UserCredential};
 use crate::ssh::handler::SshClientHandler;
 use crate::ssh::keys;
 use crate::state::{
-    HostKeyVerificationRequest, HostKeyVerificationResponse, SessionHandle, SessionState,
+    AutoLockState, HostKeyVerificationRequest, HostKeyVerificationResponse, SessionHandle,
+    SessionState,
 };
 
 /// Default connection timeout
@@ -190,11 +191,44 @@ pub async fn authenticate(
     }
 }
 
+/// Read a stored credential for auth, routing through
+/// [`crate::commands::vault::get_credential_for_auth`] when an `auto_lock`
+/// recorder is present so a genuine read resets the idle timer. When no
+/// recorder is supplied (callers that never auto-lock, e.g. `test_connection`),
+/// it falls back to the plain read.
+fn read_vault_credential(
+    vault: &crate::vault::Vault,
+    auto_lock: Option<&AutoLockState>,
+    profile_id: &Uuid,
+    user_id: Option<&Uuid>,
+    credential_type: &str,
+) -> Result<Option<zeroize::Zeroizing<String>>, AppError> {
+    match auto_lock {
+        Some(al) => crate::commands::vault::get_credential_for_auth(
+            vault,
+            al,
+            profile_id,
+            user_id,
+            credential_type,
+        ),
+        None => crate::commands::vault::get_credential_from_vault(
+            vault,
+            profile_id,
+            user_id,
+            credential_type,
+        ),
+    }
+}
+
 /// Resolve the auth method from a user credential, fetching credentials as needed.
 /// Returns None if the password/passphrase needs to be prompted from the user.
 ///
 /// `user` is the resolved `UserCredential` from the profile's `users` array.
 /// `profile_id` is needed for vault key construction.
+///
+/// `auto_lock`, when supplied, has its idle timer reset on a genuine stored-
+/// credential read so an actively-connecting user is not auto-locked mid-use.
+/// It is `None` for callers that never read the vault (e.g. `test_connection`).
 ///
 /// Priority order:
 /// 1. Explicitly provided password/passphrase (from connect command)
@@ -204,6 +238,7 @@ pub fn resolve_auth_method(
     profile_id: &Uuid,
     password: Option<&str>,
     vault: Option<&crate::vault::Vault>,
+    auto_lock: Option<&AutoLockState>,
 ) -> Result<Option<AuthMethod>, AppError> {
     match &user.auth_method {
         AuthMethodConfig::Password => {
@@ -213,14 +248,12 @@ pub fn resolve_auth_method(
                     pw.to_string(),
                 ))));
             }
-            // Fall back to vault
+            // Fall back to vault. A successful read resets the idle timer (only
+            // an actual hit counts as use — see `get_credential_for_auth`).
             if let Some(v) = vault {
-                if let Some(stored) = crate::commands::vault::get_credential_from_vault(
-                    v,
-                    profile_id,
-                    Some(&user.id),
-                    "password",
-                )? {
+                if let Some(stored) =
+                    read_vault_credential(v, auto_lock, profile_id, Some(&user.id), "password")?
+                {
                     return Ok(Some(AuthMethod::Password(stored)));
                 }
             }
@@ -242,17 +275,17 @@ pub fn resolve_auth_method(
                         let key = keys::load_private_key(&path, Some(pp))?;
                         return Ok(Some(AuthMethod::PublicKey { key: Box::new(key) }));
                     }
-                    // Fall back to vault passphrase
+                    // Fall back to vault passphrase. A successful read resets the
+                    // idle timer (only an actual hit counts as use).
                     if *passphrase_in_keychain {
                         if let Some(v) = vault {
-                            if let Some(passphrase) =
-                                crate::commands::vault::get_credential_from_vault(
-                                    v,
-                                    profile_id,
-                                    Some(&user.id),
-                                    "passphrase",
-                                )?
-                            {
+                            if let Some(passphrase) = read_vault_credential(
+                                v,
+                                auto_lock,
+                                profile_id,
+                                Some(&user.id),
+                                "passphrase",
+                            )? {
                                 // `passphrase` is a `Zeroizing<String>`; pass it as
                                 // `&str` (deref coercion does not reach through
                                 // `Option`, so call `.as_str()` explicitly), then

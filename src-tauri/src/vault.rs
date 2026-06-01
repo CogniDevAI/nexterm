@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -47,6 +48,45 @@ const SALT_SIZE: usize = 32;
 /// password independently of how many credentials the vault holds. The
 /// AES-GCM auth tag also guards the verifier's integrity.
 const VERIFIER_PLAINTEXT: &[u8] = b"nexterm-vault-verifier-v2";
+
+// ─── Auto-Lock Decision Logic (pure cores) ──────────────
+
+/// Default idle timeout before the vault auto-locks: 15 minutes.
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 900;
+
+/// Pure decision core for idle auto-lock.
+///
+/// Returns `true` when the vault should be locked because it has been idle for
+/// at least `timeout`. A `timeout` of zero disables auto-lock entirely (the
+/// vault never auto-locks regardless of how long it has been idle).
+///
+/// This is deterministic and side-effect free so it can be unit-tested with
+/// explicit `Duration` inputs — no sleeping, no clock reads.
+pub fn idle_should_lock(idle_elapsed: Duration, timeout: Duration) -> bool {
+    if timeout.is_zero() {
+        return false;
+    }
+    idle_elapsed >= timeout
+}
+
+/// Pure decision core for OS-suspend detection via monotonic-clock gap.
+///
+/// Tauri 2.10 does not expose an OS suspend/resume signal (see the module-level
+/// note on `spawn_auto_lock_task` callers), so we infer suspension by watching
+/// for a jump in a monotonic timer: while the OS is asleep our periodic tick is
+/// frozen, so when it resumes the observed gap between ticks is far larger than
+/// the nominal `tick_interval`. A gap exceeding `tick_interval + slack` means
+/// time was lost (suspend, debugger pause, or severe scheduling stall) and the
+/// vault should be locked defensively.
+///
+/// Deterministic and side-effect free for unit testing with explicit inputs.
+pub fn suspend_gap_detected(
+    observed_gap: Duration,
+    tick_interval: Duration,
+    slack: Duration,
+) -> bool {
+    observed_gap > tick_interval.saturating_add(slack)
+}
 
 // ─── On-Disk Format ─────────────────────────────────────
 
@@ -496,6 +536,77 @@ impl Vault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ─── Auto-lock decision cores ───────────────────────
+
+    #[test]
+    fn idle_locks_when_elapsed_equals_timeout() {
+        // Boundary: elapsed exactly at the timeout must lock.
+        assert!(idle_should_lock(
+            Duration::from_secs(900),
+            Duration::from_secs(900)
+        ));
+    }
+
+    #[test]
+    fn idle_locks_when_elapsed_exceeds_timeout() {
+        assert!(idle_should_lock(
+            Duration::from_secs(901),
+            Duration::from_secs(900)
+        ));
+    }
+
+    #[test]
+    fn idle_does_not_lock_before_timeout() {
+        assert!(!idle_should_lock(
+            Duration::from_secs(899),
+            Duration::from_secs(900)
+        ));
+        assert!(!idle_should_lock(
+            Duration::from_secs(0),
+            Duration::from_secs(900)
+        ));
+    }
+
+    #[test]
+    fn idle_timeout_zero_disables_autolock() {
+        // timeout == 0 means "never auto-lock", even after a huge idle gap.
+        assert!(!idle_should_lock(
+            Duration::from_secs(0),
+            Duration::from_secs(0)
+        ));
+        assert!(!idle_should_lock(
+            Duration::from_secs(u64::MAX / 2),
+            Duration::from_secs(0)
+        ));
+    }
+
+    #[test]
+    fn suspend_gap_detected_when_gap_far_exceeds_interval() {
+        // 5s tick + 2s slack tolerated; a 60s gap implies the OS was asleep.
+        assert!(suspend_gap_detected(
+            Duration::from_secs(60),
+            Duration::from_secs(5),
+            Duration::from_secs(2)
+        ));
+    }
+
+    #[test]
+    fn suspend_gap_not_detected_for_normal_jitter() {
+        // A tick slightly late (within tick + slack) is normal scheduling
+        // jitter, not a suspend — must not trigger.
+        assert!(!suspend_gap_detected(
+            Duration::from_secs(6),
+            Duration::from_secs(5),
+            Duration::from_secs(2)
+        ));
+        // Exactly at the tolerance boundary is still not a suspend.
+        assert!(!suspend_gap_detected(
+            Duration::from_secs(7),
+            Duration::from_secs(5),
+            Duration::from_secs(2)
+        ));
+    }
 
     fn read_vault_json(dir: &Path) -> serde_json::Value {
         let contents = std::fs::read_to_string(dir.join(VAULT_FILE)).unwrap();

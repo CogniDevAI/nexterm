@@ -4,8 +4,9 @@
 // Uses tokio::sync::Mutex because lock holders need to .await inside critical sections.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -13,7 +14,7 @@ use uuid::Uuid;
 
 use crate::profile::ConnectionProfile;
 use crate::ssh::tunnel::RemoteForwardRegistry;
-use crate::vault::Vault;
+use crate::vault::{idle_should_lock, Vault, DEFAULT_IDLE_TIMEOUT_SECS};
 
 // ─── Type Aliases ───────────────────────────────────────
 
@@ -27,7 +28,14 @@ pub type TransferId = Uuid;
 pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<SessionId, SessionHandle>>>,
     pub profiles: Mutex<Vec<ConnectionProfile>>,
-    pub vault: Mutex<Option<Vault>>,
+    /// `Arc` so the background auto-lock task can share the exact same vault
+    /// mutex as the command handlers (one source of truth for the key).
+    pub vault: Arc<Mutex<Option<Vault>>>,
+    /// Idle/suspend auto-lock bookkeeping for the vault. Held behind its own
+    /// synchronization (a std `Mutex` + atomics) so the background lock task and
+    /// `vault_status` reads never have to take the async `vault` mutex just to
+    /// inspect activity — this keeps lock ordering simple and deadlock-free.
+    pub auto_lock: Arc<AutoLockState>,
 }
 
 impl Default for AppState {
@@ -35,8 +43,87 @@ impl Default for AppState {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             profiles: Mutex::new(Vec::new()),
-            vault: Mutex::new(None),
+            vault: Arc::new(Mutex::new(None)),
+            auto_lock: Arc::new(AutoLockState::default()),
         }
+    }
+}
+
+// ─── Auto-Lock State ────────────────────────────────────
+
+/// Tracks vault activity and the configured idle timeout so the background task
+/// (and `vault_status`) can decide when to auto-lock.
+///
+/// `last_activity` is a monotonic `Instant`, guarded by a *synchronous* mutex:
+/// every critical section is a couple of field reads/writes with no `.await`,
+/// so a `std::sync::Mutex` is correct and cheaper than the async one. The
+/// timeout is an `AtomicU64` (seconds; 0 disables auto-lock) so it can be read
+/// and reconfigured without taking any lock.
+pub struct AutoLockState {
+    last_activity: StdMutex<Instant>,
+    idle_timeout_secs: AtomicU64,
+}
+
+impl Default for AutoLockState {
+    fn default() -> Self {
+        Self {
+            last_activity: StdMutex::new(Instant::now()),
+            idle_timeout_secs: AtomicU64::new(DEFAULT_IDLE_TIMEOUT_SECS),
+        }
+    }
+}
+
+impl AutoLockState {
+    /// Reset the idle timer — call this on every vault operation that counts as
+    /// "use" (unlock, store/get/delete credential, status that implies use).
+    pub fn record_activity(&self) {
+        *self.last_activity.lock().unwrap() = Instant::now();
+    }
+
+    /// Like [`record_activity`] but pins the timer to a caller-supplied
+    /// `Instant`. Exists so tests can place activity deterministically in the
+    /// past without sleeping.
+    pub fn record_activity_at(&self, at: Instant) {
+        *self.last_activity.lock().unwrap() = at;
+    }
+
+    /// Configure the idle timeout in seconds. `0` disables auto-lock.
+    pub fn set_idle_timeout_secs(&self, secs: u64) {
+        self.idle_timeout_secs.store(secs, Ordering::Relaxed);
+    }
+
+    /// Current idle timeout in seconds (`0` means auto-lock disabled).
+    pub fn idle_timeout_secs(&self) -> u64 {
+        self.idle_timeout_secs.load(Ordering::Relaxed)
+    }
+
+    /// How long since the last recorded activity, measured against `now`.
+    /// Saturates at zero if the clock somehow reports activity in the future.
+    pub fn idle_elapsed_since(&self, now: Instant) -> Duration {
+        let last = *self.last_activity.lock().unwrap();
+        now.saturating_duration_since(last)
+    }
+
+    /// Seconds since the last recorded activity (for surfacing to the UI).
+    pub fn idle_seconds(&self) -> u64 {
+        self.idle_elapsed_since(Instant::now()).as_secs()
+    }
+
+    /// Seconds remaining before auto-lock, or `None` when auto-lock is disabled
+    /// (`timeout == 0`). Clamps to `0` once the timeout has elapsed.
+    pub fn seconds_until_lock(&self) -> Option<u64> {
+        let timeout = self.idle_timeout_secs();
+        if timeout == 0 {
+            return None;
+        }
+        Some(timeout.saturating_sub(self.idle_seconds()))
+    }
+
+    /// Decide whether the vault should auto-lock as of `now`, composing the
+    /// pure [`idle_should_lock`] core with the current activity + timeout.
+    pub fn should_lock_now(&self, now: Instant) -> bool {
+        let timeout = Duration::from_secs(self.idle_timeout_secs());
+        idle_should_lock(self.idle_elapsed_since(now), timeout)
     }
 }
 
@@ -356,4 +443,77 @@ pub enum TerminalEvent {
     Output { data: Vec<u8> },
     Closed { reason: String },
     Error { message: String },
+}
+
+// ─── Tests ──────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_lock_defaults_to_fifteen_minutes() {
+        let s = AutoLockState::default();
+        assert_eq!(s.idle_timeout_secs(), DEFAULT_IDLE_TIMEOUT_SECS);
+        assert_eq!(DEFAULT_IDLE_TIMEOUT_SECS, 900);
+    }
+
+    #[test]
+    fn set_idle_timeout_roundtrips() {
+        let s = AutoLockState::default();
+        s.set_idle_timeout_secs(60);
+        assert_eq!(s.idle_timeout_secs(), 60);
+        s.set_idle_timeout_secs(0);
+        assert_eq!(s.idle_timeout_secs(), 0);
+    }
+
+    #[test]
+    fn should_lock_after_timeout_elapses() {
+        let s = AutoLockState::default();
+        s.set_idle_timeout_secs(900);
+        // Activity 901s in the past relative to a fixed `now` => should lock.
+        let now = Instant::now();
+        s.record_activity_at(now - Duration::from_secs(901));
+        assert!(s.should_lock_now(now));
+    }
+
+    #[test]
+    fn should_not_lock_before_timeout() {
+        let s = AutoLockState::default();
+        s.set_idle_timeout_secs(900);
+        let now = Instant::now();
+        s.record_activity_at(now - Duration::from_secs(10));
+        assert!(!s.should_lock_now(now));
+    }
+
+    #[test]
+    fn timeout_zero_never_locks_even_after_long_idle() {
+        let s = AutoLockState::default();
+        s.set_idle_timeout_secs(0);
+        let now = Instant::now();
+        s.record_activity_at(now - Duration::from_secs(86_400));
+        assert!(!s.should_lock_now(now));
+        assert_eq!(s.seconds_until_lock(), None);
+    }
+
+    #[test]
+    fn record_activity_resets_the_idle_timer() {
+        let s = AutoLockState::default();
+        s.set_idle_timeout_secs(900);
+        let now = Instant::now();
+        // First put activity in the lock-eligible past...
+        s.record_activity_at(now - Duration::from_secs(901));
+        assert!(s.should_lock_now(now));
+        // ...then a fresh activity must clear the lock decision.
+        s.record_activity_at(now);
+        assert!(!s.should_lock_now(now));
+    }
+
+    #[test]
+    fn seconds_until_lock_clamps_to_zero_when_expired() {
+        let s = AutoLockState::default();
+        s.set_idle_timeout_secs(900);
+        s.record_activity_at(Instant::now() - Duration::from_secs(5000));
+        assert_eq!(s.seconds_until_lock(), Some(0));
+    }
 }

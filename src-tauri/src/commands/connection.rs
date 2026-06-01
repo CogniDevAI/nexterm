@@ -170,7 +170,12 @@ pub async fn connect(
     handle.username = resolved_user.username.clone();
 
     let auth_result: Result<(), AppError> = async {
-        // Resolve authentication method (pass vault reference for credential lookup)
+        // Resolve authentication method (pass vault reference for credential
+        // lookup). The `auto_lock` reference lets `resolve_auth_method` reset the
+        // idle timer on a genuine stored-credential read, so a user who is
+        // actively (re)connecting with vault credentials is not auto-locked
+        // mid-use — which would make the next connection needing a stored
+        // credential hit `VaultLocked`.
         let vault_guard = state.vault.lock().await;
         let vault_ref = vault_guard.as_ref();
         let auth_method = session::resolve_auth_method(
@@ -178,6 +183,7 @@ pub async fn connect(
             &profile.id,
             password.as_ref().map(|z| z.as_str()),
             vault_ref,
+            Some(&state.auto_lock),
         )?;
         drop(vault_guard);
 
@@ -539,11 +545,13 @@ pub async fn test_connection(
     };
 
     // ── Resolve auth method and authenticate ──
-    // test_connection uses a temp user — no vault lookup needed (password always explicit)
+    // test_connection uses a temp user — no vault lookup needed (password always
+    // explicit), so no vault and no auto-lock recorder are passed.
     let auth = session::resolve_auth_method(
         &temp_user,
         &temp_profile_id,
         password.as_ref().map(|z| z.as_str()),
+        None,
         None,
     )?;
 
