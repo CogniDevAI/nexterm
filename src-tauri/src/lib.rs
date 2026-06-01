@@ -144,6 +144,7 @@ pub fn run() {
             commands::connection::list_sessions,
             commands::connection::get_session_state,
             commands::connection::respond_host_key_verification,
+            commands::connection::respond_keyboard_interactive_challenge,
             commands::connection::test_connection,
             commands::connection::list_ssh_keys,
             // Terminal

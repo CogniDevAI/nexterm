@@ -21,6 +21,7 @@ use crate::ssh::handler::SshClientHandler;
 use crate::ssh::keys;
 use crate::state::{
     AutoLockState, HostKeyStatus, HostKeyVerificationRequest, HostKeyVerificationResponse,
+    KeyboardInteractiveChallengeRequest, KeyboardInteractivePrompt, KeyboardInteractiveResponse,
     SessionHandle, SessionState,
 };
 
@@ -30,6 +31,81 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const KEEPALIVE_INTERVAL_SECS: u64 = 30;
 /// Max consecutive keepalive failures (handled by russh internally)
 const MAX_KEEPALIVE_FAILURES: usize = 3;
+
+/// Maximum number of keyboard-interactive challenge rounds we will service for a
+/// single authentication attempt. RFC 4256 lets a server send an unbounded
+/// stream of `SSH_MSG_USERAUTH_INFO_REQUEST` messages; a malicious or
+/// misbehaving server could exploit that to loop forever, pinning the
+/// connection task and repeatedly prompting the user. We cap it so the flow
+/// always terminates. 5 rounds comfortably covers real MFA stacks
+/// (password + OTP + push confirmation, with retries) while denying an infinite
+/// challenge loop.
+pub(crate) const MAX_KEYBOARD_INTERACTIVE_ROUNDS: u32 = 5;
+
+/// How long we wait for the frontend to deliver the user's answers to a single
+/// keyboard-interactive challenge before giving up. Without this, a user who
+/// closes the dialog (or a frontend that never responds) would leave the
+/// connection task awaiting the oneshot forever. The host-key bridge can block
+/// indefinitely because that dialog has explicit Accept/Reject buttons that
+/// always fire; an MFA prompt has no guaranteed terminal action, so we bound it.
+const KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_SECS: u64 = 120;
+
+/// Pure decision: is `round` within the keyboard-interactive round budget?
+///
+/// `round` is 1-based (the first challenge is round 1). Returns `true` while we
+/// are still allowed to service the challenge, `false` once the cap is exceeded.
+/// Extracted as a pure function so the cap is unit-testable without a server.
+pub(crate) fn ki_round_allowed(round: u32) -> bool {
+    round <= MAX_KEYBOARD_INTERACTIVE_ROUNDS
+}
+
+/// Pure transform: build a [`KeyboardInteractiveChallengeRequest`] for the
+/// frontend from the raw fields russh surfaces in
+/// `KeyboardInteractiveAuthResponse::InfoRequest` (russh `Prompt` has fields
+/// `prompt: String` and `echo: bool`). `session_id` is left `None` here and
+/// injected by the connect command before the event is forwarded, mirroring the
+/// host-key bridge. Side-effect free so it is unit-testable.
+pub(crate) fn extract_challenge_request(
+    name: String,
+    instruction: String,
+    prompts: &[russh::client::Prompt],
+    round: u32,
+) -> KeyboardInteractiveChallengeRequest {
+    KeyboardInteractiveChallengeRequest {
+        session_id: None,
+        name,
+        instruction,
+        prompts: prompts
+            .iter()
+            .map(|p| KeyboardInteractivePrompt {
+                text: p.prompt.clone(),
+                echo: p.echo,
+            })
+            .collect(),
+        round,
+    }
+}
+
+/// Pure validation: the number of answers MUST equal the number of prompts the
+/// server posed. russh's `authenticate_keyboard_interactive_respond` documents
+/// that the response count must match the prompt count, and submitting the wrong
+/// number corrupts the auth exchange. We reject the mismatch with a precise
+/// error BEFORE touching the network. Side-effect free for unit testing.
+///
+/// NOTE: the error message intentionally carries ONLY the counts — never any
+/// answer content — so it is safe to log/propagate.
+pub(crate) fn validate_ki_responses(
+    prompt_count: usize,
+    response_count: usize,
+) -> Result<(), AppError> {
+    if prompt_count == response_count {
+        Ok(())
+    } else {
+        Err(AppError::KeyboardInteractive(format!(
+            "expected {prompt_count} answer(s) for the challenge, got {response_count}"
+        )))
+    }
+}
 
 /// Build the shared russh client configuration used by every connection path
 /// (interactive `do_handshake` and `test_connection`).
@@ -281,6 +357,16 @@ pub async fn prepare_bastion_channel(
                 .await
                 .map_err(AppError::Ssh)?
         }
+        // `resolve_jump_auth` only ever yields Password / PublicKey
+        // (`JumpAuthConfig` has no keyboard-interactive variant), so this arm is
+        // unreachable in practice. Bastions also have no frontend bridge to drive
+        // an MFA dialog yet (the jump-host picker is a deferred slice). Refuse
+        // explicitly rather than panic.
+        AuthMethod::KeyboardInteractive(_) => {
+            return Err(AppError::KeyboardInteractive(
+                "keyboard-interactive auth is not supported for the bastion hop".to_string(),
+            ));
+        }
     };
 
     if !authenticated {
@@ -325,6 +411,88 @@ pub enum AuthMethod {
     PublicKey {
         key: Box<ssh_key::PrivateKey>,
     },
+    /// Keyboard-interactive (MFA). Carries no secret: the answers are gathered
+    /// per challenge round from the frontend through the
+    /// [`KeyboardInteractiveBridge`]. The `String` is the SSH username (kept for
+    /// symmetry with the other variants / clearer matching at the call site).
+    KeyboardInteractive(String),
+}
+
+/// Bridge that drives the keyboard-interactive challenge/response loop between
+/// the session auth code (which talks to russh) and the frontend (which collects
+/// the user's MFA answers). It mirrors the host-key oneshot bridge, but because
+/// a server may pose SEVERAL challenge rounds the request side is an `mpsc` and
+/// each round gets its own response `oneshot` (created by `next_response`).
+///
+/// SECURITY: answers returned by `challenge` are wrapped in `Zeroizing` so the
+/// plaintext is wiped from the heap as soon as the auth loop drops them; this
+/// type never logs answer content.
+pub struct KeyboardInteractiveBridge {
+    /// Emits each round's challenge to the command layer, which forwards it to
+    /// the frontend as a `SessionStateEvent` and arms the matching response
+    /// receiver.
+    request_tx: tokio::sync::mpsc::Sender<KeyboardInteractiveChallengeRequest>,
+    /// Produces the receiver for the NEXT round's answers. The command layer
+    /// stores the paired sender in its pending map keyed by session id, so
+    /// `respond_keyboard_interactive_challenge` can deliver the answers.
+    response_rx_factory:
+        Box<dyn FnMut() -> tokio::sync::oneshot::Receiver<KeyboardInteractiveResponse> + Send>,
+}
+
+impl KeyboardInteractiveBridge {
+    /// Construct a bridge from the request sender and a factory that arms (and
+    /// returns the receiver for) the next round's response oneshot.
+    pub fn new(
+        request_tx: tokio::sync::mpsc::Sender<KeyboardInteractiveChallengeRequest>,
+        response_rx_factory: Box<
+            dyn FnMut() -> tokio::sync::oneshot::Receiver<KeyboardInteractiveResponse> + Send,
+        >,
+    ) -> Self {
+        Self {
+            request_tx,
+            response_rx_factory,
+        }
+    }
+
+    /// Pose one challenge round to the frontend and await the answers.
+    ///
+    /// Emits `request` (the command layer forwards it as an event), arms a fresh
+    /// per-round response receiver, and waits up to
+    /// `KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_SECS` for the user. The answers are
+    /// returned wrapped in `Zeroizing` so the caller can hand them to russh and
+    /// drop them immediately. Never logs answer content.
+    async fn challenge(
+        &mut self,
+        request: KeyboardInteractiveChallengeRequest,
+    ) -> Result<zeroize::Zeroizing<Vec<String>>, AppError> {
+        // Arm the response receiver BEFORE emitting the request so the answer
+        // can never race ahead of an armed receiver.
+        let response_rx = (self.response_rx_factory)();
+
+        self.request_tx.send(request).await.map_err(|_| {
+            AppError::KeyboardInteractive(
+                "challenge channel closed before the prompt could be delivered".to_string(),
+            )
+        })?;
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(KEYBOARD_INTERACTIVE_RESPONSE_TIMEOUT_SECS),
+            response_rx,
+        )
+        .await
+        .map_err(|_| {
+            AppError::KeyboardInteractive(
+                "timed out waiting for the keyboard-interactive response".to_string(),
+            )
+        })?
+        .map_err(|_| {
+            AppError::KeyboardInteractive(
+                "keyboard-interactive response channel dropped".to_string(),
+            )
+        })?;
+
+        Ok(zeroize::Zeroizing::new(response.responses))
+    }
 }
 
 // ─── Connect ────────────────────────────────────────────
@@ -457,10 +625,15 @@ pub async fn do_handshake(
 ///
 /// `username` is the SSH username from the resolved `UserCredential` — no longer
 /// read from `handle.profile` since profiles now have multiple users.
+///
+/// `ki_bridge` is required ONLY for `AuthMethod::KeyboardInteractive`; it drives
+/// the per-round challenge/response exchange with the frontend. For the password
+/// and public-key paths it is ignored (pass `None`).
 pub async fn authenticate(
     handle: &mut SessionHandle,
     auth: AuthMethod,
     username: &str,
+    ki_bridge: Option<KeyboardInteractiveBridge>,
 ) -> Result<(), AppError> {
     let ssh = handle.ssh_handle.as_mut().ok_or(AppError::NotConnected)?;
 
@@ -477,6 +650,14 @@ pub async fn authenticate(
                 .await
                 .map_err(AppError::Ssh)?
         }
+        AuthMethod::KeyboardInteractive(ki_username) => {
+            let bridge = ki_bridge.ok_or_else(|| {
+                AppError::KeyboardInteractive(
+                    "no challenge bridge supplied for keyboard-interactive auth".to_string(),
+                )
+            })?;
+            authenticate_keyboard_interactive(ssh, &ki_username, bridge).await?
+        }
     };
 
     if authenticated {
@@ -489,6 +670,92 @@ pub async fn authenticate(
         Err(AppError::AuthFailed(format!(
             "Server rejected authentication for user '{username}'"
         )))
+    }
+}
+
+/// Run the keyboard-interactive (MFA) challenge/response loop against `ssh`.
+///
+/// Flow (RFC 4256, via russh 0.48.2's `Handle` API):
+/// 1. `authenticate_keyboard_interactive_start(user, None)` initiates the method
+///    and returns the FIRST `KeyboardInteractiveAuthResponse`.
+/// 2. For each `InfoRequest { name, instructions, prompts }`: emit the challenge
+///    to the frontend (via the bridge), await the answers, validate the answer
+///    count against the prompt count, then submit them with
+///    `authenticate_keyboard_interactive_respond(responses)`, which returns the
+///    NEXT response (success, failure, or another `InfoRequest`).
+/// 3. Repeat until `Success`/`Failure`, OR until the round cap is hit.
+///
+/// SECURITY:
+/// - A MAX-ROUNDS CAP (`MAX_KEYBOARD_INTERACTIVE_ROUNDS`) bounds the loop so a
+///   malicious server cannot drive an infinite `InfoRequest` storm.
+/// - Answers arrive wrapped in `Zeroizing` and are dropped immediately after
+///   russh consumes them (a `Zeroizing<Vec<String>>` zeroizes each `String`'s
+///   heap buffer on drop). Answer CONTENT is never logged — only counts/rounds.
+///
+/// Returns `Ok(true)` on `Success`, `Ok(false)` on `Failure` (so the caller's
+/// existing accepted/rejected handling applies uniformly).
+async fn authenticate_keyboard_interactive(
+    ssh: &mut russh::client::Handle<SshClientHandler>,
+    username: &str,
+    mut bridge: KeyboardInteractiveBridge,
+) -> Result<bool, AppError> {
+    use russh::client::KeyboardInteractiveAuthResponse as KiResponse;
+
+    // Step 1: initiate. We advertise no submethods (let the server choose).
+    let mut response = ssh
+        .authenticate_keyboard_interactive_start(username.to_string(), None)
+        .await
+        .map_err(AppError::Ssh)?;
+
+    let mut round: u32 = 0;
+
+    loop {
+        match response {
+            KiResponse::Success => return Ok(true),
+            KiResponse::Failure => return Ok(false),
+            KiResponse::InfoRequest {
+                name,
+                instructions,
+                prompts,
+            } => {
+                round += 1;
+
+                // Enforce the round cap BEFORE prompting the user again so a
+                // malicious server cannot loop forever.
+                if !ki_round_allowed(round) {
+                    return Err(AppError::KeyboardInteractive(format!(
+                        "server exceeded the maximum of {MAX_KEYBOARD_INTERACTIVE_ROUNDS} \
+                         challenge rounds"
+                    )));
+                }
+
+                let prompt_count = prompts.len();
+                let request = extract_challenge_request(name, instructions, &prompts, round);
+
+                // Ask the frontend; answers come back zeroized.
+                let mut answers = bridge.challenge(request).await?;
+
+                // Validate count BEFORE submitting (never send a malformed reply).
+                validate_ki_responses(prompt_count, answers.len())?;
+
+                // russh's `authenticate_keyboard_interactive_respond` takes the
+                // responses by value. MOVE the inner Vec out of the Zeroizing
+                // wrapper (via `mem::take`, leaving an empty Vec behind) so we do
+                // NOT create a second plaintext copy on the heap. russh owns the
+                // strings from here; it does not hand them back, so post-submit
+                // zeroization of russh's copy is not possible at this layer — we
+                // minimize the window by submitting immediately and never logging
+                // the content. The now-empty `answers` is dropped right after.
+                let to_submit: Vec<String> = std::mem::take(&mut *answers);
+                drop(answers);
+                let next = ssh
+                    .authenticate_keyboard_interactive_respond(to_submit)
+                    .await
+                    .map_err(AppError::Ssh)?;
+
+                response = next;
+            }
+        }
     }
 }
 
@@ -604,10 +871,11 @@ pub fn resolve_auth_method(
             }
         }
         AuthMethodConfig::KeyboardInteractive => {
-            // Keyboard-interactive requires dynamic prompts — not implemented in MVP
-            Err(AppError::AuthFailed(
-                "Keyboard-interactive auth not yet implemented".to_string(),
-            ))
+            // No stored secret to resolve: the answers are gathered per challenge
+            // round from the frontend during `authenticate` via the
+            // `KeyboardInteractiveBridge`. Carry the username so the auth loop can
+            // initiate the exchange.
+            Ok(Some(AuthMethod::KeyboardInteractive(user.username.clone())))
         }
     }
 }
@@ -772,5 +1040,179 @@ mod tests {
         use tokio::io::{AsyncRead, AsyncWrite};
         fn assert_stream_bounds<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>() {}
         assert_stream_bounds::<russh::ChannelStream<russh::client::Msg>>();
+    }
+
+    // ─── Keyboard-Interactive (MFA): pure cores ─────────────────────
+
+    fn russh_prompt(text: &str, echo: bool) -> russh::client::Prompt {
+        russh::client::Prompt {
+            prompt: text.to_string(),
+            echo,
+        }
+    }
+
+    #[test]
+    fn ki_round_allowed_within_cap() {
+        // 1-based rounds 1..=MAX are allowed.
+        assert!(ki_round_allowed(1));
+        assert!(ki_round_allowed(MAX_KEYBOARD_INTERACTIVE_ROUNDS));
+    }
+
+    #[test]
+    fn ki_round_allowed_rejects_past_cap() {
+        // The round AFTER the cap must be refused — this is what stops an
+        // infinite challenge loop from a malicious server.
+        assert!(!ki_round_allowed(MAX_KEYBOARD_INTERACTIVE_ROUNDS + 1));
+    }
+
+    #[test]
+    fn extract_challenge_maps_prompts_and_echo() {
+        let prompts = vec![
+            russh_prompt("Password:", false),
+            russh_prompt("Username confirm:", true),
+        ];
+        let req =
+            extract_challenge_request("PAM".to_string(), "Authenticate".to_string(), &prompts, 1);
+
+        assert_eq!(req.name, "PAM");
+        assert_eq!(req.instruction, "Authenticate");
+        assert_eq!(req.round, 1);
+        assert_eq!(req.session_id, None); // injected later by the connect command
+        assert_eq!(req.prompts.len(), 2);
+        assert_eq!(req.prompts[0].text, "Password:");
+        assert!(!req.prompts[0].echo);
+        assert_eq!(req.prompts[1].text, "Username confirm:");
+        assert!(req.prompts[1].echo);
+    }
+
+    #[test]
+    fn extract_challenge_handles_empty_prompts() {
+        // A server may send an InfoRequest with zero prompts (informational).
+        let req = extract_challenge_request(String::new(), String::new(), &[], 2);
+        assert!(req.prompts.is_empty());
+        assert_eq!(req.round, 2);
+    }
+
+    #[test]
+    fn validate_ki_responses_accepts_matching_count() {
+        assert!(validate_ki_responses(2, 2).is_ok());
+        // Zero prompts ⇒ zero answers is valid.
+        assert!(validate_ki_responses(0, 0).is_ok());
+    }
+
+    #[test]
+    fn validate_ki_responses_rejects_too_few() {
+        let err = validate_ki_responses(2, 1).unwrap_err();
+        assert!(matches!(err, AppError::KeyboardInteractive(_)));
+        // The error carries the counts only — never any answer content.
+        let msg = err.to_string();
+        assert!(msg.contains('2'));
+        assert!(msg.contains('1'));
+    }
+
+    #[test]
+    fn validate_ki_responses_rejects_too_many() {
+        let err = validate_ki_responses(1, 3).unwrap_err();
+        assert!(matches!(err, AppError::KeyboardInteractive(_)));
+    }
+
+    #[test]
+    fn resolve_auth_method_returns_keyboard_interactive() {
+        use crate::profile::{AuthMethodConfig, UserCredential};
+        let user = UserCredential {
+            id: Uuid::nil(),
+            username: "alice".to_string(),
+            auth_method: AuthMethodConfig::KeyboardInteractive,
+            is_default: true,
+        };
+        let resolved =
+            resolve_auth_method(&user, &Uuid::nil(), None, None, None).expect("must resolve");
+        match resolved {
+            Some(AuthMethod::KeyboardInteractive(name)) => assert_eq!(name, "alice"),
+            _ => panic!("expected KeyboardInteractive auth method carrying the username"),
+        }
+    }
+
+    // The bridge's challenge() round-trip is exercised without a network or a
+    // real russh Handle: we drive both ends of the channels directly. This
+    // proves the request is emitted, a fresh per-round receiver is armed, and the
+    // answers come back wrapped in Zeroizing.
+    #[tokio::test]
+    async fn ki_bridge_challenge_round_trips_answers() {
+        let (req_tx, mut req_rx) = tokio::sync::mpsc::channel(1);
+
+        // Factory hands out a fresh response receiver per round and stashes the
+        // sender so the test (standing in for the command layer) can reply.
+        let pending: Arc<
+            std::sync::Mutex<Option<tokio::sync::oneshot::Sender<KeyboardInteractiveResponse>>>,
+        > = Arc::new(std::sync::Mutex::new(None));
+        let pending_factory = Arc::clone(&pending);
+        let factory = Box::new(move || {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            *pending_factory.lock().unwrap() = Some(tx);
+            rx
+        });
+
+        let mut bridge = KeyboardInteractiveBridge::new(req_tx, factory);
+
+        let request = KeyboardInteractiveChallengeRequest {
+            session_id: None,
+            name: "MFA".to_string(),
+            instruction: String::new(),
+            prompts: vec![KeyboardInteractivePrompt {
+                text: "OTP:".to_string(),
+                echo: false,
+            }],
+            round: 1,
+        };
+
+        // Drive the responder concurrently with the challenge call.
+        let challenge = bridge.challenge(request);
+        let responder = async {
+            let emitted = req_rx.recv().await.expect("a challenge must be emitted");
+            assert_eq!(emitted.name, "MFA");
+            assert_eq!(emitted.round, 1);
+            // Reply via the armed per-round sender.
+            let tx = pending.lock().unwrap().take().expect("receiver was armed");
+            tx.send(KeyboardInteractiveResponse {
+                responses: vec!["123456".to_string()],
+            })
+            .map_err(|_| ())
+            .expect("send answers");
+        };
+
+        let (answers, ()) = tokio::join!(challenge, responder);
+        let answers = answers.expect("challenge resolves");
+        assert_eq!(&*answers, &vec!["123456".to_string()]);
+    }
+
+    // If the response channel is dropped without answering (e.g. the user closes
+    // the dialog), challenge() must surface a KeyboardInteractive error rather
+    // than hang or panic.
+    #[tokio::test]
+    async fn ki_bridge_challenge_errors_when_response_dropped() {
+        let (req_tx, mut req_rx) = tokio::sync::mpsc::channel(1);
+        let factory = Box::new(move || {
+            // Create the oneshot but immediately drop the sender → dropped channel.
+            let (_tx, rx) = tokio::sync::oneshot::channel();
+            rx
+        });
+        let mut bridge = KeyboardInteractiveBridge::new(req_tx, factory);
+
+        let request = KeyboardInteractiveChallengeRequest {
+            session_id: None,
+            name: String::new(),
+            instruction: String::new(),
+            prompts: vec![],
+            round: 1,
+        };
+
+        let challenge = bridge.challenge(request);
+        let drain = async {
+            // Consume the emitted request so send() succeeds.
+            let _ = req_rx.recv().await;
+        };
+        let (result, ()) = tokio::join!(challenge, drain);
+        assert!(matches!(result, Err(AppError::KeyboardInteractive(_))));
     }
 }

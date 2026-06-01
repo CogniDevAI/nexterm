@@ -441,6 +441,67 @@ pub enum HostKeyVerificationResponse {
     Reject,
 }
 
+// ─── Keyboard-Interactive (MFA) Challenge ───────────────
+//
+// Keyboard-interactive auth (RFC 4256) is how servers drive multi-factor flows:
+// the server sends one or more "challenges", each carrying a name, an
+// instruction, and an ordered list of prompts (e.g. "Password:", "OTP code:").
+// The client must answer every prompt and may face SEVERAL challenge rounds
+// before the server accepts or rejects. This bridges that flow to the frontend
+// exactly like host-key verification: handler emits a request, awaits a oneshot
+// reply carrying the user's answers.
+
+/// A single prompt within a keyboard-interactive challenge.
+///
+/// `echo` mirrors the SSH `echo` flag: when `false` the answer is secret (a
+/// password / OTP) and the frontend MUST mask the input; when `true` it is a
+/// visible field (e.g. a username confirmation).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardInteractivePrompt {
+    /// The text the server wants shown to the user (e.g. "Verification code:").
+    pub text: String,
+    /// Whether the typed answer should be visible (`true`) or masked (`false`).
+    pub echo: bool,
+}
+
+/// One keyboard-interactive challenge round surfaced to the frontend.
+///
+/// Emitted via [`crate::commands::connection::SessionStateEvent`] each time the
+/// server poses a challenge. `round` lets the UI/log distinguish successive
+/// rounds (1-based); it is also what the max-rounds cap counts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardInteractiveChallengeRequest {
+    /// Session this challenge belongs to. Injected by the connect command before
+    /// the event is forwarded (mirrors `HostKeyVerificationRequest::session_id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionId>,
+    /// Optional human-readable name the server attached to the challenge set.
+    pub name: String,
+    /// Optional instruction block (often empty) the server attached.
+    pub instruction: String,
+    /// The ordered prompts the user must answer. Answers MUST be returned in the
+    /// SAME order and count (validated in `session.rs`).
+    pub prompts: Vec<KeyboardInteractivePrompt>,
+    /// 1-based round counter. The first challenge is round 1.
+    pub round: u32,
+}
+
+/// The user's answers to a keyboard-interactive challenge, sent from the
+/// frontend back to the awaiting handler.
+///
+/// The answers themselves are plaintext secrets in transit only — the backend
+/// wraps them in `zeroize::Zeroizing` the instant they arrive and never logs
+/// their content. We do NOT derive `Debug` to avoid accidental logging of the
+/// answers.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardInteractiveResponse {
+    /// One answer per prompt, in prompt order.
+    pub responses: Vec<String>,
+}
+
 // ─── Terminal Events (streamed via Tauri Channel) ───────
 
 #[derive(Clone, Serialize)]
@@ -521,5 +582,63 @@ mod tests {
         s.set_idle_timeout_secs(900);
         s.record_activity_at(Instant::now() - Duration::from_secs(5000));
         assert_eq!(s.seconds_until_lock(), Some(0));
+    }
+
+    // ─── Keyboard-Interactive serde ─────────────────────────────────
+
+    #[test]
+    fn ki_prompt_serializes_camel_case() {
+        let prompt = KeyboardInteractivePrompt {
+            text: "Verification code:".to_string(),
+            echo: false,
+        };
+        let json = serde_json::to_value(&prompt).unwrap();
+        assert_eq!(json["text"], "Verification code:");
+        assert_eq!(json["echo"], false);
+    }
+
+    #[test]
+    fn ki_challenge_request_roundtrips() {
+        let req = KeyboardInteractiveChallengeRequest {
+            session_id: Some(Uuid::nil()),
+            name: "MFA".to_string(),
+            instruction: "Enter your one-time code".to_string(),
+            prompts: vec![
+                KeyboardInteractivePrompt {
+                    text: "Password:".to_string(),
+                    echo: false,
+                },
+                KeyboardInteractivePrompt {
+                    text: "OTP:".to_string(),
+                    echo: false,
+                },
+            ],
+            round: 1,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: KeyboardInteractiveChallengeRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(req, back);
+    }
+
+    #[test]
+    fn ki_challenge_request_omits_none_session_id() {
+        let req = KeyboardInteractiveChallengeRequest {
+            session_id: None,
+            name: String::new(),
+            instruction: String::new(),
+            prompts: vec![],
+            round: 1,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("sessionId").is_none());
+        // camelCase rename for the round counter is preserved.
+        assert_eq!(json["round"], 1);
+    }
+
+    #[test]
+    fn ki_response_deserializes_from_camel_case() {
+        let json = r#"{"responses":["hunter2","123456"]}"#;
+        let resp: KeyboardInteractiveResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.responses, vec!["hunter2", "123456"]);
     }
 }

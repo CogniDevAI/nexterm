@@ -16,7 +16,8 @@ use crate::error::AppError;
 use crate::profile::UserCredential;
 use crate::ssh::session;
 use crate::state::{
-    AppState, HostKeyVerificationRequest, HostKeyVerificationResponse, SessionId, SessionInfo,
+    AppState, HostKeyVerificationRequest, HostKeyVerificationResponse,
+    KeyboardInteractiveChallengeRequest, KeyboardInteractiveResponse, SessionId, SessionInfo,
     SessionState,
 };
 
@@ -30,6 +31,7 @@ pub enum SessionStateEvent {
         state: SessionState,
     },
     HostKeyVerification(HostKeyVerificationRequest),
+    KeyboardInteractiveChallenge(KeyboardInteractiveChallengeRequest),
 }
 
 // ─── Pending host key verifications ─────────────────────
@@ -49,6 +51,32 @@ static PENDING_HK_VERIFICATIONS: std::sync::OnceLock<PendingVerifications> =
 fn pending_hk() -> &'static PendingVerifications {
     PENDING_HK_VERIFICATIONS
         .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+// ─── Pending keyboard-interactive challenges ────────────
+
+/// Per-session response sender for the CURRENT keyboard-interactive challenge
+/// round. Mirrors `PendingVerifications`, but the value is re-armed for EACH
+/// challenge round (the bridge's factory replaces the entry before emitting the
+/// next challenge), since one MFA flow can pose several rounds.
+///
+/// Guarded by a *synchronous* `std::sync::Mutex` (not the tokio one used for
+/// host keys): every critical section is a single HashMap insert/remove with no
+/// `.await`, and — crucially — the bridge's response-receiver factory is a
+/// synchronous `FnMut` that must arm a sender without being able to `.await` a
+/// tokio lock. A std mutex is both correct and the only thing callable here.
+type PendingKeyboardInteractiveResponses = std::sync::Mutex<
+    std::collections::HashMap<SessionId, oneshot::Sender<KeyboardInteractiveResponse>>,
+>;
+
+/// Lazy-initialized global storage for the in-flight keyboard-interactive
+/// response channel, keyed by session id. The auth loop arms a fresh sender per
+/// round; `respond_keyboard_interactive_challenge` removes and fires it.
+static PENDING_KI_RESPONSES: std::sync::OnceLock<PendingKeyboardInteractiveResponses> =
+    std::sync::OnceLock::new();
+
+fn pending_ki() -> &'static PendingKeyboardInteractiveResponses {
+    PENDING_KI_RESPONSES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 // ─── Commands ───────────────────────────────────────────
@@ -221,6 +249,41 @@ pub async fn connect(
     handle.user_id = resolved_user.id;
     handle.username = resolved_user.username.clone();
 
+    // ── Keyboard-interactive (MFA) bridge ──────────────────────────
+    // Built up front so it can be handed to `authenticate`. It only does work if
+    // the resolved method is keyboard-interactive; otherwise the request channel
+    // is simply never used. The bridge mirrors the host-key oneshot pattern but
+    // for MULTIPLE challenge rounds: an mpsc carries each round's challenge to
+    // this command, which forwards it to the frontend as a
+    // `KeyboardInteractiveChallenge` event, and a per-round oneshot (armed by the
+    // factory below, stored in `pending_ki`) carries the answers back.
+    let (ki_request_tx, mut ki_request_rx) =
+        tokio::sync::mpsc::channel::<KeyboardInteractiveChallengeRequest>(1);
+
+    // Factory: arm a fresh response oneshot for the NEXT round, store its sender
+    // in the pending map keyed by session id, return the receiver to the bridge.
+    let ki_session_id = session_id;
+    let ki_response_factory = Box::new(move || {
+        let (tx, rx) = oneshot::channel::<KeyboardInteractiveResponse>();
+        // Synchronous std-mutex insert — no `.await`, safe inside this FnMut.
+        pending_ki().lock().unwrap().insert(ki_session_id, tx);
+        rx
+    });
+
+    let ki_bridge = session::KeyboardInteractiveBridge::new(ki_request_tx, ki_response_factory);
+
+    // Forward each emitted challenge to the frontend (injecting the session id
+    // so the dialog can respond without awaiting the connect promise — mirrors
+    // the host-key request watcher). Lives until the bridge's request sender is
+    // dropped (end of the auth block).
+    let on_event_ki = on_event.clone();
+    let ki_forward_task = tokio::spawn(async move {
+        while let Some(mut request) = ki_request_rx.recv().await {
+            request.session_id = Some(ki_session_id);
+            let _ = on_event_ki.send(SessionStateEvent::KeyboardInteractiveChallenge(request));
+        }
+    });
+
     let auth_result: Result<(), AppError> = async {
         // Resolve authentication method (pass vault reference for credential
         // lookup). The `auto_lock` reference lets `resolve_auth_method` reset the
@@ -247,8 +310,10 @@ pub async fn connect(
                     state: SessionState::Authenticating,
                 });
 
-                // Authenticate with the resolved user's username
-                session::authenticate(&mut handle, auth, &resolved_user.username).await?;
+                // Authenticate with the resolved user's username. The KI bridge
+                // is consumed here; the password/public-key paths ignore it.
+                session::authenticate(&mut handle, auth, &resolved_user.username, Some(ki_bridge))
+                    .await?;
             }
             None => {
                 // Need user input for password/passphrase — return error
@@ -262,6 +327,16 @@ pub async fn connect(
         Ok(())
     }
     .await;
+
+    // ── Tear down the keyboard-interactive bridge ───────────────────
+    // The bridge (and its request sender) was moved into `authenticate`, so by
+    // here the auth attempt has finished and the sender is dropped: the forward
+    // task's `recv()` loop will end on its own. Abort it as a safety net and drop
+    // any still-armed per-round response sender so no entry lingers between
+    // connection attempts (the answers themselves were already zeroized inside
+    // the auth loop).
+    ki_forward_task.abort();
+    pending_ki().lock().unwrap().remove(&session_id);
 
     // ── Handle auth failure: disconnect and propagate error ──────
     if let Err(err) = auth_result {
@@ -412,6 +487,34 @@ pub async fn respond_host_key_verification(
     } else {
         Err(AppError::Other(format!(
             "No pending host key verification for session {session_id}"
+        )))
+    }
+}
+
+/// Deliver the user's answers for the in-flight keyboard-interactive challenge
+/// round back to the awaiting auth loop. Mirrors `respond_host_key_verification`,
+/// but the response carrier holds the per-prompt answers.
+///
+/// SECURITY: the answers are NOT logged here (nor anywhere). They flow straight
+/// into the oneshot the auth loop awaits, which wraps them in `Zeroizing`.
+#[tauri::command]
+pub async fn respond_keyboard_interactive_challenge(
+    session_id: SessionId,
+    responses: KeyboardInteractiveResponse,
+) -> Result<(), AppError> {
+    // Remove the armed sender for THIS round (std-mutex; no `.await` held).
+    let tx = pending_ki().lock().unwrap().remove(&session_id);
+
+    if let Some(tx) = tx {
+        tx.send(responses).map_err(|_| {
+            AppError::KeyboardInteractive(
+                "keyboard-interactive challenge channel already closed".to_string(),
+            )
+        })?;
+        Ok(())
+    } else {
+        Err(AppError::KeyboardInteractive(format!(
+            "no pending keyboard-interactive challenge for session {session_id}"
         )))
     }
 }
@@ -647,6 +750,14 @@ pub async fn test_connection(
                 })
             }
         }
+        // `test_connection` builds its auth config from raw form values that map
+        // only to Password / PublicKey, so resolve_auth_method never returns
+        // KeyboardInteractive here. There is also no challenge dialog to drive in
+        // a one-shot test. Surface that clearly instead of leaving the match
+        // non-total.
+        Some(session::AuthMethod::KeyboardInteractive(_)) => Err(AppError::KeyboardInteractive(
+            "keyboard-interactive auth cannot be tested non-interactively".to_string(),
+        )),
         None => Err(AppError::AuthFailed(
             "Password or passphrase required".to_string(),
         )),

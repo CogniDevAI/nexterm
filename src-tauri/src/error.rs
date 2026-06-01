@@ -28,6 +28,9 @@ pub enum AppError {
     #[error("Authentication failed: {0}")]
     AuthFailed(String),
 
+    #[error("Keyboard-interactive authentication error: {0}")]
+    KeyboardInteractive(String),
+
     #[error("Host key verification failed")]
     HostKeyRejected,
 
@@ -127,6 +130,16 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_interactive_serializes_with_message() {
+        let err = AppError::KeyboardInteractive("answer count mismatch".to_string());
+        let serialized = serde_json::to_string(&err).unwrap();
+        assert_eq!(
+            serialized,
+            "\"Keyboard-interactive authentication error: answer count mismatch\""
+        );
+    }
+
+    #[test]
     fn all_variants_serialize() {
         let id = uuid::Uuid::nil();
         let variants: Vec<AppError> = vec![
@@ -135,6 +148,7 @@ mod tests {
             AppError::SessionNotFound(id),
             AppError::NotConnected,
             AppError::AuthFailed("test".into()),
+            AppError::KeyboardInteractive("test".into()),
             AppError::HostKeyRejected,
             AppError::TerminalNotFound(id),
             AppError::TunnelError("test".into()),
