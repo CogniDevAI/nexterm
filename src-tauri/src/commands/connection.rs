@@ -90,6 +90,53 @@ pub async fn connect(
         }
     };
 
+    // ── Phase 0: Bastion / jump host (ssh -J equivalent, SINGLE hop) ──
+    // When the profile carries a jump_host, reach the target THROUGH the
+    // bastion: connect to the bastion, verify ITS host key against known_hosts
+    // (MITM-critical — never blind-accept), authenticate (credentials zeroized),
+    // and open a direct-tcpip channel to the target. The resulting stream is
+    // handed to `do_handshake`, which then runs the TARGET SSH handshake over it
+    // (target host-key verification still applies). On any bastion-phase failure
+    // we surface a message that is clearly distinct from target-phase errors and
+    // the bastion handle is dropped inside `prepare_bastion_channel`, so nothing
+    // leaks. SCOPE: a single hop only — a bastion does not carry its own jump.
+    let bastion: Option<session::BastionConnection> = match profile.jump_host.as_ref() {
+        Some(jump) => {
+            let vault_guard = state.vault.lock().await;
+            let vault_ref = vault_guard.as_ref();
+            let result = session::prepare_bastion_channel(
+                jump,
+                &profile.host,
+                profile.port,
+                vault_ref,
+                Some(&state.auto_lock),
+            )
+            .await;
+            drop(vault_guard);
+
+            match result {
+                Ok(conn) => Some(conn),
+                Err(err) => {
+                    // Phase 0 fails BEFORE a session id exists, so there is no
+                    // StateChanged event to emit (the frontend has no session to
+                    // key it to). Return a bastion-tagged error that is clearly
+                    // distinct from a target-phase failure.
+                    tracing::warn!(
+                        "Bastion phase failed for {}:{} (target {}:{}) — {err}",
+                        jump.host,
+                        jump.port,
+                        profile.host,
+                        profile.port
+                    );
+                    return Err(AppError::AuthFailed(format!(
+                        "Bastion connection failed: {err}"
+                    )));
+                }
+            }
+        }
+        None => None,
+    };
+
     // ── Phase 1: Prepare connection — extract channels BEFORE handshake ──
     // This is critical: `check_server_key` runs inside `russh::client::connect`
     // and blocks the handshake until the user responds. If we don't wire up the
@@ -125,8 +172,13 @@ pub async fn connect(
         }
     });
 
-    // ── Phase 2: TCP + SSH handshake (triggers check_server_key) ────
-    let handshake_result = session::do_handshake(handshake_handle, &profile).await;
+    // ── Phase 2: SSH handshake to the TARGET (triggers check_server_key) ──
+    // When `bastion` is Some, the handshake runs over the bastion's
+    // direct-tcpip stream and the bastion handle is moved into the resulting
+    // SessionHandle. If the target handshake fails, the consumed
+    // BastionConnection is dropped here (inside do_handshake), tearing down the
+    // bastion hop — no leak.
+    let handshake_result = session::do_handshake(handshake_handle, &profile, bastion).await;
 
     // If handshake failed, clean up HK state and propagate error
     let mut handle = match handshake_result {

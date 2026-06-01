@@ -138,6 +138,12 @@ pub struct SessionHandle {
     pub username: String,
     pub state: SessionState,
     pub ssh_handle: Option<russh::client::Handle<crate::ssh::handler::SshClientHandler>>,
+    /// When the session was established THROUGH a bastion (`ssh -J`), this holds
+    /// the live bastion SSH handle. It MUST be kept alive for the lifetime of
+    /// the session: the target connection runs over a direct-tcpip channel that
+    /// the bastion's session task drives, so dropping this handle would tear
+    /// down the tunnel underneath the target. `None` for direct connections.
+    pub bastion_handle: Option<russh::client::Handle<crate::ssh::session::BastionHandler>>,
     pub terminals: HashMap<TerminalId, TerminalChannelHandle>,
     pub sftp: Option<SftpSessionHandle>,
     pub tunnels: HashMap<TunnelId, TunnelHandle>,

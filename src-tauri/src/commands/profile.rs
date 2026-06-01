@@ -457,6 +457,9 @@ pub async fn import_profiles(
             name: ep.name.clone(),
             host: ep.host.clone(),
             port: ep.port,
+            // Imported profiles never carry a bastion config (the export format
+            // does not include one). Bastion setup is configured after import.
+            jump_host: None,
             username: None,
             auth_method: None,
             users: users.clone(),

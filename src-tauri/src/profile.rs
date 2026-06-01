@@ -27,6 +27,87 @@ pub struct UserCredential {
     pub is_default: bool,
 }
 
+// ─── Proxy Jump (Bastion) Config ────────────────────────
+
+/// Authentication for a bastion / jump host.
+///
+/// This intentionally mirrors the shape of [`AuthMethodConfig`] (the persisted
+/// per-user auth config) so the bastion auth path can reuse the exact same
+/// credential-resolution logic as the main host. Secrets are NEVER stored here
+/// — only metadata. A password is fetched from the encrypted vault at connect
+/// time, keyed by the jump host's stable [`ProxyJumpConfig::id`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum JumpAuthConfig {
+    /// Password fetched from the vault at connect time.
+    #[default]
+    Password,
+    /// Public key auth — passphrase may be stored in the vault.
+    PublicKey {
+        private_key_path: String,
+        #[serde(default)]
+        passphrase_in_keychain: bool,
+    },
+}
+
+/// An OPTIONAL single bastion / jump host that the target is reached through
+/// (the `ssh -J` equivalent). SCOPE: single hop only. A bastion does NOT carry
+/// its own nested `jump_host` — chained jumps are explicitly out of scope and
+/// guarded (see [`ProxyJumpConfig::validate`]).
+///
+/// Backward compatibility: a `ConnectionProfile` stores this behind
+/// `#[serde(default)] jump_host: Option<ProxyJumpConfig>`, so existing
+/// `profiles.json` files that predate this field still deserialize cleanly.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyJumpConfig {
+    /// Stable identifier used as the vault key namespace for the bastion's
+    /// credentials. Defaulted on deserialization of profiles written before the
+    /// id existed so older single-field jump configs still load.
+    #[serde(default = "Uuid::new_v4")]
+    pub id: Uuid,
+    /// Bastion hostname or IP.
+    pub host: String,
+    /// Bastion SSH port.
+    #[serde(default = "default_ssh_port")]
+    pub port: u16,
+    /// SSH username on the bastion.
+    pub user: String,
+    /// How to authenticate to the bastion.
+    #[serde(default)]
+    pub auth_method: JumpAuthConfig,
+}
+
+fn default_ssh_port() -> u16 {
+    22
+}
+
+impl ProxyJumpConfig {
+    /// Validate the bastion config. Pure and side-effect free.
+    pub fn validate(&self) -> Result<(), AppError> {
+        if self.host.trim().is_empty() {
+            return Err(AppError::ProfileError(
+                "jump host hostname is required".to_string(),
+            ));
+        }
+        if self.port == 0 {
+            return Err(AppError::ProfileError(
+                "jump host port must be > 0".to_string(),
+            ));
+        }
+        if self.user.trim().is_empty() {
+            return Err(AppError::ProfileError(
+                "jump host username is required".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ─── Connection Profile ─────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +117,11 @@ pub struct ConnectionProfile {
     pub name: String,
     pub host: String,
     pub port: u16,
+    /// OPTIONAL bastion / jump host (single hop, `ssh -J` equivalent).
+    /// `#[serde(default)]` keeps pre-existing profiles (written before this
+    /// field) deserializing without error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jump_host: Option<ProxyJumpConfig>,
     /// Legacy field — only used for backward-compatible deserialization of old profiles.
     /// New profiles store credentials in the `users` array.
     #[serde(default, skip_serializing)]
@@ -83,6 +169,7 @@ impl Default for ConnectionProfile {
             name: String::new(),
             host: String::new(),
             port: 22,
+            jump_host: None,
             username: None,
             auth_method: None,
             users: Vec::new(),
@@ -156,6 +243,10 @@ impl ConnectionProfile {
             return Err(AppError::ProfileError(
                 "only one default user allowed".to_string(),
             ));
+        }
+        // Validate the optional bastion / jump host, if present.
+        if let Some(ref jump) = self.jump_host {
+            jump.validate()?;
         }
         Ok(())
     }
@@ -438,6 +529,214 @@ mod tests {
         assert!(profiles[0].users[0].is_default);
         assert!(profiles[0].username.is_none());
         assert!(profiles[0].auth_method.is_none());
+    }
+
+    // ─── ProxyJump / Bastion tests ──────────────────────────────────
+
+    #[test]
+    fn old_profile_without_jump_host_deserializes() {
+        // A profile written before the jump_host field existed must still
+        // deserialize cleanly (jump_host defaults to None).
+        let old_json = r#"{
+            "id": "00000000-0000-0000-0000-000000000002",
+            "name": "Pre-bastion Server",
+            "host": "legacy.example.com",
+            "port": 22,
+            "users": [{
+                "id": "00000000-0000-0000-0000-000000000003",
+                "username": "deploy",
+                "authMethod": {"type": "password"},
+                "isDefault": true
+            }],
+            "startupDirectory": null,
+            "tunnels": [],
+            "displayOrder": 0,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z"
+        }"#;
+
+        let profile: ConnectionProfile = serde_json::from_str(old_json).unwrap();
+        assert!(
+            profile.jump_host.is_none(),
+            "missing jumpHost field must default to None"
+        );
+        assert_eq!(profile.users.len(), 1);
+    }
+
+    #[test]
+    fn old_profiles_array_without_jump_host_loads() {
+        // The on-disk format is a JSON array. An array of old-format profiles
+        // (no jumpHost) must load without error via the same path as new ones.
+        let old_array = r#"[{
+            "id": "00000000-0000-0000-0000-000000000004",
+            "name": "Old A",
+            "host": "a.example.com",
+            "port": 22,
+            "users": [{
+                "id": "00000000-0000-0000-0000-000000000005",
+                "username": "root",
+                "authMethod": {"type": "password"},
+                "isDefault": true
+            }],
+            "startupDirectory": null,
+            "tunnels": [],
+            "displayOrder": 0,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z"
+        }]"#;
+
+        let profiles: Vec<ConnectionProfile> = serde_json::from_str(old_array).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert!(profiles[0].jump_host.is_none());
+    }
+
+    #[test]
+    fn profile_with_jump_host_roundtrips() {
+        let mut profile = test_profile("Behind Bastion", "10.0.0.5", "deploy");
+        let jump_id = Uuid::new_v4();
+        profile.jump_host = Some(ProxyJumpConfig {
+            id: jump_id,
+            host: "bastion.example.com".to_string(),
+            port: 2222,
+            user: "jumpuser".to_string(),
+            auth_method: JumpAuthConfig::PublicKey {
+                private_key_path: "~/.ssh/id_ed25519".to_string(),
+                passphrase_in_keychain: true,
+            },
+        });
+
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(json.contains("jumpHost"));
+        assert!(json.contains("bastion.example.com"));
+
+        let back: ConnectionProfile = serde_json::from_str(&json).unwrap();
+        let jump = back.jump_host.expect("jump host must survive roundtrip");
+        assert_eq!(jump.id, jump_id);
+        assert_eq!(jump.host, "bastion.example.com");
+        assert_eq!(jump.port, 2222);
+        assert_eq!(jump.user, "jumpuser");
+        assert_eq!(
+            jump.auth_method,
+            JumpAuthConfig::PublicKey {
+                private_key_path: "~/.ssh/id_ed25519".to_string(),
+                passphrase_in_keychain: true,
+            }
+        );
+    }
+
+    #[test]
+    fn jump_host_omitted_from_json_when_none() {
+        // skip_serializing_if keeps clean JSON for the common no-bastion case.
+        let profile = test_profile("No Bastion", "example.com", "user");
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(
+            !json.contains("jumpHost"),
+            "jumpHost must be omitted when None, got: {json}"
+        );
+    }
+
+    #[test]
+    fn jump_config_defaults_port_to_22() {
+        // A jump config missing the port field defaults to 22 (default_ssh_port).
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000006",
+            "host": "bastion.example.com",
+            "user": "jumpuser",
+            "authMethod": {"type": "password"}
+        }"#;
+        let jump: ProxyJumpConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(jump.port, 22);
+        assert_eq!(jump.auth_method, JumpAuthConfig::Password);
+    }
+
+    #[test]
+    fn jump_config_defaults_id_when_missing() {
+        // A jump config written before the id field existed still loads (id is
+        // freshly generated via default).
+        let json = r#"{
+            "host": "bastion.example.com",
+            "port": 22,
+            "user": "jumpuser",
+            "authMethod": {"type": "password"}
+        }"#;
+        let jump: ProxyJumpConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(jump.host, "bastion.example.com");
+        // id must be non-nil (freshly generated)
+        assert_ne!(jump.id, Uuid::nil());
+    }
+
+    #[test]
+    fn jump_config_validate_rejects_empty_host() {
+        let jump = ProxyJumpConfig {
+            id: Uuid::new_v4(),
+            host: "  ".to_string(),
+            port: 22,
+            user: "jumpuser".to_string(),
+            auth_method: JumpAuthConfig::Password,
+        };
+        assert!(jump.validate().is_err());
+    }
+
+    #[test]
+    fn jump_config_validate_rejects_zero_port() {
+        let jump = ProxyJumpConfig {
+            id: Uuid::new_v4(),
+            host: "bastion.example.com".to_string(),
+            port: 0,
+            user: "jumpuser".to_string(),
+            auth_method: JumpAuthConfig::Password,
+        };
+        assert!(jump.validate().is_err());
+    }
+
+    #[test]
+    fn jump_config_validate_rejects_empty_user() {
+        let jump = ProxyJumpConfig {
+            id: Uuid::new_v4(),
+            host: "bastion.example.com".to_string(),
+            port: 22,
+            user: "".to_string(),
+            auth_method: JumpAuthConfig::Password,
+        };
+        assert!(jump.validate().is_err());
+    }
+
+    #[test]
+    fn jump_config_validate_accepts_valid() {
+        let jump = ProxyJumpConfig {
+            id: Uuid::new_v4(),
+            host: "bastion.example.com".to_string(),
+            port: 22,
+            user: "jumpuser".to_string(),
+            auth_method: JumpAuthConfig::Password,
+        };
+        assert!(jump.validate().is_ok());
+    }
+
+    #[test]
+    fn profile_validate_rejects_invalid_jump_host() {
+        let mut profile = test_profile("Bad Bastion", "10.0.0.5", "deploy");
+        profile.jump_host = Some(ProxyJumpConfig {
+            id: Uuid::new_v4(),
+            host: "".to_string(), // invalid
+            port: 22,
+            user: "jumpuser".to_string(),
+            auth_method: JumpAuthConfig::Password,
+        });
+        assert!(profile.validate().is_err());
+    }
+
+    #[test]
+    fn profile_validate_accepts_valid_jump_host() {
+        let mut profile = test_profile("Good Bastion", "10.0.0.5", "deploy");
+        profile.jump_host = Some(ProxyJumpConfig {
+            id: Uuid::new_v4(),
+            host: "bastion.example.com".to_string(),
+            port: 22,
+            user: "jumpuser".to_string(),
+            auth_method: JumpAuthConfig::Password,
+        });
+        assert!(profile.validate().is_ok());
     }
 
     #[test]
