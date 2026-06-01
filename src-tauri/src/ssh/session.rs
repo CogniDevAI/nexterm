@@ -28,6 +28,24 @@ const KEEPALIVE_INTERVAL_SECS: u64 = 30;
 /// Max consecutive keepalive failures (handled by russh internally)
 const MAX_KEEPALIVE_FAILURES: usize = 3;
 
+/// Build the shared russh client configuration used by every connection path
+/// (interactive `do_handshake` and `test_connection`).
+///
+/// Keepalive is the reason this is centralized: without it, a TCP connection
+/// silently broken by a NAT timeout, a dropped VPN, or a proxy that GC's idle
+/// flows leaves the SSH session looking "connected" while the peer is gone.
+/// russh sends a keepalive every `KEEPALIVE_INTERVAL_SECS` and tears the session
+/// down after `MAX_KEEPALIVE_FAILURES` unanswered probes, so dead connections are
+/// detected promptly instead of hanging until the next write. Both code paths
+/// MUST share these settings — that is the whole point of this function.
+pub(crate) fn build_client_config() -> russh::client::Config {
+    russh::client::Config {
+        keepalive_interval: Some(Duration::from_secs(KEEPALIVE_INTERVAL_SECS)),
+        keepalive_max: MAX_KEEPALIVE_FAILURES,
+        ..Default::default()
+    }
+}
+
 /// Authentication method for runtime use (not persisted)
 pub enum AuthMethod {
     /// Plaintext password held in `Zeroizing` so it is wiped from the heap when
@@ -99,11 +117,7 @@ pub async fn do_handshake(
     handshake: HandshakeHandle,
     profile: &ConnectionProfile,
 ) -> Result<SessionHandle, AppError> {
-    let config = russh::client::Config {
-        keepalive_interval: Some(Duration::from_secs(KEEPALIVE_INTERVAL_SECS)),
-        keepalive_max: MAX_KEEPALIVE_FAILURES,
-        ..Default::default()
-    };
+    let config = build_client_config();
 
     let addr = (profile.host.as_str(), profile.port);
 
@@ -323,3 +337,34 @@ pub async fn disconnect(handle: &mut SessionHandle) -> Result<(), AppError> {
 // and Config.keepalive_max. When MAX_KEEPALIVE_FAILURES consecutive keepalives
 // fail, russh disconnects the session and calls handler.disconnected().
 // No manual keepalive loop is needed.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_client_config_sets_keepalive_interval() {
+        let config = build_client_config();
+        assert_eq!(
+            config.keepalive_interval,
+            Some(Duration::from_secs(KEEPALIVE_INTERVAL_SECS))
+        );
+    }
+
+    #[test]
+    fn build_client_config_sets_keepalive_max() {
+        let config = build_client_config();
+        assert_eq!(config.keepalive_max, MAX_KEEPALIVE_FAILURES);
+    }
+
+    #[test]
+    fn build_client_config_is_idempotent() {
+        // Two invocations must produce structurally identical keepalive settings.
+        // `russh::client::Config` does not derive `PartialEq`, so we compare the
+        // fields the builder is responsible for — the single source of truth here.
+        let a = build_client_config();
+        let b = build_client_config();
+        assert_eq!(a.keepalive_interval, b.keepalive_interval);
+        assert_eq!(a.keepalive_max, b.keepalive_max);
+    }
+}

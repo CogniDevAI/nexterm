@@ -476,9 +476,9 @@ pub async fn test_connection(
     // ── TCP + SSH handshake with a known_hosts-verifying handler ──
     // The handler captures the verification result; we inspect it AFTER the
     // handshake to decide whether sending credentials is safe.
-    let config = russh::client::Config {
-        ..Default::default()
-    };
+    // Share the exact same client config (incl. keepalive) as the interactive
+    // path — see `session::build_client_config` for why keepalive matters.
+    let config = session::build_client_config();
     let addr = (host.as_str(), port);
 
     let hk_status: Arc<std::sync::Mutex<Option<HostKeyStatus>>> =
