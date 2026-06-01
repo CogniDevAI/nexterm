@@ -14,6 +14,10 @@ interface DialogProps {
   width?: string;
   /** Extra class on the inner content wrapper */
   className?: string;
+  /** ID of the element that labels the dialog (accessible name). */
+  "aria-labelledby"?: string;
+  /** Literal accessible name, used when there is no visible labelling element. */
+  "aria-label"?: string;
 }
 
 export function Dialog({
@@ -23,6 +27,8 @@ export function Dialog({
   children,
   width = "480px",
   className = "",
+  "aria-labelledby": ariaLabelledby,
+  "aria-label": ariaLabel,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -44,6 +50,8 @@ export function Dialog({
       ref={dialogRef}
       className="dialog"
       style={{ width }}
+      aria-labelledby={ariaLabelledby}
+      aria-label={ariaLabel}
       onClose={(e) => {
         // Native close event (Escape key, .close() call) — sync back to React state
         e.preventDefault();

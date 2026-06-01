@@ -307,6 +307,7 @@ export function ConnectionDialog({
       onClose={onClose}
       title=""
       width="540px"
+      aria-labelledby="connection-dialog-title"
     >
       {/* ─── Custom Header with Icon ─── */}
       <div className="cd-header">
@@ -314,7 +315,7 @@ export function ConnectionDialog({
           <ServerIcon />
         </div>
         <div className="cd-header-text">
-          <h3 className="cd-title">
+          <h3 id="connection-dialog-title" className="cd-title">
             {isEdit ? t("connection.editTitle") : t("connection.newTitle")}
           </h3>
         </div>

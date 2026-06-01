@@ -3,7 +3,7 @@
 // Shows tab bar for multiple terminal channels on the same session.
 // Each tab wraps a TerminalView that stays alive when hidden (not destroyed).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSessionStore, type TerminalTab } from "../../stores/sessionStore";
 import { TerminalView } from "./TerminalView";
 import { useTerminal } from "./useTerminal";
@@ -109,6 +109,39 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
   );
 
   const tabBarRef = useRef<HTMLDivElement>(null);
+  // Roving-tabindex refs so keyboard navigation can move DOM focus.
+  // Declared before the early return to keep the hook order stable.
+  const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // WAI-ARIA tabs keyboard pattern: ArrowLeft/Right move (no wrap),
+  // Home → first, End → last. Selection follows focus to match click behavior.
+  // Defined as a hook-free closure after the refs so it captures current values.
+  const handleTabKeyDown = useCallback(
+    (e: KeyboardEvent, index: number) => {
+      const move = (target: number) => {
+        const tab = terminals[target];
+        if (!tab) return;
+        e.preventDefault();
+        setActiveTerminal(sessionId, tab.id);
+        tabRefs.current[target]?.focus();
+      };
+      switch (e.key) {
+        case "ArrowRight":
+          move(Math.min(index + 1, terminals.length - 1));
+          break;
+        case "ArrowLeft":
+          move(Math.max(index - 1, 0));
+          break;
+        case "Home":
+          move(0);
+          break;
+        case "End":
+          move(terminals.length - 1);
+          break;
+      }
+    },
+    [terminals, sessionId, setActiveTerminal],
+  );
 
   // All hooks have run — safe to early-return now
   if (!session) return null;
@@ -117,26 +150,37 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
     <div className="terminal-tabs">
       {/* Tab bar */}
       <div className="terminal-tabbar" ref={tabBarRef}>
-        <div className="terminal-tabbar-scroll">
-          {terminals.map((tab) => (
-            <div
-              key={tab.reactKey}
-              className={`terminal-tab ${tab.id === activeTerminalId ? "terminal-tab-active" : ""}`}
-              onClick={() => setActiveTerminal(sessionId, tab.id)}
-            >
-              <span className="terminal-tab-label">{tab.label}</span>
-              <button
-                className="terminal-tab-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCloseTab(tab);
+        <div className="terminal-tabbar-scroll" role="tablist">
+          {terminals.map((tab, i) => {
+            const isActive = tab.id === activeTerminalId;
+            return (
+              <div
+                key={tab.reactKey}
+                ref={(el) => {
+                  tabRefs.current[i] = el;
                 }}
-                title={t("terminal.closeTab")}
+                role="tab"
+                aria-selected={isActive}
+                aria-label={tab.label}
+                tabIndex={isActive ? 0 : -1}
+                className={`terminal-tab ${isActive ? "terminal-tab-active" : ""}`}
+                onClick={() => setActiveTerminal(sessionId, tab.id)}
+                onKeyDown={(e) => handleTabKeyDown(e, i)}
               >
-                ×
-              </button>
-            </div>
-          ))}
+                <span className="terminal-tab-label">{tab.label}</span>
+                <button
+                  className="terminal-tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleCloseTab(tab);
+                  }}
+                  title={t("terminal.closeTab")}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
         <button
           className="terminal-tab-new"

@@ -1,5 +1,6 @@
 // components/layout/TabBar.tsx — Feature tab bar (Terminal / SFTP / Tunnels)
 
+import { useRef } from "react";
 import {
   useSessionStore,
 } from "../../stores/sessionStore";
@@ -17,19 +18,62 @@ export function TabBar() {
   const { activeFeature, setActiveFeature, activeSessionId } =
     useSessionStore();
 
+  // Roving-tabindex refs so keyboard navigation can move DOM focus.
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
   if (!activeSessionId) return null;
 
+  function selectByIndex(index: number) {
+    const feature = FEATURES[index];
+    if (!feature) return;
+    setActiveFeature(feature.key);
+    tabRefs.current[index]?.focus();
+  }
+
+  // WAI-ARIA tabs keyboard pattern: ArrowLeft/Right move (no wrap),
+  // Home → first, End → last. Selection follows focus to match click behavior.
+  function handleKeyDown(e: React.KeyboardEvent, index: number) {
+    switch (e.key) {
+      case "ArrowRight":
+        e.preventDefault();
+        selectByIndex(Math.min(index + 1, FEATURES.length - 1));
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        selectByIndex(Math.max(index - 1, 0));
+        break;
+      case "Home":
+        e.preventDefault();
+        selectByIndex(0);
+        break;
+      case "End":
+        e.preventDefault();
+        selectByIndex(FEATURES.length - 1);
+        break;
+    }
+  }
+
   return (
-    <div className="tabbar">
-      {FEATURES.map((f) => (
-        <button
-          key={f.key}
-          className={`tabbar-tab ${activeFeature === f.key ? "tabbar-tab-active" : ""}`}
-          onClick={() => setActiveFeature(f.key)}
-        >
-          {t(f.labelKey)}
-        </button>
-      ))}
+    <div className="tabbar" role="tablist">
+      {FEATURES.map((f, i) => {
+        const isActive = activeFeature === f.key;
+        return (
+          <button
+            key={f.key}
+            ref={(el) => {
+              tabRefs.current[i] = el;
+            }}
+            role="tab"
+            aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
+            className={`tabbar-tab ${isActive ? "tabbar-tab-active" : ""}`}
+            onClick={() => setActiveFeature(f.key)}
+            onKeyDown={(e) => handleKeyDown(e, i)}
+          >
+            {t(f.labelKey)}
+          </button>
+        );
+      })}
     </div>
   );
 }
