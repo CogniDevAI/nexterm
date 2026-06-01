@@ -83,6 +83,9 @@ export const es: Record<TranslationKey, string> = {
   "connection.usernameRequired": "El nombre de usuario es obligatorio para cada usuario",
   "connection.selectUser": "Seleccionar usuario",
   "connection.keyboardInteractive": "Interactivo por Teclado",
+  "connection.agent": "Agente SSH",
+  "connection.agentHint": "Usando agente SSH",
+  "connection.keyboardInteractiveHint": "El servidor solicitará credenciales al conectar",
   "connection.testUser": "Probar conexi\u00f3n",
   "connection.testingUser": "Probando\u2026",
   "connection.testSuccess": "Conexi\u00f3n exitosa",
@@ -376,6 +379,11 @@ export const es: Record<TranslationKey, string> = {
   "startup.subtitle": "Estos comandos se ejecutarán en la nueva sesión. Revísalos antes de confirmar.",
   "startup.run": "Ejecutar",
   "startup.cancel": "Omitir",
+
+  // MFA / keyboard-interactive challenge dialog
+  "mfa.title": "Autenticación Requerida",
+  "mfa.submit": "Enviar",
+  "mfa.cancel": "Cancelar",
 
   // General
   "general.ok": "OK",

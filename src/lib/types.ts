@@ -40,7 +40,8 @@ export interface ConnectionProfile {
 export type AuthMethodConfig =
   | { type: "password" }
   | { type: "publicKey"; privateKeyPath: string; passphraseInKeychain: boolean }
-  | { type: "keyboardInteractive" };
+  | { type: "keyboardInteractive" }
+  | { type: "agent"; keyId?: string };
 
 // ─── Session State ──────────────────────────────────────
 
@@ -191,6 +192,21 @@ export type HostKeyVerificationResponse =
   | "accept"
   | "acceptAndSave"
   | "reject";
+
+// ─── Keyboard-Interactive (MFA) Challenge ───────────
+
+export interface KeyboardInteractivePrompt {
+  text: string;
+  echo: boolean;
+}
+
+export interface KeyboardInteractiveChallengeRequest {
+  sessionId?: string;
+  name: string;
+  instruction: string;
+  prompts: KeyboardInteractivePrompt[];
+  round: number;
+}
 
 // ─── Test Connection Result ──────────────────────────
 

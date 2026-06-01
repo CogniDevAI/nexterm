@@ -81,6 +81,9 @@ export const en = {
   "connection.usernameRequired": "Username is required for each user",
   "connection.selectUser": "Select user",
   "connection.keyboardInteractive": "Keyboard Interactive",
+  "connection.agent": "SSH Agent",
+  "connection.agentHint": "Using SSH agent",
+  "connection.keyboardInteractiveHint": "Server will prompt at connect",
   "connection.testUser": "Test connection",
   "connection.testingUser": "Testing\u2026",
   "connection.testSuccess": "Connection successful",
@@ -374,6 +377,11 @@ export const en = {
   "startup.subtitle": "These commands will run in the new session. Review before running.",
   "startup.run": "Run",
   "startup.cancel": "Skip",
+
+  // MFA / keyboard-interactive challenge dialog
+  "mfa.title": "Authentication Required",
+  "mfa.submit": "Submit",
+  "mfa.cancel": "Cancel",
 
   // General
   "general.ok": "OK",

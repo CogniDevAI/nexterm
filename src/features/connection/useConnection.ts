@@ -14,25 +14,29 @@ import type {
   SessionState,
   HostKeyVerificationRequest,
   HostKeyVerificationResponse,
+  KeyboardInteractiveChallengeRequest,
   UserCredential,
 } from "../../lib/types";
 
 // Mirror the Rust SessionStateEvent enum
 type SessionStateEvent =
   | { event: "stateChanged"; data: { sessionId: string; state: SessionState } }
-  | { event: "hostKeyVerification"; data: HostKeyVerificationRequest };
+  | { event: "hostKeyVerification"; data: HostKeyVerificationRequest }
+  | { event: "keyboardInteractiveChallenge"; data: KeyboardInteractiveChallengeRequest };
 
 interface UseConnectionReturn {
   connecting: boolean;
   connectingProfileId: string | null;
   connectError: string | null;
   hostKeyRequest: HostKeyVerificationRequest | null;
+  mfaChallenge: KeyboardInteractiveChallengeRequest | null;
   needsPassword: boolean;
   pendingProfileId: string | null;
   pendingUser: UserCredential | null;
   connect: (profileId: string, password?: string, userId?: string) => Promise<void>;
   disconnect: (sessionId: string) => Promise<void>;
   respondHostKey: (response: HostKeyVerificationResponse) => void;
+  respondMfa: (answers: string[]) => void;
   submitPassword: (password: string, remember: boolean) => void;
   cancelConnect: () => void;
   clearError: () => void;
@@ -53,6 +57,8 @@ export function useConnection(): UseConnectionReturn {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [hostKeyRequest, setHostKeyRequest] =
     useState<HostKeyVerificationRequest | null>(null);
+  const [mfaChallenge, setMfaChallenge] =
+    useState<KeyboardInteractiveChallengeRequest | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
   const [pendingUser, setPendingUser] = useState<UserCredential | null>(null);
@@ -110,6 +116,16 @@ export function useConnection(): UseConnectionReturn {
           if (message.event === "stateChanged") {
             const { sessionId, state } = message.data;
             updateSessionState(sessionId, state);
+            // Server-initiated disconnect: clean up session just as the
+            // explicit disconnect button does. state may be the string
+            // "disconnected" or an error object { error: { message } }.
+            const isTerminal =
+              state === "disconnected" ||
+              (typeof state === "object" && "error" in state);
+            if (isTerminal) {
+              disposeSessionTerminals(sessionId);
+              removeSession(sessionId);
+            }
           } else if (message.event === "hostKeyVerification") {
             // The Rust side injects sessionId into the HK event so we can
             // respond immediately — without waiting for the connect promise.
@@ -119,6 +135,11 @@ export function useConnection(): UseConnectionReturn {
               setPendingSessionId(message.data.sessionId);
             }
             setHostKeyRequest(message.data);
+          } else if (message.event === "keyboardInteractiveChallenge") {
+            if (message.data.sessionId) {
+              setPendingSessionId(message.data.sessionId);
+            }
+            setMfaChallenge(message.data);
           }
         };
 
@@ -179,7 +200,7 @@ export function useConnection(): UseConnectionReturn {
         }
       }
     },
-    [addSession, updateSessionState, setStartupPreview],
+    [addSession, updateSessionState, setStartupPreview, removeSession, disposeSessionTerminals],
   );
 
   const disconnect = useCallback(
@@ -215,6 +236,21 @@ export function useConnection(): UseConnectionReturn {
     [hostKeyRequest, pendingSessionId],
   );
 
+  const respondMfa = useCallback(
+    (answers: string[]) => {
+      const sessionId = mfaChallenge?.sessionId ?? pendingSessionId;
+      if (!sessionId) return;
+      setMfaChallenge(null);
+      void tauriInvoke<void>("respond_keyboard_interactive_challenge", {
+        sessionId,
+        responses: { responses: answers },
+      }).catch((err) => {
+        setConnectError(String(err));
+      });
+    },
+    [mfaChallenge, pendingSessionId],
+  );
+
   const submitPassword = useCallback(
     (password: string, remember: boolean) => {
       setNeedsPassword(false);
@@ -235,6 +271,7 @@ export function useConnection(): UseConnectionReturn {
     setConnectingProfileId(null);
     setConnectError(null);
     setHostKeyRequest(null);
+    setMfaChallenge(null);
     setNeedsPassword(false);
     setPendingProfileId(null);
     setPendingUser(null);
@@ -287,12 +324,14 @@ export function useConnection(): UseConnectionReturn {
     connectingProfileId,
     connectError,
     hostKeyRequest,
+    mfaChallenge,
     needsPassword,
     pendingProfileId,
     pendingUser,
     connect,
     disconnect,
     respondHostKey,
+    respondMfa,
     submitPassword,
     cancelConnect,
     clearError,

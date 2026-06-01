@@ -63,6 +63,28 @@ function UserPlusIcon() {
   );
 }
 
+function KeyboardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="12" rx="2" ry="2" />
+      <line x1="6" y1="10" x2="6" y2="10" />
+      <line x1="10" y1="10" x2="10" y2="10" />
+      <line x1="14" y1="10" x2="14" y2="10" />
+      <line x1="18" y1="10" x2="18" y2="10" />
+      <line x1="6" y1="14" x2="18" y2="14" />
+    </svg>
+  );
+}
+
+function AgentIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
 function newUserCredential(): UserCredential {
   return {
     id: crypto.randomUUID(),
@@ -157,6 +179,8 @@ export function ConnectionDialog({
         .catch(() => setAvailableKeys([]));
     } else if (type === "keyboardInteractive") {
       authMethod = { type: "keyboardInteractive" };
+    } else if (type === "agent") {
+      authMethod = { type: "agent" };
     } else {
       authMethod = { type: "password" };
     }
@@ -412,9 +436,25 @@ export function ConnectionDialog({
                   >
                     <KeyIcon />
                   </button>
+                  <button
+                    type="button"
+                    className={`cd-user-row-auth-btn ${user.authMethod.type === "keyboardInteractive" ? "cd-user-row-auth-btn-active" : ""}`}
+                    onClick={() => setUserAuthType(user.id, "keyboardInteractive")}
+                    title={t("connection.keyboardInteractive")}
+                  >
+                    <KeyboardIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className={`cd-user-row-auth-btn ${user.authMethod.type === "agent" ? "cd-user-row-auth-btn-active" : ""}`}
+                    onClick={() => setUserAuthType(user.id, "agent")}
+                    title={t("connection.agent")}
+                  >
+                    <AgentIcon />
+                  </button>
                 </div>
 
-                {/* Credential field (password or key path) */}
+                {/* Credential field (password, key picker, or hint) */}
                 <div className="cd-user-row-field cd-user-row-credential">
                   {user.authMethod.type === "password" ? (
                     <input
@@ -432,17 +472,11 @@ export function ConnectionDialog({
                       }}
                       placeholder={t("connection.passwordPlaceholder")}
                     />
-                  ) : (
+                  ) : user.authMethod.type === "publicKey" ? (
                     // publicKey auth — dropdown picker + manual text fallback
                     (() => {
-                      const currentPath =
-                        user.authMethod.type === "publicKey"
-                          ? user.authMethod.privateKeyPath
-                          : "";
-                      const passphraseInKeychain =
-                        user.authMethod.type === "publicKey"
-                          ? user.authMethod.passphraseInKeychain
-                          : false;
+                      const currentPath = user.authMethod.privateKeyPath;
+                      const passphraseInKeychain = user.authMethod.passphraseInKeychain;
                       // "other" means the current value is not in the list
                       const isOther =
                         currentPath !== "" &&
@@ -500,6 +534,11 @@ export function ConnectionDialog({
                         </div>
                       );
                     })()
+                  ) : user.authMethod.type === "agent" ? (
+                    <span className="cd-auth-hint">{t("connection.agentHint")}</span>
+                  ) : (
+                    // keyboardInteractive
+                    <span className="cd-auth-hint">{t("connection.keyboardInteractiveHint")}</span>
                   )}
                 </div>
 

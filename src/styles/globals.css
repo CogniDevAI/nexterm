@@ -2570,6 +2570,42 @@ dialog::backdrop {
   gap: 12px;
 }
 
+/* ─── MFA (keyboard-interactive) challenge ─── */
+
+.hk-mfa-instruction {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hk-mfa-prompt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hk-mfa-prompt-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hk-mfa-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.hk-mfa-input:focus {
+  border-color: var(--accent);
+}
+
 /* ─── Info card ─── */
 
 .hk-info-card {
@@ -3160,6 +3196,12 @@ dialog::backdrop {
 
 .cd-user-row-input-error {
   border-color: var(--danger);
+}
+
+.cd-auth-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 .cd-user-row-auth {

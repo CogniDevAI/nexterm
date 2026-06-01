@@ -36,11 +36,32 @@ vi.mock("../../lib/tauri", () => ({
   },
 }));
 
+// Captured channel instance — populated by the Channel constructor mock.
+// Must use a regular function (not arrow) so `new Channel()` works.
+let lastChannelInstance: { onmessage: ((msg: unknown) => void) | null } = { onmessage: null };
+
 // Mock @tauri-apps/api/core
-vi.mock("@tauri-apps/api/core", () => ({
-  Channel: vi.fn().mockImplementation(() => ({ onmessage: null })),
-  invoke: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@tauri-apps/api/core", () => {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  const ChannelMock: Function = vi.fn(function(this: unknown) {
+    lastChannelInstance = { onmessage: null };
+    Object.assign(this as object, lastChannelInstance);
+    // Proxy onmessage so assignments on `this` update lastChannelInstance
+    Object.defineProperty(this, "onmessage", {
+      set(v: ((msg: unknown) => void) | null) {
+        lastChannelInstance.onmessage = v;
+      },
+      get() {
+        return lastChannelInstance.onmessage;
+      },
+      configurable: true,
+    });
+  });
+  return {
+    Channel: ChannelMock,
+    invoke: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 // ─── Store reset ──────────────────────────────────────────────────────────────
 
@@ -136,6 +157,188 @@ describe("useConnection — disposeSessionTerminals called on disconnect", () =>
 
     expect(callOrder[0]).toBe("disposeSessionTerminals");
     expect(callOrder[1]).toBe("removeSession");
+  });
+});
+
+// ─── BLOCKER #1 & #2: helpers ────────────────────────────────────────────────
+//
+// The global Channel mock (above) captures each new instance in lastChannelInstance.
+// connect() assigns onEvent.onmessage = handler; we then fire events through that.
+
+import { useProfileStore } from "../../stores/profileStore";
+import type { ConnectionProfile } from "../../lib/types";
+
+function makeProfile(id: string): ConnectionProfile {
+  return {
+    id,
+    name: "Test Profile",
+    host: "10.0.0.1",
+    port: 22,
+    users: [
+      {
+        id: "user-1",
+        username: "admin",
+        authMethod: { type: "password" },
+        isDefault: true,
+      },
+    ],
+    startupCommands: [],
+    tunnels: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function seedProfile(id: string) {
+  useProfileStore.setState({ profiles: [makeProfile(id)] });
+}
+
+async function startConnect(
+  result: { current: ReturnType<typeof useConnection> },
+  profileId: string,
+) {
+  await act(async () => {
+    await result.current.connect(profileId);
+  });
+}
+
+function fireChannelEvent(msg: unknown) {
+  lastChannelInstance.onmessage?.(msg);
+}
+
+// ─── BLOCKER #1: keyboardInteractiveChallenge event ──────────────────────────
+
+describe("useConnection — keyboardInteractiveChallenge event and respondMfa", () => {
+  beforeEach(() => {
+    mockDisposeSessionTerminals.mockClear();
+    vi.mocked(tauriInvoke).mockClear();
+    vi.mocked(tauriInvoke).mockResolvedValue("session-mfa-1" as never);
+    resetStore();
+  });
+
+  it("sets mfaChallenge when keyboardInteractiveChallenge event fires", async () => {
+    const profileId = "profile-mfa";
+    seedProfile(profileId);
+
+    const { result } = renderHook(() => useConnection());
+    await startConnect(result, profileId);
+
+    const sessionId = "s1";
+    act(() => {
+      fireChannelEvent({
+        event: "keyboardInteractiveChallenge",
+        data: {
+          sessionId,
+          name: "MFA",
+          instruction: "",
+          prompts: [{ text: "Code:", echo: false }],
+          round: 1,
+        },
+      });
+    });
+
+    expect(result.current.mfaChallenge).not.toBeNull();
+    expect(result.current.mfaChallenge?.sessionId).toBe(sessionId);
+    expect(result.current.mfaChallenge?.prompts).toHaveLength(1);
+  });
+
+  it("respondMfa calls tauriInvoke with nested responses shape and clears mfaChallenge", async () => {
+    const profileId = "profile-mfa-2";
+    seedProfile(profileId);
+
+    const { result } = renderHook(() => useConnection());
+    await startConnect(result, profileId);
+
+    const sessionId = "s1";
+    act(() => {
+      fireChannelEvent({
+        event: "keyboardInteractiveChallenge",
+        data: {
+          sessionId,
+          name: "MFA",
+          instruction: "",
+          prompts: [{ text: "Code:", echo: false }],
+          round: 1,
+        },
+      });
+    });
+
+    expect(result.current.mfaChallenge).not.toBeNull();
+
+    await act(async () => {
+      result.current.respondMfa(["123"]);
+    });
+
+    const mockInvoke = vi.mocked(tauriInvoke);
+    const mfaCalls = mockInvoke.mock.calls.filter(
+      ([cmd]) => cmd === "respond_keyboard_interactive_challenge",
+    );
+    expect(mfaCalls).toHaveLength(1);
+    expect(mfaCalls[0]![1]).toMatchObject({
+      sessionId,
+      responses: { responses: ["123"] },
+    });
+
+    expect(result.current.mfaChallenge).toBeNull();
+  });
+});
+
+// ─── BLOCKER #2: server-initiated disconnect cleanup ─────────────────────────
+
+describe("useConnection — server-initiated disconnect cleans up session", () => {
+  beforeEach(() => {
+    mockDisposeSessionTerminals.mockClear();
+    vi.mocked(tauriInvoke).mockClear();
+    vi.mocked(tauriInvoke).mockResolvedValue("session-srv-disc" as never);
+    resetStore();
+  });
+
+  it("calls removeSession and disposeSessionTerminals on stateChanged disconnected", async () => {
+    const profileId = "profile-disc-1";
+    seedProfile(profileId);
+
+    const sessionId = "session-disconnect";
+    useSessionStore.setState((s) => ({
+      sessions: new Map([...s.sessions, [sessionId, makeSession(sessionId)]]),
+      activeSessionId: sessionId,
+    }));
+
+    const { result } = renderHook(() => useConnection());
+    await startConnect(result, profileId);
+
+    act(() => {
+      fireChannelEvent({
+        event: "stateChanged",
+        data: { sessionId, state: "disconnected" },
+      });
+    });
+
+    expect(mockDisposeSessionTerminals).toHaveBeenCalledWith(sessionId);
+    expect(useSessionStore.getState().sessions.has(sessionId)).toBe(false);
+  });
+
+  it("calls removeSession on stateChanged error object", async () => {
+    const profileId = "profile-disc-2";
+    seedProfile(profileId);
+
+    const sessionId = "session-error";
+    useSessionStore.setState((s) => ({
+      sessions: new Map([...s.sessions, [sessionId, makeSession(sessionId)]]),
+      activeSessionId: sessionId,
+    }));
+
+    const { result } = renderHook(() => useConnection());
+    await startConnect(result, profileId);
+
+    act(() => {
+      fireChannelEvent({
+        event: "stateChanged",
+        data: { sessionId, state: { error: { message: "Connection reset" } } },
+      });
+    });
+
+    expect(mockDisposeSessionTerminals).toHaveBeenCalledWith(sessionId);
+    expect(useSessionStore.getState().sessions.has(sessionId)).toBe(false);
   });
 });
 

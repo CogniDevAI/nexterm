@@ -7,6 +7,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { TabBar } from "./components/layout/TabBar";
 import { ConnectionDialog } from "./features/connection/ConnectionDialog";
 import { HostKeyDialog } from "./features/connection/HostKeyDialog";
+import { MfaChallengeDialog } from "./features/connection/MfaChallengeDialog";
 import { AuthPrompt } from "./features/connection/AuthPrompt";
 import { StartupCommandsDialog } from "./features/connection/StartupCommandsDialog";
 import { VaultScreen } from "./features/vault/VaultScreen";
@@ -213,12 +214,14 @@ function App() {
     connectingProfileId,
     connectError,
     hostKeyRequest,
+    mfaChallenge,
     needsPassword,
     pendingProfileId,
     pendingUser,
     connect,
     disconnect,
     respondHostKey,
+    respondMfa,
     submitPassword,
     cancelConnect,
     clearError,
@@ -397,6 +400,13 @@ function App() {
         open={hostKeyRequest !== null}
         request={hostKeyRequest}
         onRespond={respondHostKey}
+      />
+
+      <MfaChallengeDialog
+        open={mfaChallenge !== null}
+        challenge={mfaChallenge}
+        onSubmit={respondMfa}
+        onCancel={cancelConnect}
       />
 
       <AuthPrompt
