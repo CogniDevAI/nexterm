@@ -90,6 +90,12 @@ fn open_with_selected_app(path: &Path, app_path: &str) -> Result<(), AppError> {
 
 #[tauri::command]
 pub async fn choose_application(prompt: Option<String>) -> Result<Option<String>, AppError> {
+    // `prompt` is only read by the macOS/Windows chooser blocks below; on other
+    // platforms the function returns Ok(None) without using it.
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(target_os = "windows")),
+        allow(unused_variables)
+    )]
     let prompt = prompt.unwrap_or_else(|| "Choose application".to_string());
 
     #[cfg(target_os = "macos")]
