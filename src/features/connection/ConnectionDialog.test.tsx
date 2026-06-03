@@ -301,3 +301,27 @@ describe("ConnectionDialog — folder field", () => {
     expect(folderInput?.value).toBe("production");
   });
 });
+
+// ─── Keygen button ────────────────────────────────────────────────────────────
+
+describe("ConnectionDialog — Generate new key button", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMockProfiles = STABLE_PROFILES;
+    mockTauriInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_ssh_keys") return Promise.resolve(MOCK_KEYS);
+      return Promise.resolve(undefined);
+    });
+  });
+
+  it("shows a 'Generate new key' button when publicKey auth is selected", async () => {
+    await renderDialogAndWaitForKeys();
+    await switchToPublicKeyAuth();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTitle("connection.keygen.hint"),
+      ).toBeInTheDocument();
+    });
+  });
+});

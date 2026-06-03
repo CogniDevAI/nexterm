@@ -182,6 +182,8 @@ pub fn run() {
             commands::tunnel::stop_tunnel,
             commands::tunnel::remove_tunnel,
             commands::tunnel::list_tunnels,
+            // SSH keygen
+            commands::keygen::generate_ssh_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

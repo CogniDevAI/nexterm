@@ -14,6 +14,7 @@ import { useI18n } from "../../lib/i18n";
 import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult, KeyInfo } from "../../lib/types";
 import { classifyTestResult, type TestTone } from "./testResult";
 import { normalizeStartupCommands } from "./startupCommands";
+import { KeygenDialog } from "./KeygenDialog";
 
 interface ConnectionDialogProps {
   open: boolean;
@@ -126,6 +127,8 @@ export function ConnectionDialog({
   const [testResults, setTestResults] = useState<Record<string, { tone: TestTone; message: string }>>({});
   // Discovered SSH keys for the key picker dropdown
   const [availableKeys, setAvailableKeys] = useState<KeyInfo[]>([]);
+  // Keygen dialog state: which user we're generating a key for (null = closed)
+  const [keygenForUserId, setKeygenForUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -506,6 +509,18 @@ export function ConnectionDialog({
 
                       return (
                         <div className="cd-key-picker">
+                          <button
+                            type="button"
+                            className="cd-keygen-hint-btn"
+                            title={t("connection.keygen.hint")}
+                            onClick={() => setKeygenForUserId(user.id)}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="12" y1="5" x2="12" y2="19" />
+                              <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            {t("connection.keygen.hint")}
+                          </button>
                           <select
                             data-testid="key-picker-select"
                             className={`cd-user-row-input cd-key-picker-select ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
@@ -666,6 +681,31 @@ export function ConnectionDialog({
           </Button>
         </div>
       </div>
+
+      {/* ─── Keygen Dialog (nested, opens when user clicks "Generate new key") ─── */}
+      <KeygenDialog
+        open={keygenForUserId !== null}
+        onClose={() => setKeygenForUserId(null)}
+        onKeyGenerated={(privateKeyPath) => {
+          if (keygenForUserId === null) return;
+          // Set the generated private key as this user's identity
+          const user = profile.users.find((u) => u.id === keygenForUserId);
+          if (user && user.authMethod.type === "publicKey") {
+            updateUser(keygenForUserId, {
+              authMethod: {
+                type: "publicKey",
+                privateKeyPath,
+                passphraseInKeychain: user.authMethod.passphraseInKeychain,
+              },
+            });
+          }
+          setKeygenForUserId(null);
+          // Refresh the key list so the new key appears in the dropdown
+          void tauriInvoke<KeyInfo[]>("list_ssh_keys")
+            .then(setAvailableKeys)
+            .catch(() => {});
+        }}
+      />
     </Dialog>
   );
 }
