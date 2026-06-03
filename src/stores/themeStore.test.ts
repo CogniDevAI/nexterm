@@ -90,34 +90,40 @@ describe("themeStore — setTheme", () => {
 });
 
 describe("themeStore — restore from localStorage", () => {
-  it("restores dark when localStorage is pre-seeded with dark envelope", () => {
-    // Simulate what Zustand persist does: read from storage on hydration.
-    // We test this by seeding localStorage and then calling the store's
-    // internal persist rehydration via setState (simulating a page-reload init).
+  it("restores dark when localStorage is pre-seeded with dark envelope", async () => {
     const envelope = JSON.stringify({ state: { themeId: "dark" }, version: 0 });
     localStorageMap.set("nexterm-theme", envelope);
-    // Force rehydration by reading the persisted value directly (as the persist
-    // middleware does) and applying it to the store state.
-    const raw = localStorageMap.get("nexterm-theme");
-    const parsed = JSON.parse(raw!);
-    if (parsed.state?.themeId === "dark") {
-      useThemeStore.setState({ themeId: "dark" });
-    }
+    // Trigger real Zustand persist rehydration (not a setState mock)
+    await useThemeStore.persist.rehydrate();
     expect(useThemeStore.getState().themeId).toBe("dark");
   });
 
-  it("defaults to lamplight when stored value has invalid themeId", () => {
-    const envelope = JSON.stringify({ state: { themeId: "invalid-theme" }, version: 0 });
-    localStorageMap.set("nexterm-theme", envelope);
-    // The persist middleware's merge applies stored state directly; if themeId
-    // were "invalid-theme", isThemeId would reject it in setTheme.
-    // Default state is lamplight.
+  it("MAJOR-3: corrupt persisted themeId falls back to lamplight, no crash", async () => {
+    // Seed localStorage with an invalid themeId (e.g., a future value or corrupt data)
+    const corrupt = JSON.stringify({ state: { themeId: "blue" }, version: 0 });
+    localStorageMap.set("nexterm-theme", corrupt);
+    // Trigger real Zustand persist rehydration
+    await useThemeStore.persist.rehydrate();
+    // Must fall back to lamplight — NOT "blue", and NOT crash
+    expect(useThemeStore.getState().themeId).toBe("lamplight");
+  });
+
+  it("MAJOR-3: malformed JSON in storage falls back to lamplight, no crash", async () => {
+    localStorageMap.set("nexterm-theme", "{{not valid json}}");
+    await expect(useThemeStore.persist.rehydrate()).resolves.not.toThrow();
+    expect(useThemeStore.getState().themeId).toBe("lamplight");
+  });
+
+  it("MAJOR-3: missing themeId in stored state falls back to lamplight", async () => {
+    const corrupt = JSON.stringify({ state: {}, version: 0 });
+    localStorageMap.set("nexterm-theme", corrupt);
+    await useThemeStore.persist.rehydrate();
     expect(useThemeStore.getState().themeId).toBe("lamplight");
   });
 });
 
 describe("applyThemeSideEffects", () => {
-  it("sets document.documentElement.dataset.theme", () => {
+  it("sets document.documentElement.dataset.theme to dark", () => {
     applyThemeSideEffects("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
@@ -129,8 +135,18 @@ describe("applyThemeSideEffects", () => {
     );
   });
 
-  it("sets lamplight dataset when called with lamplight", () => {
+  it("MINOR-2: lamplight REMOVES the data-theme attribute (not sets it to 'lamplight')", () => {
+    // First set it to dark so the attribute is present
+    document.documentElement.dataset.theme = "dark";
     applyThemeSideEffects("lamplight");
-    expect(document.documentElement.dataset.theme).toBe("lamplight");
+    // Spec: no [data-theme] attribute for LAMPLIGHT (it is the CSS default)
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+
+  it("MINOR-2: setTheme(lamplight) removes data-theme attribute", () => {
+    useThemeStore.setState({ themeId: "dark" });
+    document.documentElement.dataset.theme = "dark";
+    useThemeStore.getState().setTheme("lamplight");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 });

@@ -41,7 +41,8 @@ describe("ThemeProvider", () => {
         <div />
       </ThemeProvider>,
     );
-    expect(document.documentElement.dataset.theme).toBe("lamplight");
+    // MINOR-2: LAMPLIGHT must NOT set data-theme attribute (spec: no [data-theme] for default)
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 
   it("applies data-theme dark when store is seeded with dark", () => {
@@ -76,7 +77,22 @@ describe("ThemeProvider", () => {
     useThemeStore.getState().setTheme("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
 
+    // MINOR-2: switching back to lamplight REMOVES data-theme attribute entirely
     useThemeStore.getState().setTheme("lamplight");
-    expect(document.documentElement.dataset.theme).toBe("lamplight");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+
+  it("setTheme(lamplight) removes data-theme attribute instead of setting it", () => {
+    // Start with dark, then switch to lamplight — attribute must be removed
+    useThemeStore.setState({ themeId: "dark" });
+    document.documentElement.dataset.theme = "dark";
+
+    render(
+      <ThemeProvider>
+        <div />
+      </ThemeProvider>,
+    );
+    useThemeStore.getState().setTheme("lamplight");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 });

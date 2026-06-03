@@ -141,7 +141,10 @@
   /* ─── State glow tokens — semantic-state rgba() replaced with theme-aware vars ─── */
   /* Previously hardcoded hue-bearing rgba(); now token-driven so DARK can override.  */
   /* Focus ring / keyboard state */
-  --focus-ring-wash:   oklch(0.760 0.130 var(--hue-accent) / 0.12); /* replaces blue rgba focus glows */
+  --focus-ring-wash:        oklch(0.760 0.130 var(--hue-accent) / 0.12); /* replaces blue rgba focus glows */
+  --focus-ring-wash-subtle: oklch(0.760 0.130 var(--hue-accent) / 0.04); /* ultra-low alpha variant (e.g. cd-add-user-btn:hover was rgba(56,139,253,0.04)) */
+  /* Accent glow — copper-hued box-shadow (replaces stale blue glow on copper controls) */
+  --accent-glow: oklch(0.760 0.130 var(--hue-accent) / 0.30);
   /* Drag-over / drop state */
   --drag-accent-wash:  oklch(0.300 0.040 var(--hue-accent) / 0.85);
   --drag-accent-border: oklch(0.760 0.130 var(--hue-accent) / 0.30);
@@ -149,6 +152,15 @@
   --connected-glow:    oklch(0.760 0.110 var(--hue-live) / 0.50);
   --warning-glow:      oklch(0.780 0.130 var(--hue-warn) / 0.40);
   --error-glow:        oklch(0.640 0.150 var(--hue-error) / 0.40);
+  /* Connected-card tints — LAMPLIGHT pixel-equivalent of original rgba(63,185,80,alpha):
+     base=0.04 alpha, hover=0.07 alpha (distinct hover affordance, MAJOR-2) */
+  --connected-wash-base:  oklch(0.760 0.110 var(--hue-live) / 0.04);
+  --connected-wash-hover: oklch(0.760 0.110 var(--hue-live) / 0.07);
+  /* Error ultra-subtle tint — replaces rgba(248,81,73,0.03~0.04) ghost backgrounds */
+  --error-wash-tint: oklch(0.640 0.150 var(--hue-error) / 0.04);
+  /* Warning translucent match highlight — replaces rgba(210,153,34,0.35) (text must show through).
+     Using the closer OKLCH approximation of rgb(210,153,34): L=0.680 C=0.145 H=75 */
+  --warning-wash-match: oklch(0.680 0.145 75 / 0.35);
   /* Terminal selection highlight — CSS mirror of THEMES[id].terminalTheme.selectionBackground.
      SYNC RULE: when changing selection color, update BOTH this token AND themes.ts.
      LAMPLIGHT: copper accent-wash at ~65% alpha (== old rgba(60,41,24,0.65)) */
@@ -204,24 +216,30 @@
   --accent-on:     oklch(0.200 0.018 250);        /* cool near-black text ON accent fill */
   --accent-wash:   oklch(0.300 0.045 64);
   --focus-ring:    oklch(0.810 0.120 66);
-  --focus-ring-wash: oklch(0.770 0.118 64 / 0.14);
+  --focus-ring-wash:        oklch(0.770 0.118 64 / 0.14);
+  --focus-ring-wash-subtle: oklch(0.770 0.118 64 / 0.04);
+  --accent-glow:            oklch(0.770 0.118 64 / 0.30);
   --drag-accent-wash:   oklch(0.300 0.045 64 / 0.85);
   --drag-accent-border: oklch(0.770 0.118 64 / 0.30);
 
   /* ─── Connected/live — jade kept vivid so LIVE pops on cool field ─── */
-  --connected:      oklch(0.775 0.115 165);       /* 8.8:1 vs bg-panel */
-  --connected-wash: oklch(0.300 0.045 165);
-  --connected-glow: oklch(0.775 0.115 165 / 0.50);
+  --connected:           oklch(0.775 0.115 165);       /* 8.8:1 vs bg-panel */
+  --connected-wash:      oklch(0.300 0.045 165);
+  --connected-glow:      oklch(0.775 0.115 165 / 0.50);
+  --connected-wash-base: oklch(0.775 0.115 165 / 0.04);  /* ultra-subtle card tint */
+  --connected-wash-hover:oklch(0.775 0.115 165 / 0.07);  /* distinct hover affordance */
 
   /* ─── Warning — ochre ─── */
-  --warning:      oklch(0.790 0.130 80);
-  --warning-wash: oklch(0.300 0.060 80);
-  --warning-glow: oklch(0.790 0.130 80 / 0.40);
+  --warning:            oklch(0.790 0.130 80);
+  --warning-wash:       oklch(0.300 0.060 80);
+  --warning-glow:       oklch(0.790 0.130 80 / 0.40);
+  --warning-wash-match: oklch(0.790 0.130 80 / 0.35);    /* translucent match highlight (text reads through) — dark-tuned */
 
   /* ─── Error — warm brick stays warm even on cool field, signals danger ─── */
-  --error:      oklch(0.660 0.155 32);            /* 5.38:1 vs bg-panel (AA) */
-  --error-wash: oklch(0.300 0.065 32);
-  --error-glow: oklch(0.660 0.155 32 / 0.40);
+  --error:           oklch(0.660 0.155 32);            /* 5.38:1 vs bg-panel (AA) */
+  --error-wash:      oklch(0.300 0.065 32);
+  --error-glow:      oklch(0.660 0.155 32 / 0.40);
+  --error-wash-tint: oklch(0.660 0.155 32 / 0.04);     /* ghost bg for subtle error rows */
 
   /* ─── Shadows — deeper/cooler ─── */
   --shadow-sm:  0 1px  2px oklch(0.100 0.012 250 / 0.45);
@@ -842,11 +860,11 @@ body {
 }
 
 .sidebar-profile-card-connected {
-  background-color: var(--connected-wash);
+  background-color: var(--connected-wash-base);
 }
 
 .sidebar-profile-card-connected:hover {
-  background-color: var(--connected-wash);
+  background-color: var(--connected-wash-hover);
 }
 
 /* ─── Drag Handle ────────────────────────────────── */
@@ -3442,7 +3460,7 @@ dialog::backdrop {
 .cd-add-user-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
-  background-color: var(--focus-ring-wash);
+  background-color: var(--focus-ring-wash-subtle);
 }
 
 /* ─── Sidebar User Picker (multi-user connect) ───── */
@@ -3803,7 +3821,7 @@ dialog::backdrop {
 .sftp-split-handle:hover {
   background-color: var(--accent);
   width: 4px;
-  box-shadow: 0 0 8px var(--connected-glow);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ─── SFTP Pane ──────────────────────────────────── */
@@ -4320,7 +4338,7 @@ dialog::backdrop {
 
 .sftp-state-error {
   color: var(--danger);
-  background-color: var(--error-wash);
+  background-color: var(--error-wash-tint);
   border-radius: var(--radius-md);
   margin: 8px;
   padding: 16px;
@@ -4641,7 +4659,7 @@ dialog::backdrop {
 }
 
 .transfer-failed {
-  background-color: var(--error-wash);
+  background-color: var(--error-wash-tint);
 }
 
 .transfer-failed .transfer-info::before {
@@ -5245,7 +5263,7 @@ dialog::backdrop {
 /* ─── Search Matches ─────────────────────────────── */
 
 .file-viewer-match {
-  background-color: var(--warning-wash);
+  background-color: var(--warning-wash-match);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;

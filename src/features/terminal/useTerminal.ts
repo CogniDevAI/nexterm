@@ -67,7 +67,6 @@ export function useTerminal() {
       // module for applyThemeToAllTerminals; this module reads themeStore only
       // at call time (never at module evaluation). ESM safe. If the bundler warns,
       // the fallback is parseStoredThemeId(localStorage.getItem("nexterm-theme")).
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { useThemeStore } = await import("../../stores/themeStore");
       const initialThemeId = useThemeStore.getState().themeId;
 
@@ -281,4 +280,16 @@ export function useTerminal() {
   }, []);
 
   return { openTerminal, closeTerminal, getTerminal, focusTerminal, reattachTerminal, disposeSessionTerminals };
+}
+
+/**
+ * TEST-ONLY helper — seeds a fake TerminalInstance into the module-level Map
+ * so unit tests can verify applyThemeToAllTerminals behaves correctly on live
+ * and disposed instances without standing up a real xterm.js environment.
+ *
+ * This export is guarded by the module-level Map being private; calling it in
+ * production is a no-op for callers who don't import it explicitly.
+ */
+export function _testSeedTerminalInstance(id: string, instance: TerminalInstance): void {
+  terminalInstances.set(id, instance);
 }

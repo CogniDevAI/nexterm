@@ -98,3 +98,33 @@ describe("applyThemeToAllTerminals", () => {
     expect(() => applyThemeToAllTerminals(fullTheme)).not.toThrow();
   });
 });
+
+// MINOR-4: applyThemeToAllTerminals live-instance coverage
+// We expose a test-only seeding helper to register fake instances into the Map.
+// Import it only in test context; production code never uses it.
+import { _testSeedTerminalInstance } from "./useTerminal";
+
+describe("applyThemeToAllTerminals — live and disposed instances (MINOR-4)", () => {
+  it("sets options.theme on live instances and skips disposed ones", () => {
+    const liveOptions1: { theme?: ITheme } = {};
+    const liveOptions2: { theme?: ITheme } = {};
+    const disposedOptions: { theme?: ITheme } = {};
+
+    const fakeTerminal1 = { options: liveOptions1 };
+    const fakeTerminal2 = { options: liveOptions2 };
+    const fakeDisposed = { options: disposedOptions };
+
+    // Register fake instances before calling the applier
+    _testSeedTerminalInstance("live-1", { terminal: fakeTerminal1 as never, disposed: false } as never);
+    _testSeedTerminalInstance("live-2", { terminal: fakeTerminal2 as never, disposed: false } as never);
+    _testSeedTerminalInstance("disposed-1", { terminal: fakeDisposed as never, disposed: true } as never);
+
+    const theme: ITheme = { background: "#123456", foreground: "#abcdef" };
+    applyThemeToAllTerminals(theme);
+
+    expect(liveOptions1.theme).toBe(theme);
+    expect(liveOptions2.theme).toBe(theme);
+    // disposed instance must NOT be re-themed
+    expect(disposedOptions.theme).toBeUndefined();
+  });
+});
