@@ -5,7 +5,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { homeDir } from "@tauri-apps/api/path";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { FilePane, type SearchMode } from "./FilePane";
 import { TransferOverlay } from "./TransferOverlay";
@@ -157,8 +156,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // ─── OS Drag & Drop state (PR2) ──────────────────────
-  const [isDraggingFromOS, setIsDraggingFromOS] = useState(false);
+  // Pane refs — used for keyboard pane-switching and pane-container layout.
   const remotePaneRef = useRef<HTMLDivElement>(null);
 
   // Active pane tracking (PR3 — focus management)
@@ -265,16 +263,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   // ─── OS Drag & Drop via Tauri (PR2) ────────────────────
 
-  /**
-   * Check if a physical position falls within the remote pane bounds.
-   * Returns true if the drop should target the remote pane.
-   */
-  const isOverRemotePane = useCallback((x: number, y: number): boolean => {
-    if (!remotePaneRef.current) return false;
-    const rect = remotePaneRef.current.getBoundingClientRect();
-    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-  }, []);
-
   // ─── Conflict Resolution Helpers ─────────────────────
 
   /**
@@ -365,72 +353,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     },
     [askConflict],
   );
-
-  /**
-   * Handle OS file drop on the remote pane: upload each file with per-file
-   * error handling so one failure doesn't block the rest.
-   */
-  const handleOSDrop = useCallback(
-    async (paths: string[], x: number, y: number) => {
-      if (!isOverRemotePane(x, y)) return;
-      if (!sftp.remotePane.path) return;
-
-      conflictResolverRef.current.beginOperation();
-      for (const localPath of paths) {
-        const fileName = localPath.split(/[/\\]/).pop() ?? localPath;
-        const remoteDest = sftp.remotePane.path + "/" + fileName;
-        try {
-          const conflictInfo = await checkUploadConflict(localPath, remoteDest);
-          if (conflictInfo) {
-            const decision = await resolveConflict(conflictInfo);
-            if (decision === "skip") continue;
-          }
-          await sftp.uploadFile(localPath, remoteDest);
-        } catch (err) {
-          // Per-file error handling: log and continue with the rest.
-          // The transfer store's failTransfer will show the error in TransferOverlay.
-          console.error(`OS DnD upload failed for ${fileName}:`, err);
-        }
-      }
-    },
-    [sftp, isOverRemotePane, checkUploadConflict, resolveConflict],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-
-    getCurrentWebview()
-      .onDragDropEvent((event) => {
-        if (cancelled) return;
-        const { payload } = event;
-        switch (payload.type) {
-          case "enter":
-          case "over":
-            setIsDraggingFromOS(true);
-            break;
-          case "drop":
-            setIsDraggingFromOS(false);
-            void handleOSDrop(payload.paths, payload.position.x, payload.position.y);
-            break;
-          case "leave":
-            setIsDraggingFromOS(false);
-            break;
-        }
-      })
-      .then((fn) => {
-        if (cancelled) {
-          fn();
-        } else {
-          unlisten = fn;
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [handleOSDrop]);
 
   // ─── Global Keyboard Shortcuts (PR3) ───────────────────
 
@@ -1353,28 +1275,6 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             }}
           />
 
-          {/* OS Drag & Drop overlay (PR2) */}
-          {isDraggingFromOS && (
-            <div className="sftp-drop-overlay">
-              <div className="sftp-drop-overlay-content">
-                <svg
-                  width="32"
-                  height="32"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                <span>{t("sftp.dropToUpload")}</span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

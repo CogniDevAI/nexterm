@@ -424,7 +424,20 @@ export function FilePane({
       const selected = selectedEntries && selectedEntries.has(entry.path)
         ? sortedEntries.filter((en) => selectedEntries.has(en.path))
         : [entry];
-      e.dataTransfer.setData("text/plain", JSON.stringify(selected.map((s) => s.path)));
+      // Serialize richer objects (not bare paths) so the receiving pane can
+      // preserve fileType — folder transfers require fileType==="directory".
+      e.dataTransfer.setData(
+        "text/plain",
+        JSON.stringify(
+          selected.map((s) => ({
+            path: s.path,
+            name: s.name,
+            fileType: s.fileType,
+            size: s.size,
+            linkTarget: s.linkTarget,
+          })),
+        ),
+      );
       e.dataTransfer.effectAllowed = "copy";
       onDragStart(selected);
     },
@@ -441,22 +454,33 @@ export function FilePane({
       e.preventDefault();
       if (!onDrop) return;
       try {
-        const paths: string[] = JSON.parse(e.dataTransfer.getData("text/plain"));
-        // The actual entries need to come from the other pane — 
-        // SftpBrowser will handle the cross-pane logic.
-        // We pass a synthetic FileEntry array with paths.
-        const syntheticEntries: FileEntry[] = paths.map((p) => ({
-          name: p.split("/").pop() ?? p,
-          path: p,
-          fileType: "file" as const,
-          size: 0,
-          permissions: 0,
-          permissionsStr: "",
-          modified: null,
-          accessed: null,
-          owner: null,
-          group: null,
-        }));
+        // Drag data is an array of objects (new format) preserving fileType so
+        // folder transfers work. Be robust to the old bare-string format too.
+        const raw: unknown = JSON.parse(e.dataTransfer.getData("text/plain"));
+        if (!Array.isArray(raw)) return;
+        // SftpBrowser handles the actual cross-pane transfer logic; we just
+        // reconstruct FileEntry objects from the dragged metadata.
+        const syntheticEntries: FileEntry[] = raw.map((item) => {
+          // Old format: bare path string. New format: { path, name, fileType, ... }.
+          const isObject = typeof item === "object" && item !== null;
+          const obj = (isObject ? item : {}) as Partial<FileEntry>;
+          const path = isObject ? (obj.path ?? "") : String(item);
+          const name = obj.name ?? path.split("/").pop() ?? path;
+          const fileType: FileEntry["fileType"] = obj.fileType ?? "file";
+          return {
+            name,
+            path,
+            fileType,
+            size: obj.size ?? 0,
+            permissions: 0,
+            permissionsStr: "",
+            modified: null,
+            accessed: null,
+            owner: null,
+            group: null,
+            linkTarget: obj.linkTarget,
+          };
+        });
         onDrop(syntheticEntries);
       } catch {
         // Invalid drag data
