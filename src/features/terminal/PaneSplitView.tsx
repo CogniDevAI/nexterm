@@ -133,6 +133,7 @@ export function PaneSplitView({
     <div
       ref={containerRef}
       className={`terminal-split terminal-split-${direction}`}
+      data-broadcast={layout.broadcastEnabled ? "true" : "false"}
     >
       <BroadcastBanner broadcastEnabled={layout.broadcastEnabled} />
       {slots.map((slot, i) => {

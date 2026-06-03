@@ -208,16 +208,38 @@ describe("paneLayoutStore — broadcastEnabled", () => {
     expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
   });
 
-  it("toggleBroadcast flips broadcastEnabled from false to true", () => {
+  it("toggleBroadcast flips broadcastEnabled from false to true (2-slot layout)", () => {
     usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
     usePaneLayoutStore.getState().toggleBroadcast("sess-1");
     expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
   });
 
-  it("toggleBroadcast flips broadcastEnabled from true back to false", () => {
+  it("toggleBroadcast flips broadcastEnabled from true back to false (2-slot layout)", () => {
     usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
     usePaneLayoutStore.getState().toggleBroadcast("sess-1");
     usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  // MINOR-1: store-level guard — enabling broadcast requires >=2 slots
+  it("toggleBroadcast is a no-op (cannot enable) on a 1-slot layout", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    expect(getLayout("sess-1")!.slots).toHaveLength(1);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    // Guard: cannot enable with <2 panes
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  it("toggleBroadcast (disable) is allowed on a 1-slot layout when already off (no-op stays false)", () => {
+    // Disabling from false is trivially fine — stays false
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1"); // no-op: enable blocked
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1"); // toggle off false → still false
     expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
   });
 
@@ -231,6 +253,8 @@ describe("paneLayoutStore — broadcastEnabled", () => {
 
   it("removeLayout destroys the layout (broadcastEnabled resets on next openLayout)", () => {
     usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
     usePaneLayoutStore.getState().toggleBroadcast("sess-1");
     expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
 

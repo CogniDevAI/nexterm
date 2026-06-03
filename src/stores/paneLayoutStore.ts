@@ -225,6 +225,11 @@ export const usePaneLayoutStore = create<PaneLayoutStoreState>((set, get) => ({
   toggleBroadcast: (sessionId) => {
     const layout = get().layouts[sessionId];
     if (!layout) return;
+    // Safety invariant: broadcast can only be ENABLED when there are >=2 panes.
+    // Disabling is always allowed (regardless of slot count).
+    // The UI already gates the toggle button on paneCount>=2, but the store
+    // must self-enforce so programmatic callers cannot violate the invariant.
+    if (!layout.broadcastEnabled && layout.slots.length < 2) return;
     set((state) => ({
       layouts: {
         ...state.layouts,

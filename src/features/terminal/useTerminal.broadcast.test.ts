@@ -348,6 +348,73 @@ describe("useTerminal — broadcast fan-out (onData)", () => {
   });
 });
 
+describe("useTerminal — broadcast fan-out (disconnected session)", () => {
+  beforeEach(resetAll);
+
+  it("does NOT fan out when session state is 'disconnected' (getBroadcastTargets disconnected branch)", async () => {
+    // Seed session as disconnected — getBroadcastTargets must return [] for any non-"connected" state
+    useSessionStore.setState({
+      sessions: new Map([
+        [
+          SESSION_ID,
+          {
+            id: SESSION_ID,
+            profileId: "p1",
+            profileName: "Test",
+            host: "host",
+            userId: "u1",
+            username: "user",
+            port: 22,
+            connectedAt: Date.now(),
+            state: "disconnected" as const,
+            terminals: [],
+            activeTerminalId: null,
+          } as never,
+        ],
+      ]),
+      activeSessionId: SESSION_ID,
+    });
+
+    mockTauriInvoke.mockResolvedValueOnce("term-disconnected-src");
+
+    const container = document.createElement("div");
+    const { result } = renderHook(() => useTerminal());
+
+    let sourceId: string | undefined;
+    await act(async () => {
+      sourceId = await result.current.openTerminal(container, SESSION_ID);
+    });
+
+    usePaneLayoutStore.setState({
+      layouts: {
+        [SESSION_ID]: {
+          direction: "horizontal",
+          slots: [
+            { id: "slot-1", terminalId: sourceId ?? "term-disconnected-src", ratio: 0.5 },
+            { id: "slot-2", terminalId: "term-target-disc", ratio: 0.5 },
+          ],
+          focusedSlotId: "slot-1",
+          broadcastEnabled: true,
+        },
+      },
+    });
+
+    mockTauriInvoke.mockReset();
+    mockTauriInvoke.mockResolvedValue(undefined);
+
+    await act(async () => {
+      capturedOnData?.("ls");
+    });
+
+    const writeCalls = mockTauriInvoke.mock.calls.filter(
+      (c) => c[0] === "write_terminal",
+    );
+    // Session disconnected → getBroadcastTargets returns [] → only source write fires
+    expect(writeCalls).toHaveLength(1);
+    expect((writeCalls[0]![1] as Record<string, unknown>).terminalId).toBe(sourceId);
+  });
+});
+
 describe("useTerminal — broadcast fan-out (onBinary / paste)", () => {
   beforeEach(resetAll);
 

@@ -340,7 +340,8 @@
    The pane (.terminal-split-pane) is already position:relative.
    Hidden by default; revealed on pane hover or keyboard focus.
    z-index above the terminal canvas but below dialogs.
-   Does NOT push xterm content — floats as an overlay. */
+   Does NOT push xterm content — floats as an overlay.
+   See broadcast-active override below for the banner-occlude fix. */
 .terminal-split-pane-close {
   position: absolute;
   top: 4px;
@@ -364,6 +365,17 @@
     background-color var(--transition-fast);
   /* pointer-events off when invisible so clicks reach the terminal */
   pointer-events: none;
+}
+
+/* When broadcast is active, the full-width banner strip covers top:0..~26px.
+   Push the close button below the banner so it is never occluded.
+   z-index:11 (> banner z-index:10) keeps it reachable. Works in both
+   LAMPLIGHT and DARK because it only shifts position, not color tokens.
+   The banner itself is pointer-events:none so the area beneath it is still
+   clickable — this rule ensures the close button is visible above the banner. */
+.terminal-split[data-broadcast="true"] .terminal-split-pane-close {
+  top: 30px; /* 26px banner height + 4px original offset */
+  z-index: 11; /* above banner (z-index:10) */
 }
 
 /* Reveal on pane hover */
