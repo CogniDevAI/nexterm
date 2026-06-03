@@ -46,6 +46,23 @@ interface TerminalViewProps {
   onTerminalOpened: (terminalId: TerminalId) => void;
   /** Whether this terminal tab is currently visible */
   active: boolean;
+  /**
+   * When true the terminal is inside a split-pane grid.
+   * Split panes are ALWAYS visible (display:block) — the display:none
+   * hide/show for inactive tabs is disabled. The `active` prop then only
+   * drives focus (the terminal receives focus when it becomes the active pane)
+   * and the focus-ring CSS class.
+   *
+   * When false/absent (default), single-terminal mode is preserved exactly
+   * as today: display:block when active, display:none when inactive.
+   */
+  isSplitPane?: boolean;
+  /**
+   * Stable React key forwarded from the owning component. When provided,
+   * the key is used to avoid unnecessary remounts (same as TerminalTab.reactKey).
+   * If omitted, the parent must ensure stable keying externally.
+   */
+  reactKey?: string;
 }
 
 export function TerminalView({
@@ -53,6 +70,7 @@ export function TerminalView({
   terminalId,
   onTerminalOpened,
   active,
+  isSplitPane = false,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { openTerminal, focusTerminal, reattachTerminal } = useTerminal();
@@ -190,10 +208,14 @@ export function TerminalView({
     [terminalId, sessionId],
   );
 
+  // Split-pane mode: always display:block (all panes visible simultaneously).
+  // Single-terminal mode: show only the active tab, hide the rest.
+  const displayStyle = isSplitPane ? "block" : active ? "block" : "none";
+
   return (
     <div
       className="terminal-wrapper"
-      style={{ display: active ? "block" : "none" }}
+      style={{ display: displayStyle }}
       onContextMenu={handleContextMenu}
     >
       <div
