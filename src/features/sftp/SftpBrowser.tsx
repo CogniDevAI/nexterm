@@ -689,6 +689,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           if (!action.entry) return;
           const uploadEntry = action.entry;
           const remoteDest = sftp.remotePane.path + "/" + uploadEntry.name;
+          // Single-file op: reset so a stale _all decision from a prior batch cannot leak.
+          batchDecisionRef.current = null;
           void (async () => {
             try {
               const conflictInfo = await checkUploadConflict(uploadEntry.path, remoteDest);
@@ -712,6 +714,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           const isDir =
             dlEntry.fileType === "directory" ||
             (dlEntry.fileType === "symlink" && dlEntry.linkTarget === "directory");
+          // Single-file op: reset so a stale _all decision from a prior batch cannot leak.
+          batchDecisionRef.current = null;
           void (async () => {
             try {
               if (isDir) {
@@ -922,6 +926,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           if (!action.entry) return;
           const localUploadEntry = action.entry;
           const localUploadDest = sftp.remotePane.path + "/" + localUploadEntry.name;
+          // Single-file op: reset so a stale _all decision from a prior batch cannot leak.
+          batchDecisionRef.current = null;
           void (async () => {
             try {
               const conflictInfo = await checkUploadConflict(localUploadEntry.path, localUploadDest);
@@ -1046,6 +1052,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   // ─── Toolbar Actions ──────────────────────────────────
 
   const handleUpload = useCallback(() => {
+    // Reset batch decision: a stale _all from a prior operation must not leak into this batch.
+    batchDecisionRef.current = null;
     // Collect only uploadable entries (file / symlink-to-file)
     const uploadEntries = [...localSelected]
       .map((path) => sftp.localPane.entries.find((e) => e.path === path))
@@ -1184,6 +1192,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   const handleRemoteDrop = useCallback(
     (entries: FileEntry[]) => {
       // Dropped from local → upload with conflict checking.
+      // Reset batch decision: a stale _all from a prior operation must not leak into this batch.
+      batchDecisionRef.current = null;
       // Sequential for...of prevents concurrent access to the shared conflict dialog.
       void processTransfersSequentially(
         entries,
