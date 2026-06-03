@@ -31,6 +31,9 @@ export interface PaneLayout {
   /** Which slot currently holds keyboard focus. Drives the focus ring and
    *  the sessionStore.activeTerminalId pointer for SidePanel/HistoryPanel. */
   focusedSlotId: string;
+  /** When true, keystrokes from the focused pane are mirrored to all other
+   *  live panes. Defaults to false. NEVER persisted — ephemeral safety default. */
+  broadcastEnabled: boolean;
 }
 
 // ── Internal state ────────────────────────────────────────────────────────────
@@ -64,6 +67,10 @@ interface PaneLayoutStoreState {
   /** Set the split direction for the whole layout. */
   setDirection: (sessionId: SessionId, direction: PaneDirection) => void;
 
+  /** Toggle the broadcast mode for the given session's layout.
+   *  No-op if the layout doesn't exist. */
+  toggleBroadcast: (sessionId: SessionId) => void;
+
   /** Remove the entire layout entry (called on session close). */
   removeLayout: (sessionId: SessionId) => void;
 }
@@ -91,6 +98,7 @@ export const usePaneLayoutStore = create<PaneLayoutStoreState>((set, get) => ({
           direction: "horizontal",
           slots: [{ id: slotId, terminalId, ratio: 1 }],
           focusedSlotId: slotId,
+          broadcastEnabled: false,
         },
       },
     }));
@@ -141,6 +149,11 @@ export const usePaneLayoutStore = create<PaneLayoutStoreState>((set, get) => ({
         ? (fallbackSlot?.id ?? layout.focusedSlotId)
         : layout.focusedSlotId;
 
+    // Safety: auto-reset broadcast when dropping below 2 panes.
+    // With only 1 pane there are no targets — silently becomes a no-op,
+    // but resetting is the safe and explicit choice.
+    const broadcastEnabled = next.length >= 2 ? layout.broadcastEnabled : false;
+
     set((state) => ({
       layouts: {
         ...state.layouts,
@@ -148,6 +161,7 @@ export const usePaneLayoutStore = create<PaneLayoutStoreState>((set, get) => ({
           ...layout,
           slots: redistributeRatios(next),
           focusedSlotId,
+          broadcastEnabled,
         },
       },
     }));
@@ -204,6 +218,17 @@ export const usePaneLayoutStore = create<PaneLayoutStoreState>((set, get) => ({
       layouts: {
         ...state.layouts,
         [sessionId]: { ...layout, direction },
+      },
+    }));
+  },
+
+  toggleBroadcast: (sessionId) => {
+    const layout = get().layouts[sessionId];
+    if (!layout) return;
+    set((state) => ({
+      layouts: {
+        ...state.layouts,
+        [sessionId]: { ...layout, broadcastEnabled: !layout.broadcastEnabled },
       },
     }));
   },
