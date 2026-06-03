@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ssh_key::PrivateKey;
+use russh::keys::PrivateKey;
 use zeroize::Zeroizing;
 
 use crate::error::AppError;
@@ -64,9 +64,9 @@ fn decode_private_key(
             return Ok(key);
         }
         return match passphrase {
-            Some(pp) => key.decrypt(pp).map_err(|e| {
-                AppError::KeyError(format!("Failed to decrypt key {label}: {e}"))
-            }),
+            Some(pp) => key
+                .decrypt(pp)
+                .map_err(|e| AppError::KeyError(format!("Failed to decrypt key {label}: {e}"))),
             None => Err(AppError::KeyError(format!(
                 "Key {label} is encrypted — passphrase required"
             ))),
@@ -75,7 +75,7 @@ fn decode_private_key(
 
     // PEM / PKCS#1 / PKCS#8 / SEC1 (and their encrypted variants) via
     // russh-keys. Returns the same `ssh_key::PrivateKey` type.
-    russh_keys::decode_secret_key(data, passphrase)
+    russh::keys::decode_secret_key(data, passphrase)
         .map_err(|e| AppError::KeyError(format!("Failed to load key {label}: {e}")))
 }
 
@@ -140,12 +140,12 @@ fn identify_key(contents: &str, path: &Path) -> Option<KeyInfo> {
     match PrivateKey::from_openssh(contents.as_bytes()) {
         Ok(key) => {
             let key_type = match key.algorithm() {
-                ssh_key::Algorithm::Rsa { .. } => "RSA",
-                ssh_key::Algorithm::Ed25519 => "Ed25519",
-                ssh_key::Algorithm::Ecdsa { curve } => match curve {
-                    ssh_key::EcdsaCurve::NistP256 => "ECDSA-256",
-                    ssh_key::EcdsaCurve::NistP384 => "ECDSA-384",
-                    ssh_key::EcdsaCurve::NistP521 => "ECDSA-521",
+                russh::keys::ssh_key::Algorithm::Rsa { .. } => "RSA",
+                russh::keys::ssh_key::Algorithm::Ed25519 => "Ed25519",
+                russh::keys::ssh_key::Algorithm::Ecdsa { curve } => match curve {
+                    russh::keys::ssh_key::EcdsaCurve::NistP256 => "ECDSA-256",
+                    russh::keys::ssh_key::EcdsaCurve::NistP384 => "ECDSA-384",
+                    russh::keys::ssh_key::EcdsaCurve::NistP521 => "ECDSA-521",
                 },
                 _ => "Unknown",
             };
@@ -265,7 +265,7 @@ mr0wgcTcPXfyIfsFi3SUAq3beD6lLzcj5sAYNM2HBXirQN9XhBDitw==
             .expect("PKCS#1 RSA key should load without a passphrase");
         assert!(matches!(
             key.algorithm(),
-            ssh_key::Algorithm::Rsa { .. }
+            russh::keys::ssh_key::Algorithm::Rsa { .. }
         ));
     }
 

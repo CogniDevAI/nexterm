@@ -5,7 +5,7 @@
 // Private key is always OpenSSH format; passphrase encryption via AES-256-CTR + bcrypt-pbkdf.
 
 use rand::rngs::OsRng;
-use ssh_key::{
+use russh::keys::ssh_key::{
     private::{KeypairData, RsaKeypair},
     Algorithm, EcdsaCurve, LineEnding, PrivateKey,
 };
@@ -129,7 +129,7 @@ pub fn generate_keypair(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssh_key::PrivateKey as SshPrivateKey;
+    use russh::keys::ssh_key::PrivateKey as SshPrivateKey;
 
     /// Ed25519 roundtrip: generate → encode → re-parse
     #[test]
@@ -158,7 +158,7 @@ mod tests {
             .expect("RSA private PEM must be parseable");
 
         let rsa_pub = match reparsed.key_data() {
-            ssh_key::private::KeypairData::Rsa(kp) => &kp.public,
+            russh::keys::ssh_key::private::KeypairData::Rsa(kp) => &kp.public,
             other => panic!("Expected RSA keypair, got {:?}", other),
         };
 
@@ -192,7 +192,7 @@ mod tests {
             .expect("RSA 4096 private PEM must be parseable");
 
         let rsa_pub = match reparsed.key_data() {
-            ssh_key::private::KeypairData::Rsa(kp) => &kp.public,
+            russh::keys::ssh_key::private::KeypairData::Rsa(kp) => &kp.public,
             other => panic!("Expected RSA keypair, got {:?}", other),
         };
 

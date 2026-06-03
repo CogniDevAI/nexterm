@@ -7,8 +7,8 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use russh::keys::ssh_key::public::KeyData;
 use russh::keys::ssh_key::PublicKey;
-use ssh_key::public::KeyData;
 
 use crate::error::AppError;
 use crate::state::HostKeyStatus;
@@ -656,8 +656,8 @@ mod tests {
     /// Same seed → same key, so tests are reproducible and two different seeds
     /// yield two genuinely different keys (real crypto, not stubs).
     fn ed25519_pubkey(seed: [u8; 32]) -> PublicKey {
-        use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
-        use ssh_key::public::Ed25519PublicKey;
+        use russh::keys::ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
+        use russh::keys::ssh_key::public::Ed25519PublicKey;
 
         let private = Ed25519PrivateKey::from_bytes(&seed);
         let keypair = Ed25519Keypair::from(private);

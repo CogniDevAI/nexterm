@@ -19,13 +19,12 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 
-# SSH
-russh = "0.48"
-russh-keys = "0.48"
-russh-sftp = "2.0.5"
-
-# Key parsing
-ssh-key = { version = "0.6", features = ["rsa", "ed25519", "ecdsa", "encryption", "rand_core"] }
+# SSH — russh 0.50 merged russh-keys into the main crate; russh-sftp 2.1.1 is
+# compatible with russh 0.50.x (its dev-dep targets 0.51).  Direct ssh-key dep
+# is dropped: russh 0.50 bundles an internal fork of ssh-key 0.6.9; we reference
+# all key types via russh::keys::ssh_key::* to avoid type-mismatch with the fork.
+russh = "0.50"
+russh-sftp = "2.1.1"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -37,9 +36,6 @@ serde_json = "1"
 
 # Error handling
 thiserror = "2"
-
-# Async trait (required by russh Handler)
-async-trait = "0.1"
 
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }

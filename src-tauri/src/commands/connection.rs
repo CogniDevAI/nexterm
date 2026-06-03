@@ -575,7 +575,6 @@ struct TestConnectionHandler {
     status: std::sync::Arc<std::sync::Mutex<Option<HostKeyStatus>>>,
 }
 
-#[async_trait::async_trait]
 impl russh::client::Handler for TestConnectionHandler {
     type Error = russh::Error;
 
@@ -712,11 +711,11 @@ pub async fn test_connection(
 
     let result: Result<TestConnectionResult, AppError> = match auth {
         Some(session::AuthMethod::Password(pw)) => {
-            let authenticated = ssh_handle
+            let auth_result = ssh_handle
                 .authenticate_password(&username, &*pw)
                 .await
                 .map_err(AppError::Ssh)?;
-            if authenticated {
+            if auth_result.success() {
                 Ok(TestConnectionResult {
                     authenticated: true,
                     host_key: "trusted".to_string(),
@@ -732,11 +731,13 @@ pub async fn test_connection(
         }
         Some(session::AuthMethod::PublicKey { key }) => {
             let arc_key = Arc::new(*key);
-            let authenticated = ssh_handle
-                .authenticate_publickey(&username, arc_key)
+            let hash_alg = session::resolve_rsa_hash_alg(&ssh_handle).await?;
+            let key_with_alg = russh::keys::PrivateKeyWithHashAlg::new(arc_key, hash_alg);
+            let result = ssh_handle
+                .authenticate_publickey(&username, key_with_alg)
                 .await
                 .map_err(AppError::Ssh)?;
-            if authenticated {
+            if result.success() {
                 Ok(TestConnectionResult {
                     authenticated: true,
                     host_key: "trusted".to_string(),

@@ -171,7 +171,6 @@ pub struct BastionHandler {
     status: Arc<std::sync::Mutex<Option<HostKeyStatus>>>,
 }
 
-#[async_trait::async_trait]
 impl russh::client::Handler for BastionHandler {
     type Error = russh::Error;
 
@@ -345,17 +344,24 @@ pub async fn prepare_bastion_channel(
         ))
     })?;
 
+    // russh 0.50 auth methods return AuthResult; .success() converts to bool.
     let authenticated = match auth {
         AuthMethod::Password(password) => bastion
             .authenticate_password(&jump.user, &*password)
             .await
-            .map_err(AppError::Ssh)?,
+            .map_err(AppError::Ssh)?
+            .success(),
         AuthMethod::PublicKey { key } => {
             let arc_key = Arc::new(*key);
+            // Negotiate the best RSA hash the bastion accepts (see
+            // `resolve_rsa_hash_alg`). Ignored for Ed25519/ECDSA keys.
+            let hash_alg = resolve_rsa_hash_alg(&bastion).await?;
+            let key_with_alg = russh::keys::PrivateKeyWithHashAlg::new(arc_key, hash_alg);
             bastion
-                .authenticate_publickey(&jump.user, arc_key)
+                .authenticate_publickey(&jump.user, key_with_alg)
                 .await
                 .map_err(AppError::Ssh)?
+                .success()
         }
         // `resolve_jump_auth` only ever yields Password / PublicKey
         // (`JumpAuthConfig` has no keyboard-interactive variant), so this arm is
@@ -419,7 +425,7 @@ pub enum AuthMethod {
     /// the auth attempt completes (success or failure) and the value is dropped.
     Password(zeroize::Zeroizing<String>),
     PublicKey {
-        key: Box<ssh_key::PrivateKey>,
+        key: Box<russh::keys::PrivateKey>,
     },
     /// Keyboard-interactive (MFA). Carries no secret: the answers are gathered
     /// per challenge round from the frontend through the
@@ -453,7 +459,7 @@ pub(crate) const MAX_AGENT_IDENTITIES: usize = 16;
 /// saw) OR the key's comment. An empty/whitespace pin never matches anything —
 /// otherwise a blank pin would silently latch onto the first comment-less key.
 /// Side-effect free so identity selection is unit-testable without a live agent.
-pub(crate) fn agent_pin_matches(key: &ssh_key::PublicKey, pin: &str) -> bool {
+pub(crate) fn agent_pin_matches(key: &russh::keys::ssh_key::PublicKey, pin: &str) -> bool {
     let pin = pin.trim();
     if pin.is_empty() {
         return false;
@@ -478,9 +484,9 @@ pub(crate) fn agent_pin_matches(key: &ssh_key::PublicKey, pin: &str) -> bool {
 /// Returns borrowed references (no key cloning) so the auth loop can hand each
 /// `PublicKey` to russh. Side-effect free for unit testing.
 pub(crate) fn select_agent_identities<'a>(
-    identities: &'a [ssh_key::PublicKey],
+    identities: &'a [russh::keys::ssh_key::PublicKey],
     pin: Option<&str>,
-) -> Vec<&'a ssh_key::PublicKey> {
+) -> Vec<&'a russh::keys::ssh_key::PublicKey> {
     identities
         .iter()
         .filter(|key| match pin {
@@ -694,6 +700,37 @@ pub async fn do_handshake(
 
 // ─── Authenticate ───────────────────────────────────────
 
+/// Resolve the RSA signature hash algorithm to advertise for public-key auth,
+/// based on what the server reports via the `server-sig-algs` extension.
+///
+/// `best_supported_rsa_hash()` returns `Result<Option<Option<HashAlg>>>`:
+/// - `Some(Some(alg))` — server advertised server-sig-algs and supports a
+///   modern rsa-sha2 variant (512 preferred, then 256). Use it as-is.
+/// - `Some(None)` — server advertised server-sig-algs but supports ONLY the
+///   legacy `ssh-rsa` (SHA-1). Honour the server's stated capability.
+/// - `None` — server did NOT send the server-sig-algs extension, so we cannot
+///   know. Rather than fall back to SHA-1 (which modern, SHA-1-disabled servers
+///   reject outright), OPTIMISTICALLY try `rsa-sha2-256`: virtually every server
+///   that omits the extension still accepts rsa-sha2-256, and SHA-1-disabled
+///   servers reject the SHA-1 alternative anyway.
+///
+/// For Ed25519/ECDSA keys the returned value is ignored by
+/// `PrivateKeyWithHashAlg::new`, so calling this unconditionally is safe.
+pub(crate) async fn resolve_rsa_hash_alg<H: russh::client::Handler>(
+    handle: &russh::client::Handle<H>,
+) -> Result<Option<russh::keys::HashAlg>, AppError> {
+    Ok(
+        match handle
+            .best_supported_rsa_hash()
+            .await
+            .map_err(AppError::Ssh)?
+        {
+            Some(inner) => inner,
+            None => Some(russh::keys::HashAlg::Sha256),
+        },
+    )
+}
+
 /// Authenticate an established SSH session.
 /// The session must be in Connecting or Authenticating state.
 ///
@@ -713,16 +750,24 @@ pub async fn authenticate(
 
     handle.state = SessionState::Authenticating;
 
+    // russh 0.50 auth methods return AuthResult (not bool); .success() converts.
     let authenticated = match auth {
         AuthMethod::Password(password) => ssh
             .authenticate_password(username, &*password)
             .await
-            .map_err(AppError::Ssh)?,
+            .map_err(AppError::Ssh)?
+            .success(),
         AuthMethod::PublicKey { key } => {
             let arc_key = Arc::new(*key);
-            ssh.authenticate_publickey(username, arc_key)
+            // Negotiate the best RSA hash the server accepts (see
+            // `resolve_rsa_hash_alg`). For Ed25519/ECDSA keys the hash is
+            // ignored by PrivateKeyWithHashAlg.
+            let hash_alg = resolve_rsa_hash_alg(ssh).await?;
+            let key_with_alg = russh::keys::PrivateKeyWithHashAlg::new(arc_key, hash_alg);
+            ssh.authenticate_publickey(username, key_with_alg)
                 .await
                 .map_err(AppError::Ssh)?
+                .success()
         }
         AuthMethod::KeyboardInteractive(ki_username) => {
             let bridge = ki_bridge.ok_or_else(|| {
@@ -789,7 +834,9 @@ async fn authenticate_keyboard_interactive(
     loop {
         match response {
             KiResponse::Success => return Ok(true),
-            KiResponse::Failure => return Ok(false),
+            // russh 0.50 adds remaining_methods to Failure; we ignore it since
+            // the session-level auth retry logic lives in the frontend.
+            KiResponse::Failure { .. } => return Ok(false),
             KiResponse::InfoRequest {
                 name,
                 instructions,
@@ -861,7 +908,7 @@ async fn authenticate_agent(
     username: &str,
     pin: Option<&str>,
 ) -> Result<bool, AppError> {
-    let agent = russh_keys::agent::client::AgentClient::connect_env()
+    let agent = russh::keys::agent::client::AgentClient::connect_env()
         .await
         .map_err(|e| {
             AppError::Agent(format!(
@@ -883,12 +930,12 @@ async fn authenticate_agent(
 ) -> Result<bool, AppError> {
     // Default Win32-OpenSSH agent pipe (same path OpenSSH for Windows uses).
     const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
-    match russh_keys::agent::client::AgentClient::connect_named_pipe(OPENSSH_AGENT_PIPE).await {
+    match russh::keys::agent::client::AgentClient::connect_named_pipe(OPENSSH_AGENT_PIPE).await {
         Ok(agent) => agent_authenticate(ssh, username, pin, agent).await,
         Err(_) => {
             // Fall back to Pageant (PuTTY's agent). `connect_pageant` is
-            // infallible in russh-keys (it constructs the stream lazily).
-            let agent = russh_keys::agent::client::AgentClient::connect_pageant().await;
+            // infallible in russh::keys (it constructs the stream lazily).
+            let agent = russh::keys::agent::client::AgentClient::connect_pageant().await;
             agent_authenticate(ssh, username, pin, agent).await
         }
     }
@@ -896,15 +943,15 @@ async fn authenticate_agent(
 
 /// Shared agent-auth core, generic over the agent's concrete stream `R`.
 ///
-/// Flow (russh-keys 0.48.1 + russh 0.48.2, NO hand-rolled protocol):
+/// Flow (russh 0.50, merged russh-keys — no hand-rolled protocol):
 /// 1. `request_identities()` — the agent reports its public keys. An empty list
 ///    is a precise error so the user knows to `ssh-add` a key.
 /// 2. [`select_agent_identities`] picks which identities to try (all, capped, or
 ///    the single pinned one).
 /// 3. For each selected identity, call
-///    `handle.authenticate_publickey_with(user, key, &mut agent)`. russh drives
-///    the sign round-trip THROUGH the agent — the private key NEVER leaves the
-///    agent process. Stop at the first `Ok(true)`.
+///    `handle.authenticate_publickey_with(user, key, &mut agent, hash_alg)`.
+///    russh drives the sign round-trip THROUGH the agent — the private key NEVER
+///    leaves the agent process. Stop at the first `Ok(true)`.
 ///
 /// Returns `Ok(true)` on success, `Ok(false)` if every identity was rejected, so
 /// the caller's uniform accepted/rejected handling applies. The signer's
@@ -913,7 +960,7 @@ async fn agent_authenticate<R>(
     ssh: &mut russh::client::Handle<SshClientHandler>,
     username: &str,
     pin: Option<&str>,
-    mut agent: russh_keys::agent::client::AgentClient<R>,
+    mut agent: russh::keys::agent::client::AgentClient<R>,
 ) -> Result<bool, AppError>
 where
     R: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -938,18 +985,29 @@ where
         )));
     }
 
+    // Resolve the RSA signature hash ONCE before the signing loop. Passing
+    // `None` here would make the agent sign RSA keys with the legacy SHA-1 flag,
+    // which SHA-1-disabled servers reject; `resolve_rsa_hash_alg` instead
+    // advertises rsa-sha2 (see its doc). `best_supported_rsa_hash` borrows `&ssh`
+    // only for this call, so there is no conflict with the `&mut agent` borrow
+    // used inside the loop. For non-RSA agent keys the hash flag is ignored.
+    let hash_alg = resolve_rsa_hash_alg(ssh).await?;
+
     // Try each selected identity until one is accepted (OpenSSH-style). The
     // `PublicKey` is cloned (cheap, public material only) because
     // `authenticate_publickey_with` takes it by value; the PRIVATE key stays in
     // the agent — russh asks the agent to sign via the `Signer` impl on
     // `AgentClient`, so no secret is ever extracted here.
+    //
+    // russh 0.50: authenticate_publickey_with takes an explicit hash_alg and
+    // returns AuthResult instead of bool.
     for key in selected {
         match ssh
-            .authenticate_publickey_with(username, key.clone(), &mut agent)
+            .authenticate_publickey_with(username, key.clone(), hash_alg, &mut agent)
             .await
         {
-            Ok(true) => return Ok(true),
-            Ok(false) => continue,
+            Ok(result) if result.success() => return Ok(true),
+            Ok(_) => continue,
             Err(e) => return Err(AppError::Agent(format!("agent signing failed: {e}"))),
         }
     }
@@ -1351,12 +1409,12 @@ mod tests {
 
     /// Build a deterministic Ed25519 public key from a fixed seed (real crypto,
     /// reproducible) — mirrors the known_hosts test helper.
-    fn agent_pubkey(seed: [u8; 32]) -> ssh_key::PublicKey {
-        use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
-        use ssh_key::public::Ed25519PublicKey;
+    fn agent_pubkey(seed: [u8; 32]) -> russh::keys::ssh_key::PublicKey {
+        use russh::keys::ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
+        use russh::keys::ssh_key::public::Ed25519PublicKey;
         let private = Ed25519PrivateKey::from_bytes(&seed);
         let keypair = Ed25519Keypair::from(private);
-        ssh_key::PublicKey::from(Ed25519PublicKey::from(&keypair))
+        russh::keys::ssh_key::PublicKey::from(Ed25519PublicKey::from(&keypair))
     }
 
     #[test]
@@ -1389,7 +1447,8 @@ mod tests {
     #[test]
     fn select_identities_no_pin_returns_all_capped() {
         // No pin → try every identity, in agent order, up to the cap.
-        let keys: Vec<ssh_key::PublicKey> = (0u8..3).map(|i| agent_pubkey([i; 32])).collect();
+        let keys: Vec<russh::keys::ssh_key::PublicKey> =
+            (0u8..3).map(|i| agent_pubkey([i; 32])).collect();
         let selected = select_agent_identities(&keys, None);
         assert_eq!(selected.len(), 3);
     }
@@ -1399,7 +1458,7 @@ mod tests {
         // More identities than the cap → only the first MAX_AGENT_IDENTITIES are
         // tried, protecting against an agent stuffed with hundreds of keys
         // (each attempt is a network round-trip that can fail-count us out).
-        let keys: Vec<ssh_key::PublicKey> = (0u8..(MAX_AGENT_IDENTITIES as u8 + 5))
+        let keys: Vec<russh::keys::ssh_key::PublicKey> = (0u8..(MAX_AGENT_IDENTITIES as u8 + 5))
             .map(|i| agent_pubkey([i; 32]))
             .collect();
         let selected = select_agent_identities(&keys, None);
@@ -1408,7 +1467,8 @@ mod tests {
 
     #[test]
     fn select_identities_with_pin_returns_only_match() {
-        let keys: Vec<ssh_key::PublicKey> = (10u8..14).map(|i| agent_pubkey([i; 32])).collect();
+        let keys: Vec<russh::keys::ssh_key::PublicKey> =
+            (10u8..14).map(|i| agent_pubkey([i; 32])).collect();
         let target_fp = crate::ssh::known_hosts::fingerprint(&keys[2]);
         let selected = select_agent_identities(&keys, Some(&target_fp));
         assert_eq!(selected.len(), 1);
@@ -1420,7 +1480,8 @@ mod tests {
     fn select_identities_with_unmatched_pin_returns_empty() {
         // A pin that matches none of the agent's identities yields an empty set —
         // the caller turns that into a precise "pinned key not in agent" error.
-        let keys: Vec<ssh_key::PublicKey> = (20u8..23).map(|i| agent_pubkey([i; 32])).collect();
+        let keys: Vec<russh::keys::ssh_key::PublicKey> =
+            (20u8..23).map(|i| agent_pubkey([i; 32])).collect();
         let selected = select_agent_identities(&keys, Some("SHA256:nope"));
         assert!(selected.is_empty());
     }

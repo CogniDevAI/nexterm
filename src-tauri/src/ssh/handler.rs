@@ -12,7 +12,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use russh::client::DisconnectReason;
 use russh::client::Handler;
 use russh::client::Msg;
@@ -122,7 +121,6 @@ impl SshClientHandler {
     }
 }
 
-#[async_trait]
 impl Handler for SshClientHandler {
     type Error = russh::Error;
 
@@ -143,11 +141,11 @@ impl Handler for SshClientHandler {
         match &status {
             HostKeyStatus::Trusted => {
                 self.last_host_key_status = Some(status);
-                return Ok(true);
+                Ok(true)
             }
             HostKeyStatus::Revoked => {
                 self.last_host_key_status = Some(status);
-                return Ok(false);
+                Ok(false)
             }
             HostKeyStatus::Unknown { .. } | HostKeyStatus::Changed { .. } => {
                 // Need user confirmation — bridge to frontend
@@ -174,7 +172,7 @@ impl Handler for SshClientHandler {
                     match rx.await {
                         Ok(HostKeyVerificationResponse::Accept) => {
                             // Trust once — don't save
-                            return Ok(true);
+                            Ok(true)
                         }
                         Ok(HostKeyVerificationResponse::AcceptAndSave) => {
                             // Save to known_hosts
@@ -199,21 +197,19 @@ impl Handler for SshClientHandler {
                                 }
                                 _ => {}
                             }
-                            return Ok(true);
+                            Ok(true)
                         }
-                        Ok(HostKeyVerificationResponse::Reject) => {
-                            return Ok(false);
-                        }
+                        Ok(HostKeyVerificationResponse::Reject) => Ok(false),
                         Err(_) => {
                             // Channel dropped — treat as rejection
                             tracing::warn!(
                                 "Host key verification response channel dropped, rejecting"
                             );
-                            return Ok(false);
+                            Ok(false)
                         }
                     }
                 } else {
-                    return Ok(false);
+                    Ok(false)
                 }
             }
         }

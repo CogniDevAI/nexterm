@@ -227,9 +227,12 @@ mod tests {
 
         // Verify private key is parseable
         let key_data = Zeroizing::new(fs::read_to_string(&priv_path).unwrap());
-        let parsed = ssh_key::PrivateKey::from_openssh(key_data.as_bytes())
+        let parsed = russh::keys::ssh_key::PrivateKey::from_openssh(key_data.as_bytes())
             .expect("Written private key must be parseable");
-        assert!(matches!(parsed.algorithm(), ssh_key::Algorithm::Ed25519));
+        assert!(matches!(
+            parsed.algorithm(),
+            russh::keys::ssh_key::Algorithm::Ed25519
+        ));
 
         // Verify public key content
         let pub_content = fs::read_to_string(&pub_path).unwrap();
