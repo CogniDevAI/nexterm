@@ -70,14 +70,10 @@ interface PaneLayoutStoreState {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function equalRatios(count: number): number[] {
-  const ratio = 1 / count;
-  return Array.from({ length: count }, () => ratio);
-}
-
 function redistributeRatios(slots: PaneSlot[]): PaneSlot[] {
-  const ratios = equalRatios(slots.length);
-  return slots.map((s, i) => ({ ...s, ratio: ratios[i] }));
+  const count = slots.length;
+  const ratio = count > 0 ? 1 / count : 1;
+  return slots.map((s) => ({ ...s, ratio }));
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -137,9 +133,12 @@ export const usePaneLayoutStore = create<PaneLayoutStoreState>((set, get) => ({
     if (layout.slots.length <= 1) return; // never remove the last slot
 
     const next = layout.slots.filter((s) => s.id !== slotId);
+    const removedIdx = layout.slots.findIndex((s) => s.id === slotId);
+    const fallbackIdx = Math.max(0, removedIdx - 1);
+    const fallbackSlot = next[fallbackIdx] ?? next[0];
     const focusedSlotId =
       layout.focusedSlotId === slotId
-        ? (next[Math.max(0, layout.slots.findIndex((s) => s.id === slotId) - 1)]?.id ?? next[0].id)
+        ? (fallbackSlot?.id ?? layout.focusedSlotId)
         : layout.focusedSlotId;
 
     set((state) => ({

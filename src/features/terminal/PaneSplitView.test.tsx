@@ -139,7 +139,10 @@ import { PaneSplitView } from "./PaneSplitView";
 describe("PaneSplitView — single-pane (slots.length === 1)", () => {
   beforeEach(resetStores);
 
-  it("renders a TerminalView for the single slot", () => {
+  it("renders nothing when layout has only 1 slot (single-pane rendering is TerminalTabs' responsibility)", () => {
+    // Architecture change: PaneSplitView is ONLY rendered for multi-pane (slots >= 2).
+    // Single-pane rendering (all tabs, display:block/none) is handled by TerminalTabs.
+    // PaneSplitView should return null when slots < 2.
     const sessionId = "sess-single";
     const session = makeSession(sessionId);
     useSessionStore.setState({
@@ -151,11 +154,8 @@ describe("PaneSplitView — single-pane (slots.length === 1)", () => {
     const { container } = render(
       <PaneSplitView sessionId={sessionId} />,
     );
-    const views = screen.getAllByTestId("terminal-view");
-    expect(views).toHaveLength(1);
-    // Single pane: isSplitPane should be false (single-terminal mode)
-    expect(views[0]!.dataset.splitPane).toBe("false");
-    // No split container when only 1 slot
+    // Single slot → PaneSplitView renders null (TerminalTabs owns single-pane rendering)
+    expect(container.firstChild).toBeNull();
     expect(container.querySelector(".terminal-split")).toBeNull();
   });
 });

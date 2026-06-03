@@ -1,33 +1,46 @@
 // features/terminal/PaneSplitView.tsx — Split-pane terminal grid
 //
 // Renders a flat 1D ordered list of pane slots, each containing a TerminalView.
-// When only one slot exists: renders the TerminalView directly (no split chrome)
-// so single-terminal behavior is IDENTICAL to today.
+// ONLY rendered when slots.length >= 2 (multi-pane mode).
+// Single-pane rendering is handled directly in TerminalTabs (all tabs visible).
 //
 // Critical invariants (from explore):
-//   1. isSplitPane=false for single-pane: TerminalView keeps its display:none hide/show
+//   1. isSplitPane=true: TerminalView is always display:block
 //   2. Stable React keys: PaneSlot.id (UUID), never terminalId — avoids remount flicker
 //   3. Fit on drag-END only: SplitHandle defers fit until pointer-up
 //   4. MAX_PANE_COUNT = 4 enforced in paneLayoutStore
 //   5. Focus: clicking a pane calls focusSlot → sessionStore.setActiveTerminal
-//   6. a11y: role="region" + aria-label per pane; tabIndex for keyboard focus
+//   6. Only the focused pane gets active=true (drives real xterm focus)
+//   7. a11y: role="region" + aria-label per pane; tabIndex for keyboard focus
 
 import React, { useCallback, useRef } from "react";
 import { usePaneLayoutStore } from "../../stores/paneLayoutStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { TerminalView } from "./TerminalView";
 import { SplitHandle } from "./SplitHandle";
+import { useI18n } from "../../lib/i18n";
 import type { SessionId } from "../../lib/types";
 
 interface PaneSplitViewProps {
   sessionId: SessionId;
   onTerminalOpened?: (slotId: string, terminalId: string) => void;
+  /** Called when the user clicks the × on a pane. Non-destructive: removes
+   *  the slot from the layout but keeps the terminal tab alive. */
+  onClosePane?: (slotId: string) => void;
+  /** Called when the user clicks the direction-toggle button. */
+  onDirectionToggle?: () => void;
 }
 
-export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProps) {
+export function PaneSplitView({
+  sessionId,
+  onTerminalOpened,
+  onClosePane,
+  onDirectionToggle,
+}: PaneSplitViewProps) {
   const layout = usePaneLayoutStore((s) => s.layouts[sessionId]);
   const { focusSlot, setRatio, assignTerminal } = usePaneLayoutStore.getState();
   const { setActiveTerminal, sessions } = useSessionStore();
+  const { t } = useI18n();
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -44,7 +57,14 @@ export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProp
   const handleTerminalOpened = useCallback(
     (slotId: string, realTerminalId: string) => {
       assignTerminal(sessionId, slotId, realTerminalId);
-      setActiveTerminal(sessionId, realTerminalId);
+
+      // MINOR-2: if this slot is the focused one, update activeTerminalId now
+      // so the session store doesn't lag behind the pane layout.
+      const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+      if (currentLayout?.focusedSlotId === slotId) {
+        setActiveTerminal(sessionId, realTerminalId);
+      }
+
       onTerminalOpened?.(slotId, realTerminalId);
     },
     [sessionId, assignTerminal, setActiveTerminal, onTerminalOpened],
@@ -97,35 +117,14 @@ export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProp
     [layout, sessionId, setRatio],
   );
 
-  // No layout yet — render nothing (layout is created by TerminalTabs on first open)
-  if (!layout) return null;
+  // No layout yet, or layout is in single-pane mode — render nothing.
+  // Single-pane rendering (all tabs, display:block/none) is TerminalTabs' responsibility.
+  // PaneSplitView is only rendered when slots >= 2.
+  if (!layout || layout.slots.length < 2) return null;
 
   const { slots, direction, focusedSlotId } = layout;
-  const isMultiPane = slots.length > 1;
   const session = sessions.get(sessionId);
 
-  // Single-pane: delegate entirely to TerminalView in its normal mode.
-  // This ensures single-terminal behavior is IDENTICAL to today.
-  if (!isMultiPane) {
-    const slot = slots[0]!; // safe: slots.length >= 1 always (store invariant)
-    const tab = session?.terminals.find(
-      (t) => t.id === slot.terminalId || (slot.terminalId == null && t.id.startsWith("pending-")),
-    );
-    const isActive = slot.terminalId === session?.activeTerminalId;
-    return (
-      <TerminalView
-        key={slot.id}
-        sessionId={sessionId}
-        terminalId={slot.terminalId}
-        onTerminalOpened={(realId) => handleTerminalOpened(slot.id, realId)}
-        active={isActive}
-        isSplitPane={false}
-        reactKey={tab?.reactKey ?? slot.id}
-      />
-    );
-  }
-
-  // Multi-pane: render split grid with handles
   const containerSizePx = containerRef.current
     ? direction === "horizontal"
       ? containerRef.current.offsetWidth
@@ -137,8 +136,27 @@ export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProp
       ref={containerRef}
       className={`terminal-split terminal-split-${direction}`}
     >
+      {/* Direction toggle button — visible only in split mode */}
+      {onDirectionToggle && (
+        <button
+          className="terminal-split-direction-toggle"
+          onClick={onDirectionToggle}
+          title={direction === "horizontal"
+            ? t("terminal.splitVertical")
+            : t("terminal.splitHorizontal")}
+          aria-label={direction === "horizontal"
+            ? t("terminal.splitVertical")
+            : t("terminal.splitHorizontal")}
+        >
+          {direction === "horizontal" ? "⊠" : "⊟"}
+        </button>
+      )}
+
       {slots.map((slot, i) => {
+        // MAJOR-2 fix: only the focused pane gets active=true
+        // This ensures only the focused pane's terminal receives real keyboard focus.
         const isFocused = slot.id === focusedSlotId;
+        const isActive = isFocused || slot.terminalId === session?.activeTerminalId;
         const isLast = i === slots.length - 1;
         const flexStyle = { flex: slot.ratio };
 
@@ -155,11 +173,25 @@ export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProp
               onFocus={() => handlePaneClick(slot.id, slot.terminalId)}
               onKeyDown={(e) => handlePaneKeyDown(e, i)}
             >
+              {/* Per-pane close button — non-destructive (removes split, keeps tab) */}
+              {onClosePane && (
+                <button
+                  className="terminal-split-pane-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClosePane(slot.id);
+                  }}
+                  title={t("terminal.closePane")}
+                  aria-label={t("terminal.closePane")}
+                >
+                  ×
+                </button>
+              )}
               <TerminalView
                 sessionId={sessionId}
                 terminalId={slot.terminalId}
                 onTerminalOpened={(realId) => handleTerminalOpened(slot.id, realId)}
-                active={true}
+                active={isActive}
                 isSplitPane={true}
               />
             </div>
