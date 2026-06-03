@@ -451,6 +451,18 @@ export const en = {
   "snippets.noSnippets": "No snippets yet.",
   "snippets.openSnippets": "Open snippets",
 
+  // SFTP conflict resolution
+  "sftp.conflict.title": "File Already Exists",
+  "sftp.conflict.subtitle": "A file with this name already exists at the destination.",
+  "sftp.conflict.fileName": "File",
+  "sftp.conflict.existingSize": "Existing size",
+  "sftp.conflict.incomingSize": "Incoming size",
+  "sftp.conflict.existingModified": "Last modified",
+  "sftp.conflict.skip": "Skip",
+  "sftp.conflict.skipAll": "Skip All",
+  "sftp.conflict.overwrite": "Overwrite",
+  "sftp.conflict.overwriteAll": "Overwrite All",
+
   // General
   "general.ok": "OK",
   "general.cancel": "Cancel",

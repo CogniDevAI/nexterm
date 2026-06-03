@@ -453,6 +453,18 @@ export const es: Record<TranslationKey, string> = {
   "snippets.noSnippets": "Sin snippets todavía.",
   "snippets.openSnippets": "Abrir snippets",
 
+  // SFTP conflict resolution
+  "sftp.conflict.title": "El archivo ya existe",
+  "sftp.conflict.subtitle": "Ya existe un archivo con ese nombre en el destino.",
+  "sftp.conflict.fileName": "Archivo",
+  "sftp.conflict.existingSize": "Tamaño existente",
+  "sftp.conflict.incomingSize": "Tamaño entrante",
+  "sftp.conflict.existingModified": "Última modificación",
+  "sftp.conflict.skip": "Omitir",
+  "sftp.conflict.skipAll": "Omitir todo",
+  "sftp.conflict.overwrite": "Sobreescribir",
+  "sftp.conflict.overwriteAll": "Sobreescribir todo",
+
   // General
   "general.ok": "OK",
   "general.cancel": "Cancelar",

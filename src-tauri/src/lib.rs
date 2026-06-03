@@ -173,6 +173,9 @@ pub fn run() {
             commands::sftp::list_local_dir,
             commands::sftp::open_local_file,
             commands::sftp::open_local_file_with,
+            commands::sftp::sftp_remote_exists,
+            commands::sftp::local_stat,
+            commands::sftp::sftp_check_conflicts,
             // Tunnel
             commands::tunnel::create_tunnel,
             commands::tunnel::start_tunnel,

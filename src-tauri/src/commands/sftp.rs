@@ -590,6 +590,9 @@ pub async fn sftp_download_folder(
     remote_path: String,
     local_path: String,
     on_progress: Channel<TransferEvent>,
+    // Optional conflict policy: "skip" | "overwrite" (default "overwrite").
+    // Existing callers that omit this parameter get the historic overwrite behavior.
+    conflict_policy: Option<String>,
 ) -> Result<TransferId, AppError> {
     let local = PathBuf::from(&local_path);
     let folder_name = remote_path
@@ -637,6 +640,8 @@ pub async fn sftp_download_folder(
         sftp_handle.session.clone()
     };
 
+    let policy = sftp::ConflictPolicy::from(conflict_policy);
+
     let result = sftp::download_dir(
         &sftp_session,
         &remote_path,
@@ -644,6 +649,7 @@ pub async fn sftp_download_folder(
         transfer_id,
         on_progress,
         cancel_token,
+        policy,
     )
     .await;
 
@@ -1071,4 +1077,62 @@ pub async fn open_local_file_with(path: String, app_path: String) -> Result<(), 
 
     tracing::info!("Opened local file with selected app: {}", path);
     Ok(())
+}
+
+// ─── Conflict Detection Commands ─────────────────────────
+
+/// Check whether a remote path exists, distinguishing SSH_FX_NO_SUCH_FILE from
+/// real errors (permissions, network, etc.).
+///
+/// Returns:
+/// - `Ok(Some(FileEntry))` — path exists.
+/// - `Ok(None)`            — path does not exist (SSH_FX_NO_SUCH_FILE).
+/// - `Err(_)`              — any other error propagates — never silently
+///                           treated as "not found".
+///
+/// Lock strategy: same as other SFTP commands.
+#[tauri::command]
+pub async fn sftp_remote_exists(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+    path: String,
+) -> Result<Option<FileEntry>, AppError> {
+    let sftp_session = ensure_sftp(&state, session_id).await?;
+    sftp::remote_exists(&sftp_session, &path).await
+}
+
+/// Stat a local file path.
+///
+/// Returns:
+/// - `Ok(Some({size, modified}))` — file exists; size in bytes, modified as
+///   Unix timestamp (seconds).
+/// - `Ok(None)`                   — path does not exist.
+/// - `Err(_)`                     — any other I/O error (permissions, etc.).
+#[tauri::command]
+pub async fn local_stat(path: String) -> Result<Option<sftp::LocalFileStat>, AppError> {
+    sftp::local_stat_internal(std::path::Path::new(&path)).await
+}
+
+/// Pre-walk a remote directory and return every file that conflicts with an
+/// existing local file at the corresponding destination path.
+///
+/// Used to show a single batch-conflict dialog before starting a folder download,
+/// so the user can choose Skip All or Overwrite All up-front.
+///
+/// Lock strategy: same as other SFTP commands — ensure_sftp clones the
+/// Arc<SftpSession>, drops the global lock, then runs SFTP I/O.
+#[tauri::command]
+pub async fn sftp_check_conflicts(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+    remote_path: String,
+    local_path: String,
+) -> Result<Vec<sftp::ConflictEntry>, AppError> {
+    let sftp_session = ensure_sftp(&state, session_id).await?;
+    sftp::check_conflicts(
+        &sftp_session,
+        &remote_path,
+        std::path::Path::new(&local_path),
+    )
+    .await
 }

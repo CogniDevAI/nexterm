@@ -129,6 +129,47 @@ export interface TransferProgress {
   error?: string;
 }
 
+// ─── SFTP Conflict Resolution ───────────────────────────
+
+export type ConflictResolution = "skip" | "overwrite" | "skip_all" | "overwrite_all";
+
+/** Information about a single-file conflict shown in ConflictDialog. */
+export interface ConflictInfo {
+  /** File name (basename). */
+  fileName: string;
+  /** Full path at the destination. */
+  destinationPath: string;
+  /** Size of the already-existing destination file (bytes). */
+  existingSize: number;
+  /** mtime of the existing file as Unix timestamp, or null if unknown. */
+  existingModified: number | null;
+  /** Size of the incoming source file (bytes). */
+  incomingSize: number;
+  /** Whether the transfer is uploading or downloading. */
+  direction: TransferDirection;
+}
+
+/** Result returned by the `local_stat` Tauri command. */
+export interface LocalFileStat {
+  size: number;
+  /** Unix timestamp (seconds). */
+  modified: number;
+}
+
+/** Single entry returned by the `sftp_check_conflicts` Tauri command. */
+export interface ConflictEntry {
+  /** Remote path of the file. */
+  remotePath: string;
+  /** Resolved local path where the file would be downloaded. */
+  localPath: string;
+  /** Size of the remote (incoming) file. */
+  incomingSize: number;
+  /** Size of the existing local file. */
+  existingSize: number;
+  /** mtime of the existing local file. */
+  existingModified: number;
+}
+
 // ─── Streaming Events ───────────────────────────────────
 
 export type TerminalEvent =

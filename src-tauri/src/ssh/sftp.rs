@@ -973,6 +973,12 @@ async fn walk_remote_dir(
 /// Local directories are created with `create_dir_all` (parents first). On failure
 /// or cancellation, partial files are left on disk for the user to inspect — they're
 /// not auto-cleaned because a partial multi-GB transfer may still be useful.
+///
+/// `conflict_policy` controls what happens when a local file already exists at the
+/// target path:
+/// - `Overwrite` (default, None) — truncate and overwrite (historic behavior).
+/// - `Skip` — leave the existing local file; advance the progress counter
+///   synthetically so the overall progress still reaches 100 %.
 pub async fn download_dir(
     sftp: &SftpSession,
     remote_path: &str,
@@ -980,6 +986,7 @@ pub async fn download_dir(
     transfer_id: TransferId,
     on_progress: Channel<TransferEvent>,
     cancel_token: CancellationToken,
+    conflict_policy: ConflictPolicy,
 ) -> Result<TransferId, AppError> {
     let folder_name = remote_path
         .rsplit('/')
@@ -1031,13 +1038,45 @@ pub async fn download_dir(
     let mut bytes_transferred: u64 = 0;
     let mut buf = vec![0u8; TRANSFER_CHUNK_SIZE];
 
-    for (rfile, lfile, _size) in &files {
+    for (rfile, lfile, file_size) in &files {
         if cancel_token.is_cancelled() {
             let _ = on_progress.send(TransferEvent::Failed {
                 transfer_id,
                 error: "Transfer cancelled".to_string(),
             });
             return Err(AppError::TransferCancelled);
+        }
+
+        // ── Conflict policy: Skip ────────────────────────────────────────────
+        // When policy=Skip and the local file already exists, skip the transfer
+        // but still advance bytes_transferred by the file's size so the overall
+        // progress still reaches 100 % (progress accuracy per CRITICAL note #3).
+        if conflict_policy == ConflictPolicy::Skip {
+            match tokio::fs::metadata(lfile).await {
+                Ok(_) => {
+                    // File exists — skip it and advance progress synthetically.
+                    bytes_transferred += file_size;
+                    let _ = on_progress.send(TransferEvent::Progress {
+                        transfer_id,
+                        bytes_transferred,
+                        total_bytes,
+                    });
+                    continue;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    // File does not exist — proceed with download.
+                }
+                Err(e) => {
+                    // Real I/O error (permission, etc.) — fail the transfer.
+                    let error_msg =
+                        format!("Failed to check local file '{}': {e}", lfile.display());
+                    let _ = on_progress.send(TransferEvent::Failed {
+                        transfer_id,
+                        error: error_msg.clone(),
+                    });
+                    return Err(AppError::Io(e));
+                }
+            }
         }
 
         let mut remote_file = sftp.open(rfile).await.map_err(|e| {
@@ -1107,11 +1146,174 @@ pub async fn download_dir(
     Ok(transfer_id)
 }
 
+// ─── Conflict Policy ────────────────────────────────────
+
+/// Controls what `download_dir` does when a local file already exists at the
+/// target path for a given remote file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictPolicy {
+    /// Silently overwrite the existing local file (the historic default behavior).
+    Overwrite,
+    /// Skip the file — leave the existing local file untouched and advance the
+    /// progress counter so the overall transfer still reaches 100 %.
+    Skip,
+}
+
+impl From<Option<String>> for ConflictPolicy {
+    /// Parse from the optional string sent by the Tauri command.
+    ///
+    /// `None` and any unrecognised value default to `Overwrite` for
+    /// backward-compatibility (existing callers pass `None`).
+    fn from(value: Option<String>) -> Self {
+        match value.as_deref() {
+            Some("skip") => ConflictPolicy::Skip,
+            _ => ConflictPolicy::Overwrite,
+        }
+    }
+}
+
+// ─── Remote Existence Check ─────────────────────────────
+
+/// Returns `true` ONLY when `e` is the SSH_FX_NO_SUCH_FILE status (code 2).
+///
+/// This is the sole classification gate for ENOENT discrimination.  Keeping it
+/// as a named pure function makes it independently testable: a future refactor
+/// that widens the match (e.g. `Err(_) => Ok(None)`) would break the guard
+/// tests before it could reintroduce the data-loss footgun.
+///
+/// # Critical invariant
+/// Permission errors, network failures, timeouts, and any status code other
+/// than `NoSuchFile` MUST return `false` so callers propagate them as `Err`.
+pub fn is_no_such_file(e: &russh_sftp::client::error::Error) -> bool {
+    use russh_sftp::protocol::StatusCode;
+    if let russh_sftp::client::error::Error::Status(ref s) = e {
+        s.status_code == StatusCode::NoSuchFile
+    } else {
+        false
+    }
+}
+
+/// Check whether a remote path exists, discriminating ENOENT from real errors.
+///
+/// Returns:
+/// - `Ok(Some(entry))` — path exists; entry contains stat metadata.
+/// - `Ok(None)` — the server returned SSH_FX_NO_SUCH_FILE (NoSuchFile).
+/// - `Err(_)` — any other error (permission denied, network, etc.)
+///   propagates so callers cannot silently swallow failures.
+///
+/// # ENOENT discrimination (critical)
+/// `sftp.metadata()` on a missing path returns
+/// `russh_sftp::client::error::Error::Status(s)` with
+/// `s.status_code == StatusCode::NoSuchFile`.  Only that specific code maps to
+/// `Ok(None)`.  All other error variants propagate as `Err(AppError::Sftp(_))`
+/// so callers cannot accidentally treat a permission error or network failure as
+/// "file not found" and silently overwrite.
+pub async fn remote_exists(sftp: &SftpSession, path: &str) -> Result<Option<FileEntry>, AppError> {
+    match sftp.metadata(path).await {
+        Ok(attrs) => {
+            let name = path.rsplit('/').next().unwrap_or(path).to_string();
+            Ok(Some(attrs_to_file_entry(name, path.to_string(), &attrs)))
+        }
+        Err(e) => {
+            // Only SSH_FX_NO_SUCH_FILE (code 2) → Ok(None).
+            // All other variants (PermissionDenied, Failure, Timeout, IO, …)
+            // propagate as Err so callers are not misled.
+            if is_no_such_file(&e) {
+                return Ok(None);
+            }
+            Err(AppError::Sftp(format!(
+                "Failed to stat remote path '{path}': {e}"
+            )))
+        }
+    }
+}
+
+// ─── Local File Stat ─────────────────────────────────────
+
+/// Metadata returned by `local_stat_internal`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalFileStat {
+    pub size: u64,
+    /// Unix timestamp (seconds since epoch).
+    pub modified: i64,
+}
+
+/// Internal async helper — testable without Tauri state.
+///
+/// Returns:
+/// - `Ok(Some(stat))` — path exists on the local filesystem.
+/// - `Ok(None)`       — path does not exist (`ErrorKind::NotFound`).
+/// - `Err(_)`         — any other I/O error (permission, etc.) propagates.
+pub async fn local_stat_internal(
+    path: &std::path::Path,
+) -> Result<Option<LocalFileStat>, AppError> {
+    use std::time::UNIX_EPOCH;
+
+    match tokio::fs::metadata(path).await {
+        Ok(meta) => {
+            let size = meta.len();
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            Ok(Some(LocalFileStat { size, modified }))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(AppError::Io(e)),
+    }
+}
+
+// ─── Conflict Pre-scan (folder download) ─────────────────
+
+/// Metadata for a single conflicting file returned by `check_conflicts`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictEntry {
+    pub remote_path: String,
+    pub local_path: String,
+    pub incoming_size: u64,
+    pub existing_size: u64,
+    pub existing_modified: i64,
+}
+
+/// Pre-walk a remote directory and return every file that already exists at the
+/// corresponding local path.
+///
+/// This is used to show a count-based folder conflict dialog BEFORE starting the
+/// transfer, so the user can choose Skip All or Overwrite All up-front without
+/// per-file interruptions.
+pub async fn check_conflicts(
+    sftp: &SftpSession,
+    remote_path: &str,
+    local_path: &std::path::Path,
+) -> Result<Vec<ConflictEntry>, AppError> {
+    let (_dirs, files, _total) = walk_remote_dir(sftp, remote_path, local_path).await?;
+
+    let mut conflicts = Vec::new();
+    for (rfile, lfile, incoming_size) in files {
+        if let Some(stat) = local_stat_internal(&lfile).await? {
+            conflicts.push(ConflictEntry {
+                remote_path: rfile,
+                local_path: lfile.to_string_lossy().into_owned(),
+                incoming_size,
+                existing_size: stat.size,
+                existing_modified: stat.modified,
+            });
+        }
+    }
+
+    Ok(conflicts)
+}
+
 // ─── Tests ──────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use russh_sftp::protocol::StatusCode;
 
     #[test]
     fn format_permissions_file() {
@@ -1214,5 +1416,103 @@ mod tests {
     fn is_safe_component_rejects_separators() {
         assert!(!is_safe_component("a/b"));
         assert!(!is_safe_component("a\\b"));
+    }
+
+    // ── conflict_policy tests ────────────────────────────────────────────────
+
+    #[test]
+    fn conflict_policy_default_is_overwrite() {
+        // None (absent) maps to overwrite — backward-compat for existing callers.
+        let policy: ConflictPolicy = None::<String>.into();
+        assert_eq!(policy, ConflictPolicy::Overwrite);
+    }
+
+    #[test]
+    fn conflict_policy_skip_parses() {
+        let policy: ConflictPolicy = Some("skip".to_string()).into();
+        assert_eq!(policy, ConflictPolicy::Skip);
+    }
+
+    #[test]
+    fn conflict_policy_overwrite_parses() {
+        let policy: ConflictPolicy = Some("overwrite".to_string()).into();
+        assert_eq!(policy, ConflictPolicy::Overwrite);
+    }
+
+    #[test]
+    fn conflict_policy_unknown_falls_back_to_overwrite() {
+        // Unknown value → safe backward-compat default (overwrite).
+        let policy: ConflictPolicy = Some("unknown_value".to_string()).into();
+        assert_eq!(policy, ConflictPolicy::Overwrite);
+    }
+
+    // ── is_no_such_file tests ────────────────────────────────────────────────
+    // Guard: a future refactor that widens is_no_such_file (e.g. Err(_) => Ok(None))
+    // would silently reintroduce the data-loss footgun; these tests prevent that.
+
+    fn make_status_error(code: StatusCode) -> russh_sftp::client::error::Error {
+        russh_sftp::client::error::Error::Status(russh_sftp::protocol::Status {
+            id: 0,
+            status_code: code,
+            error_message: String::new(),
+            language_tag: String::new(),
+        })
+    }
+
+    #[test]
+    fn is_no_such_file_returns_true_for_no_such_file() {
+        let e = make_status_error(StatusCode::NoSuchFile);
+        assert!(is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_permission_denied() {
+        let e = make_status_error(StatusCode::PermissionDenied);
+        assert!(!is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_failure() {
+        let e = make_status_error(StatusCode::Failure);
+        assert!(!is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_timeout() {
+        let e = russh_sftp::client::error::Error::Timeout;
+        assert!(!is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_io_error() {
+        let e = russh_sftp::client::error::Error::IO("connection reset".to_string());
+        assert!(!is_no_such_file(&e));
+    }
+
+    // ── local_stat_result tests ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn local_stat_missing_file_returns_none() {
+        // A path that definitely does not exist
+        let result = local_stat_internal(std::path::Path::new(
+            "/tmp/nexterm_test_definitely_missing_87654321.bin",
+        ))
+        .await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn local_stat_existing_file_returns_some() {
+        // Write a temp file and verify local_stat returns Some
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        let path = tmp.path().to_path_buf();
+        tokio::fs::write(&path, b"hello").await.unwrap();
+        let result = local_stat_internal(&path).await;
+        assert!(result.is_ok());
+        let stat = result.unwrap();
+        assert!(stat.is_some());
+        let stat = stat.unwrap();
+        assert_eq!(stat.size, 5);
     }
 }
