@@ -316,3 +316,174 @@ describe("MAJOR-2: active prop only for focused pane in split mode", () => {
     expect(activeViews.length).toBe(1);
   });
 });
+
+// ── New regression tests for FINAL POLISH PASS ────────────────────────────────
+
+describe("(a) new-tab when NOT split produces a visible active terminal", () => {
+  beforeEach(resetStores);
+  afterEach(resetStores);
+
+  it("clicking + in single-pane mode results in an active TerminalView being present", async () => {
+    // One tab, no split
+    const session = makeSession("sid-newtab", 1);
+    useSessionStore.setState({
+      sessions: new Map([["sid-newtab", session]]),
+      activeSessionId: "sid-newtab",
+    });
+    usePaneLayoutStore.getState().openLayout("sid-newtab", "term-1");
+
+    render(<TerminalTabs sessionId="sid-newtab" />);
+    await act(async () => {});
+
+    // Click the "+" new-tab button
+    const newTabBtn = document.querySelector<HTMLButtonElement>(".terminal-tab-new");
+    expect(newTabBtn).not.toBeNull();
+    await act(async () => {
+      newTabBtn!.click();
+    });
+
+    // The component must remain in single-pane mode (no split triggered)
+    const layout = usePaneLayoutStore.getState().layouts["sid-newtab"];
+    expect(layout?.slots.length ?? 0).toBeLessThan(2);
+
+    // At least one TerminalView with data-active="true" must be in the DOM
+    const views = screen.getAllByTestId("terminal-view");
+    const activeViews = views.filter((v) => v.getAttribute("data-active") === "true");
+    expect(activeViews.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("(b) tab-switching visibility: clicking inactive tab makes it active/visible", () => {
+  beforeEach(resetStores);
+  afterEach(resetStores);
+
+  it("with 2 tabs in single-pane mode, clicking the inactive tab flips active to it", async () => {
+    // term-1 is initially active
+    const session = makeSession("sid-tabswitch", 2);
+    useSessionStore.setState({
+      sessions: new Map([["sid-tabswitch", session]]),
+      activeSessionId: "sid-tabswitch",
+    });
+    usePaneLayoutStore.getState().openLayout("sid-tabswitch", "term-1");
+
+    render(<TerminalTabs sessionId="sid-tabswitch" />);
+    await act(async () => {});
+
+    // Confirm term-1 is initially active
+    let views = screen.getAllByTestId("terminal-view");
+    const initialActive = views.filter((v) => v.getAttribute("data-active") === "true");
+    expect(initialActive.length).toBe(1);
+    expect(initialActive[0]!.getAttribute("data-terminal-id")).toBe("term-1");
+
+    // Click the second tab (term-2)
+    const tabs = document.querySelectorAll(".terminal-tab");
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    await act(async () => {
+      (tabs[1] as HTMLElement).click();
+    });
+
+    // Now term-2 should be the active terminal in the store
+    const updatedSession = useSessionStore.getState().sessions.get("sid-tabswitch");
+    expect(updatedSession?.activeTerminalId).toBe("term-2");
+
+    // The TerminalView for term-2 must now have data-active="true"
+    views = screen.getAllByTestId("terminal-view");
+    const nowActive = views.filter((v) => v.getAttribute("data-active") === "true");
+    expect(nowActive.length).toBe(1);
+    expect(nowActive[0]!.getAttribute("data-terminal-id")).toBe("term-2");
+  });
+});
+
+describe("(c) per-pane close button: calls closeSlot and returns to single-pane", () => {
+  beforeEach(resetStores);
+  afterEach(resetStores);
+
+  it("clicking pane × removes the slot and view returns to single-pane mode", async () => {
+    const session = makeSession("sid-pane-close", 2);
+    useSessionStore.setState({
+      sessions: new Map([["sid-pane-close", session]]),
+      activeSessionId: "sid-pane-close",
+    });
+    usePaneLayoutStore.getState().openLayout("sid-pane-close", "term-1");
+    usePaneLayoutStore.getState().splitSlot(
+      "sid-pane-close",
+      usePaneLayoutStore.getState().layouts["sid-pane-close"]!.slots[0]!.id,
+    );
+    const slots = usePaneLayoutStore.getState().layouts["sid-pane-close"]!.slots;
+    usePaneLayoutStore.getState().assignTerminal("sid-pane-close", slots[1]!.id, "term-2");
+
+    expect(usePaneLayoutStore.getState().layouts["sid-pane-close"]?.slots).toHaveLength(2);
+
+    render(<TerminalTabs sessionId="sid-pane-close" />);
+    await act(async () => {});
+
+    // Find and click the per-pane close button (× on the pane itself, not the tab bar)
+    const paneCloseButtons = document.querySelectorAll(".terminal-split-pane-close");
+    expect(paneCloseButtons.length).toBeGreaterThanOrEqual(1);
+
+    await act(async () => {
+      (paneCloseButtons[0] as HTMLButtonElement).click();
+    });
+
+    // Slot count must drop below 2 (returns to single-pane)
+    const layoutAfter = usePaneLayoutStore.getState().layouts["sid-pane-close"];
+    const slotCount = layoutAfter?.slots.length ?? 0;
+    expect(slotCount).toBeLessThan(2);
+
+    // The tabs must still exist (non-destructive close — only the slot was removed)
+    const updatedSession = useSessionStore.getState().sessions.get("sid-pane-close");
+    expect(updatedSession?.terminals.length).toBe(2);
+  });
+});
+
+describe("(d) mode toggle preserves live terminal: single → split → single", () => {
+  beforeEach(resetStores);
+  afterEach(resetStores);
+
+  it("after splitting and then returning to single-pane, original terminal is still active/visible", async () => {
+    const session = makeSession("sid-roundtrip", 1);
+    useSessionStore.setState({
+      sessions: new Map([["sid-roundtrip", session]]),
+      activeSessionId: "sid-roundtrip",
+    });
+    usePaneLayoutStore.getState().openLayout("sid-roundtrip", "term-1");
+
+    render(<TerminalTabs sessionId="sid-roundtrip" />);
+    await act(async () => {});
+
+    // Verify single-pane: term-1 active
+    {
+      const views = screen.getAllByTestId("terminal-view");
+      expect(views.some((v) => v.getAttribute("data-active") === "true")).toBe(true);
+    }
+
+    // Split → now in multi-pane mode
+    const splitBtn = document.querySelector<HTMLButtonElement>(".terminal-tab-split");
+    expect(splitBtn).not.toBeNull();
+    await act(async () => {
+      splitBtn!.click();
+    });
+
+    expect(usePaneLayoutStore.getState().layouts["sid-roundtrip"]?.slots.length).toBeGreaterThanOrEqual(2);
+
+    // Return to single-pane: close one of the pane slots
+    const paneCloseButtons = document.querySelectorAll(".terminal-split-pane-close");
+    expect(paneCloseButtons.length).toBeGreaterThanOrEqual(1);
+    await act(async () => {
+      (paneCloseButtons[0] as HTMLButtonElement).click();
+    });
+
+    // Back to single-pane
+    const layoutAfter = usePaneLayoutStore.getState().layouts["sid-roundtrip"];
+    expect((layoutAfter?.slots.length ?? 0)).toBeLessThan(2);
+
+    // The original terminal (term-1) must still be present and there must be an active view
+    const updatedSession = useSessionStore.getState().sessions.get("sid-roundtrip");
+    expect(updatedSession?.terminals.some((t) => t.id === "term-1" || t.id.startsWith("pending-"))).toBe(true);
+
+    const views = screen.getAllByTestId("terminal-view");
+    const activeViews = views.filter((v) => v.getAttribute("data-active") === "true");
+    // At least one terminal must be active/visible after round-trip
+    expect(activeViews.length).toBeGreaterThanOrEqual(1);
+  });
+});

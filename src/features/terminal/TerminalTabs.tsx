@@ -338,6 +338,24 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
         >
           ⊟
         </button>
+        {paneCount >= 2 && (
+          <button
+            className="terminal-tab-split-direction"
+            onClick={handleDirectionToggle}
+            title={
+              paneLayout?.direction === "horizontal"
+                ? t("terminal.splitVertical")
+                : t("terminal.splitHorizontal")
+            }
+            aria-label={
+              paneLayout?.direction === "horizontal"
+                ? t("terminal.splitVertical")
+                : t("terminal.splitHorizontal")
+            }
+          >
+            {paneLayout?.direction === "horizontal" ? "⊠" : "⊟"}
+          </button>
+        )}
         {onOpenSnippets && (
           <button
             className="terminal-tab-snippets"
@@ -381,7 +399,6 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
             sessionId={sessionId}
             onTerminalOpened={handlePaneSplitTerminalOpened}
             onClosePane={handleClosePane}
-            onDirectionToggle={handleDirectionToggle}
           />
         ) : (
           // Single-pane mode: render all tabs, show only the active one.

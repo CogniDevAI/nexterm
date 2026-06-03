@@ -27,15 +27,12 @@ interface PaneSplitViewProps {
   /** Called when the user clicks the × on a pane. Non-destructive: removes
    *  the slot from the layout but keeps the terminal tab alive. */
   onClosePane?: (slotId: string) => void;
-  /** Called when the user clicks the direction-toggle button. */
-  onDirectionToggle?: () => void;
 }
 
 export function PaneSplitView({
   sessionId,
   onTerminalOpened,
   onClosePane,
-  onDirectionToggle,
 }: PaneSplitViewProps) {
   const layout = usePaneLayoutStore((s) => s.layouts[sessionId]);
   const { focusSlot, setRatio, assignTerminal } = usePaneLayoutStore.getState();
@@ -136,22 +133,6 @@ export function PaneSplitView({
       ref={containerRef}
       className={`terminal-split terminal-split-${direction}`}
     >
-      {/* Direction toggle button — visible only in split mode */}
-      {onDirectionToggle && (
-        <button
-          className="terminal-split-direction-toggle"
-          onClick={onDirectionToggle}
-          title={direction === "horizontal"
-            ? t("terminal.splitVertical")
-            : t("terminal.splitHorizontal")}
-          aria-label={direction === "horizontal"
-            ? t("terminal.splitVertical")
-            : t("terminal.splitHorizontal")}
-        >
-          {direction === "horizontal" ? "⊠" : "⊟"}
-        </button>
-      )}
-
       {slots.map((slot, i) => {
         // MAJOR-2 fix: only the focused pane gets active=true
         // This ensures only the focused pane's terminal receives real keyboard focus.

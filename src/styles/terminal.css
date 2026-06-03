@@ -237,7 +237,8 @@
 
 /* ── Tab bar split button ────────────────────────── */
 
-.terminal-tab-split {
+.terminal-tab-split,
+.terminal-tab-split-direction {
   flex-shrink: 0;
   background: transparent;
   border: none;
@@ -249,11 +250,58 @@
   transition: color var(--transition-fast);
 }
 
-.terminal-tab-split:hover {
+.terminal-tab-split:hover,
+.terminal-tab-split-direction:hover {
   color: var(--text-primary);
 }
 
 .terminal-tab-split:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* ── Per-pane close button ───────────────────────── */
+
+/* Positioned absolutely in the top-right corner of the pane.
+   The pane (.terminal-split-pane) is already position:relative.
+   Hidden by default; revealed on pane hover or keyboard focus.
+   z-index above the terminal canvas but below dialogs.
+   Does NOT push xterm content — floats as an overlay. */
+.terminal-split-pane-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast),
+    background-color var(--transition-fast);
+  /* pointer-events off when invisible so clicks reach the terminal */
+  pointer-events: none;
+}
+
+/* Reveal on pane hover */
+.terminal-split-pane:hover .terminal-split-pane-close,
+.terminal-split-pane:focus-within .terminal-split-pane-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Emphasize on button hover */
+.terminal-split-pane-close:hover {
+  background: var(--bg-raised-2);
+  color: var(--text-primary);
+  border-color: var(--hairline-strong);
 }
