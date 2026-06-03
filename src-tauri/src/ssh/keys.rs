@@ -36,31 +36,47 @@ pub fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<Private
         AppError::KeyError(format!("Failed to read key file {}: {e}", path.display()))
     })?);
 
-    let key = if let Some(passphrase) = passphrase {
-        PrivateKey::from_openssh(key_data.as_bytes())
-            .and_then(|k| {
-                if k.is_encrypted() {
-                    k.decrypt(passphrase)
-                } else {
-                    Ok(k)
-                }
-            })
-            .map_err(|e| {
-                AppError::KeyError(format!(
-                    "Failed to load/decrypt key {}: {e}",
-                    path.display()
-                ))
-            })?
-    } else {
-        PrivateKey::from_openssh(key_data.as_bytes()).map_err(|e| {
-            AppError::KeyError(format!(
-                "Failed to parse key {} (may be encrypted — passphrase required): {e}",
-                path.display()
-            ))
-        })?
-    };
+    decode_private_key(&key_data, passphrase, &path.display().to_string())
+}
 
-    Ok(key)
+/// Decode a private key from its textual contents, trying every format we
+/// support, with optional passphrase decryption.
+///
+/// Pure (no filesystem access) so it can be unit-tested directly.
+///
+/// Format coverage:
+/// - OpenSSH (`BEGIN OPENSSH PRIVATE KEY`) — the modern `ssh-keygen` default.
+/// - PEM / PKCS#1 (`BEGIN RSA PRIVATE KEY`) — legacy RSA keys.
+/// - PKCS#8 (`BEGIN PRIVATE KEY`) and SEC1 (`BEGIN EC PRIVATE KEY`).
+///
+/// OpenSSH parsing is tried first so its behaviour is unchanged; everything
+/// else is delegated to `russh-keys`' format-detecting decoder, which also
+/// handles the encrypted variants of each format.
+fn decode_private_key(
+    data: &str,
+    passphrase: Option<&str>,
+    label: &str,
+) -> Result<PrivateKey, AppError> {
+    // OpenSSH format: handle encryption explicitly so the error for an
+    // encrypted key without a passphrase is precise (callers prompt on it).
+    if let Ok(key) = PrivateKey::from_openssh(data.as_bytes()) {
+        if !key.is_encrypted() {
+            return Ok(key);
+        }
+        return match passphrase {
+            Some(pp) => key.decrypt(pp).map_err(|e| {
+                AppError::KeyError(format!("Failed to decrypt key {label}: {e}"))
+            }),
+            None => Err(AppError::KeyError(format!(
+                "Key {label} is encrypted — passphrase required"
+            ))),
+        };
+    }
+
+    // PEM / PKCS#1 / PKCS#8 / SEC1 (and their encrypted variants) via
+    // russh-keys. Returns the same `ssh_key::PrivateKey` type.
+    russh_keys::decode_secret_key(data, passphrase)
+        .map_err(|e| AppError::KeyError(format!("Failed to load key {label}: {e}")))
 }
 
 // ─── Key Discovery ──────────────────────────────────────
@@ -202,10 +218,66 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             AppError::KeyError(msg) => {
-                assert!(msg.contains("Failed to parse key"));
+                assert!(msg.contains("Failed to load key"));
             }
             other => panic!("Expected KeyError, got: {:?}", other),
         }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Unencrypted PEM / PKCS#1 RSA key (`BEGIN RSA PRIVATE KEY`) — the legacy
+    // format `from_openssh` cannot parse. Throwaway 2048-bit key, test-only.
+    const PKCS1_RSA_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEArPf9elp90aF5hLNv2DWagXUV4JNU6rwTaDylSsj1aXfo/gPZ
+mT9GsRier0JrJXTIpTSf7X9ZzvH+553WIg/F+k0h6X6Op2olvdLsdNw+caAE0mLW
+bo4QVNT+gHW4lZ2+5ayIsTRzFjVaS7kUpKInxyoWO9OvDoBdx7IahXngAj2BP7DM
+PhsioPsWt/95g1pbr8RQOEaI4XvJ73zoYxe/qwwSZe235wMUSdlSxJfiTw7UTwDX
+RzmYxlaz9zzhJr1ED76B02qcGz+3ZAbMGmP+7+yPMI6938Z2hjKml+CXxeIgF+KJ
+WZBOvozUdM84KqZEd4hdsaTx/2YKXjeER8fwrQIDAQABAoIBAAFGadTTvCqX4iJU
+SvZUnQy9enCyQcka+O78OMu1qxXn8wyhpjCMWDJlHy1zkFW/rxWhkpGRoBhNG+/v
+YXtjPe9C3droj+ylylXgx7kBQUuydyv3ov+yFGaElFLQxDsgyMjNFwTegTjnWuRh
+V4/WPNd/AwoOwIh+1U6WqRNjs/DQRl8w09ksJ5QTX2Si68vKi6lncpZcnAEnPMS/
+sdHRP1Mb25HpBw5Daq0iRsR2c4M0zfhkabXqf1AtYvOY5PYKB5pooxy4B6B9sMct
++kTw8BdIoNi4Xrx1aV8FNtygMhqXnuwapH5q//iKM1/LNTvqtfzkksgkL3dmA42s
+jh3dSgECgYEA3KXV9BGULPFZrJJwpcC2yDf5JLT1QmfZw6GlGcpvLygmQZueZnQ4
+Yb5shmkmaGcuWHp1/a/mBO7ITadbldMeXgH8oOEzQnWFiUrKPgYal+V8N3YJO5m5
+9eS42yJdUdPUpOovdxj0/uC1DgKc5bBgkhhR2zLKYjIhcO4o20GZoiECgYEAyK6I
+dDMes57+fL9MLx0/TYxIs58P9mjXpQunlFSeifa7LodX/b8zPLuru1yufI9kc+Ut
+pqoOoMp3x/+nEBJyscYI50r8wqUHdiy8nIwcWBYRmTFH25BkUgGbat3fUxHf7n0t
+7S+uxWUNhGNneVRiXJ7bTdVcxXu0FIokM97uFQ0CgYEArgqpHuGWzXR6VWMVM8k0
+4+0yuj96jay42lTwk81XsgyrUGjdotbdekvn8oWSZBuvNN8znq1WdGGc4ZO27BEh
+DOnoSUYZVry4Xjj+Gbpa06GSP3T9h2OUiV6maUNL9LVwL70BP6IR7dF1Pt3UwGBF
+bDd+qbYAaUA9nIRe+cNe2cECgYA+LeXVqykuGmtbl6IxTuyYSIkWLoixnpaCavQH
+f5iHws0Ig6L92koz3So+qV7e9Ub4qd/VLgfORi2K6GmJD04+Ss/jalaasKt5MC9Y
+igkWOfBF+QD8xOZwilLvb8OMZ5Nsv5iFTyrluoPPq0UaUM0RSZ9FpIBUKBoJ6yuA
+buhx2QKBgQCckk9F6K/xuUX5bLEi/TWM4J67NfBJf8By5GlNUyDJD+3d/bH/WVvb
+vvbl+9+2kUiXYYgdHc523CNVACf1hg6BfH9Mm5qI8cghRyvhzjbVhJyIQUVs4ZGc
+mr0wgcTcPXfyIfsFi3SUAq3beD6lLzcj5sAYNM2HBXirQN9XhBDitw==
+-----END RSA PRIVATE KEY-----
+";
+
+    #[test]
+    fn decodes_unencrypted_pkcs1_rsa_key() {
+        // Regression: `from_openssh` cannot parse PKCS#1 PEM, so this key used
+        // to be misreported as "passphrase required" and never authenticated.
+        let key = decode_private_key(PKCS1_RSA_KEY, None, "test.pem")
+            .expect("PKCS#1 RSA key should load without a passphrase");
+        assert!(matches!(
+            key.algorithm(),
+            ssh_key::Algorithm::Rsa { .. }
+        ));
+    }
+
+    #[test]
+    fn loads_pkcs1_rsa_key_from_file() {
+        let dir = std::env::temp_dir().join("key_test_pkcs1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_path = dir.join("id_rsa_pem");
+        std::fs::write(&key_path, PKCS1_RSA_KEY).unwrap();
+
+        let result = load_private_key(&key_path, None);
+        assert!(result.is_ok(), "PKCS#1 RSA file should load: {result:?}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
