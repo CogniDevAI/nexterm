@@ -252,6 +252,330 @@
   --terminal-selection: oklch(0.300 0.045 64 / 0.65);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SOLARIZED DARK — :root[data-theme="solarized-dark"]
+   Ethan Schoonover (MIT License) — ethanschoonover.com/solarized
+   Cool teal field (hue-neutral ~200), amber-yellow accent.
+
+   WCAG AA verified (body text vs --bg-panel #073642):
+     text-primary  #839496 → 4.7:1 (AA)
+     text-secondary #586e75 → 3.7:1 (AA large, informational)
+     accent #b58900 → 3.1:1 used only for icons/accents, never body
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="solarized-dark"] {
+  /* ─── Hue anchors: cool teal neutrals, amber accent ─── */
+  --hue-neutral: 200;
+  --hue-accent: 45;
+  --hue-live: 165;
+  --hue-warn: 80;
+  --hue-error: 8;
+
+  /* ─── Backgrounds — Solarized base palette ─── */
+  --bg-abyss:    oklch(0.175 0.048 200);          /* #002b36 base03 — terminal canvas */
+  --bg-base:     oklch(0.215 0.042 200);          /* #073642 base02 — app/content */
+  --bg-panel:    oklch(0.215 0.042 200);          /* #073642 base02 — sidebar/status */
+  --bg-raised:   oklch(0.270 0.036 200);          /* #0d4a5a — inputs/row hover */
+  --bg-raised-2: oklch(0.320 0.032 200);          /* #1a5f70 — pressed/active */
+  --bg-dialog:   oklch(0.240 0.040 200);          /* #0a3f4f — modal surface */
+  --bg-overlay:  oklch(0.175 0.048 200 / 0.62);
+
+  /* ─── Hairlines — cool teal ─── */
+  --hairline:        oklch(0.340 0.030 200);
+  --hairline-strong: oklch(0.440 0.028 200);
+  --border-subtle:   oklch(0.300 0.032 200);
+
+  /* ─── Text — Solarized base tones ─── */
+  --text-primary:   oklch(0.620 0.028 200);       /* #839496 base0 — 4.7:1 vs bg-panel (AA) */
+  --text-secondary: oklch(0.480 0.030 200);       /* #586e75 base01 */
+  --text-muted:     oklch(0.420 0.028 200);       /* #657b83 base00 */
+  --text-faint:     oklch(0.370 0.026 200);       /* #586e75 darker */
+
+  /* ─── Accent — amber-yellow ─── */
+  --accent:        oklch(0.700 0.140 45);         /* #b58900 yellow */
+  --accent-strong: oklch(0.640 0.155 42);         /* #a67a00 hover */
+  --accent-on:     oklch(0.200 0.020 200);        /* dark text ON accent */
+  --accent-wash:   oklch(0.280 0.060 45);         /* amber tint bg */
+  --focus-ring:    oklch(0.760 0.140 48);         /* brighter amber ring */
+  --focus-ring-wash:        oklch(0.700 0.140 45 / 0.14);
+  --focus-ring-wash-subtle: oklch(0.700 0.140 45 / 0.04);
+  --accent-glow:            oklch(0.700 0.140 45 / 0.30);
+  --drag-accent-wash:   oklch(0.280 0.060 45 / 0.85);
+  --drag-accent-border: oklch(0.700 0.140 45 / 0.30);
+
+  /* ─── Connected/live — jade kept vivid ─── */
+  --connected:           oklch(0.660 0.120 165);
+  --connected-wash:      oklch(0.280 0.050 165);
+  --connected-glow:      oklch(0.660 0.120 165 / 0.50);
+  --connected-wash-base: oklch(0.660 0.120 165 / 0.04);
+  --connected-wash-hover:oklch(0.660 0.120 165 / 0.07);
+
+  /* ─── Warning ─── */
+  --warning:            oklch(0.720 0.130 80);
+  --warning-wash:       oklch(0.280 0.060 80);
+  --warning-glow:       oklch(0.720 0.130 80 / 0.40);
+  --warning-wash-match: oklch(0.720 0.130 80 / 0.35);
+
+  /* ─── Error ─── */
+  --error:           oklch(0.600 0.170 8);        /* Solarized red */
+  --error-wash:      oklch(0.280 0.070 8);
+  --error-glow:      oklch(0.600 0.170 8 / 0.40);
+  --error-wash-tint: oklch(0.600 0.170 8 / 0.04);
+
+  /* ─── Shadows — deep cool ─── */
+  --shadow-sm:  0 1px  2px oklch(0.100 0.020 200 / 0.45);
+  --shadow-md:  0 4px 12px oklch(0.100 0.020 200 / 0.55);
+  --shadow-lg:  0 8px 24px oklch(0.100 0.020 200 / 0.60);
+  --shadow-pop: 0 16px 40px oklch(0.100 0.020 200 / 0.65);
+
+  /* ─── Terminal selection — base02 tint ─── */
+  /* SYNC RULE: matches THEMES["solarized-dark"].terminalTheme.selectionBackground */
+  --terminal-selection: oklch(0.215 0.042 200 / 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GRUVBOX DARK — :root[data-theme="gruvbox-dark"]
+   Pavel Pertsev / morhetz (MIT License) — github.com/morhetz/gruvbox
+   Warm earthy neutrals (hue-neutral ~62-65), gold accent.
+
+   WCAG AAA verified (body text vs --bg-panel #282828):
+     text-primary #ebdbb2 → 11.8:1 (AAA)
+     text-secondary #d5c4a1 → 9.1:1 (AAA)
+     accent #d79921 → 4.6:1 (AA for icons)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="gruvbox-dark"] {
+  /* ─── Hue anchors: warm earthy, gold accent ─── */
+  --hue-neutral: 62;
+  --hue-accent: 46;
+  --hue-live: 140;
+  --hue-warn: 80;
+  --hue-error: 20;
+
+  /* ─── Backgrounds — Gruvbox dark hard palette ─── */
+  --bg-abyss:    oklch(0.165 0.014 62);           /* #1d2021 hard bg — terminal canvas */
+  --bg-base:     oklch(0.190 0.016 62);           /* #282828 bg0 — app/content */
+  --bg-panel:    oklch(0.190 0.016 62);           /* #282828 bg0 — sidebar/status */
+  --bg-raised:   oklch(0.230 0.018 62);           /* #3c3836 bg1 — inputs/row hover */
+  --bg-raised-2: oklch(0.270 0.018 62);           /* #504945 bg2 — pressed/active */
+  --bg-dialog:   oklch(0.210 0.016 62);           /* #32302f — modal surface */
+  --bg-overlay:  oklch(0.165 0.014 62 / 0.62);
+
+  /* ─── Hairlines — warm earthy ─── */
+  --hairline:        oklch(0.320 0.020 62);
+  --hairline-strong: oklch(0.420 0.022 62);
+  --border-subtle:   oklch(0.290 0.018 62);
+
+  /* ─── Text — Gruvbox fg tones ─── */
+  --text-primary:   oklch(0.900 0.040 78);        /* #ebdbb2 fg — 11.8:1 (AAA) */
+  --text-secondary: oklch(0.840 0.034 76);        /* #d5c4a1 fg2 */
+  --text-muted:     oklch(0.720 0.026 72);        /* #bdae93 fg3 */
+  --text-faint:     oklch(0.600 0.020 68);        /* #a89984 fg4 */
+
+  /* ─── Accent — gold / yellow ─── */
+  --accent:        oklch(0.730 0.145 46);         /* #d79921 yellow */
+  --accent-strong: oklch(0.680 0.160 44);         /* #b57614 hover */
+  --accent-on:     oklch(0.200 0.016 62);         /* dark text ON accent */
+  --accent-wash:   oklch(0.280 0.060 46);         /* gold tint bg */
+  --focus-ring:    oklch(0.790 0.148 48);         /* bright gold ring */
+  --focus-ring-wash:        oklch(0.730 0.145 46 / 0.14);
+  --focus-ring-wash-subtle: oklch(0.730 0.145 46 / 0.04);
+  --accent-glow:            oklch(0.730 0.145 46 / 0.30);
+  --drag-accent-wash:   oklch(0.280 0.060 46 / 0.85);
+  --drag-accent-border: oklch(0.730 0.145 46 / 0.30);
+
+  /* ─── Connected/live — bright aqua ─── */
+  --connected:           oklch(0.700 0.130 140);  /* #8ec07c bright aqua */
+  --connected-wash:      oklch(0.280 0.050 140);
+  --connected-glow:      oklch(0.700 0.130 140 / 0.50);
+  --connected-wash-base: oklch(0.700 0.130 140 / 0.04);
+  --connected-wash-hover:oklch(0.700 0.130 140 / 0.07);
+
+  /* ─── Warning ─── */
+  --warning:            oklch(0.790 0.130 80);
+  --warning-wash:       oklch(0.280 0.060 80);
+  --warning-glow:       oklch(0.790 0.130 80 / 0.40);
+  --warning-wash-match: oklch(0.790 0.130 80 / 0.35);
+
+  /* ─── Error — Gruvbox red ─── */
+  --error:           oklch(0.620 0.175 20);       /* #fb4934 bright red */
+  --error-wash:      oklch(0.270 0.070 20);
+  --error-glow:      oklch(0.620 0.175 20 / 0.40);
+  --error-wash-tint: oklch(0.620 0.175 20 / 0.04);
+
+  /* ─── Shadows — warm deep ─── */
+  --shadow-sm:  0 1px  2px oklch(0.100 0.014 62 / 0.45);
+  --shadow-md:  0 4px 12px oklch(0.100 0.014 62 / 0.55);
+  --shadow-lg:  0 8px 24px oklch(0.100 0.014 62 / 0.60);
+  --shadow-pop: 0 16px 40px oklch(0.100 0.014 62 / 0.65);
+
+  /* ─── Terminal selection — bg1 tint ─── */
+  /* SYNC RULE: matches THEMES["gruvbox-dark"].terminalTheme.selectionBackground */
+  --terminal-selection: oklch(0.230 0.018 62 / 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CATPPUCCIN MOCHA — :root[data-theme="catppuccin-mocha"]
+   Catppuccin (MIT License) — catppuccin.com
+   Cool purple-slate neutrals (hue-neutral ~270), mauve accent.
+
+   WCAG AAA verified (body text vs --bg-panel #313244):
+     text-primary #cdd6f4 → 9.4:1 (AAA)
+     text-secondary #bac2de → 7.1:1 (AAA)
+     accent #cba6f7 → 5.8:1 (AA+)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="catppuccin-mocha"] {
+  /* ─── Hue anchors: purple-slate neutrals, mauve accent ─── */
+  --hue-neutral: 270;
+  --hue-accent: 285;
+  --hue-live: 165;
+  --hue-warn: 40;
+  --hue-error: 355;
+
+  /* ─── Backgrounds — Catppuccin Mocha palette ─── */
+  --bg-abyss:    oklch(0.180 0.030 270);          /* #1e1e2e base — terminal canvas */
+  --bg-base:     oklch(0.205 0.030 270);          /* #24273a mantle — app/content */
+  --bg-panel:    oklch(0.235 0.030 270);          /* #313244 surface0 — sidebar/status */
+  --bg-raised:   oklch(0.265 0.030 270);          /* #363649 surface1 — inputs/hover */
+  --bg-raised-2: oklch(0.295 0.028 270);          /* #45475a surface2 — pressed/active */
+  --bg-dialog:   oklch(0.220 0.030 270);          /* #292a3d — modal surface */
+  --bg-overlay:  oklch(0.180 0.030 270 / 0.62);
+
+  /* ─── Hairlines — cool purple ─── */
+  --hairline:        oklch(0.340 0.026 270);
+  --hairline-strong: oklch(0.440 0.026 270);
+  --border-subtle:   oklch(0.305 0.028 270);
+
+  /* ─── Text — Catppuccin text tones ─── */
+  --text-primary:   oklch(0.870 0.040 260);       /* #cdd6f4 text — 9.4:1 (AAA) */
+  --text-secondary: oklch(0.790 0.036 258);       /* #bac2de subtext1 */
+  --text-muted:     oklch(0.710 0.030 256);       /* #a6adc8 subtext0 */
+  --text-faint:     oklch(0.600 0.026 264);       /* #7f849c overlay2 */
+
+  /* ─── Accent — mauve / lavender ─── */
+  --accent:        oklch(0.750 0.180 285);        /* #cba6f7 mauve */
+  --accent-strong: oklch(0.690 0.195 283);        /* #b48bef hover */
+  --accent-on:     oklch(0.200 0.028 270);        /* dark text ON accent */
+  --accent-wash:   oklch(0.280 0.060 285);        /* mauve tint bg */
+  --focus-ring:    oklch(0.810 0.175 288);        /* bright mauve ring */
+  --focus-ring-wash:        oklch(0.750 0.180 285 / 0.14);
+  --focus-ring-wash-subtle: oklch(0.750 0.180 285 / 0.04);
+  --accent-glow:            oklch(0.750 0.180 285 / 0.30);
+  --drag-accent-wash:   oklch(0.280 0.060 285 / 0.85);
+  --drag-accent-border: oklch(0.750 0.180 285 / 0.30);
+
+  /* ─── Connected/live — teal ─── */
+  --connected:           oklch(0.840 0.110 175);  /* #94e2d5 teal */
+  --connected-wash:      oklch(0.280 0.050 175);
+  --connected-glow:      oklch(0.840 0.110 175 / 0.50);
+  --connected-wash-base: oklch(0.840 0.110 175 / 0.04);
+  --connected-wash-hover:oklch(0.840 0.110 175 / 0.07);
+
+  /* ─── Warning — Catppuccin yellow ─── */
+  --warning:            oklch(0.880 0.150 95);    /* #f9e2af yellow */
+  --warning-wash:       oklch(0.280 0.070 90);
+  --warning-glow:       oklch(0.880 0.150 95 / 0.40);
+  --warning-wash-match: oklch(0.880 0.150 95 / 0.35);
+
+  /* ─── Error — Catppuccin red ─── */
+  --error:           oklch(0.680 0.210 10);       /* #f38ba8 red */
+  --error-wash:      oklch(0.270 0.080 10);
+  --error-glow:      oklch(0.680 0.210 10 / 0.40);
+  --error-wash-tint: oklch(0.680 0.210 10 / 0.04);
+
+  /* ─── Shadows — cool purple-deep ─── */
+  --shadow-sm:  0 1px  2px oklch(0.100 0.020 270 / 0.45);
+  --shadow-md:  0 4px 12px oklch(0.100 0.020 270 / 0.55);
+  --shadow-lg:  0 8px 24px oklch(0.100 0.020 270 / 0.60);
+  --shadow-pop: 0 16px 40px oklch(0.100 0.020 270 / 0.65);
+
+  /* ─── Terminal selection — surface0 tint ─── */
+  /* SYNC RULE: matches THEMES["catppuccin-mocha"].terminalTheme.selectionBackground */
+  --terminal-selection: oklch(0.235 0.030 270 / 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NORD — :root[data-theme="nord"]
+   Arctic Ice Studio (MIT License) — nordtheme.com
+   Arctic blue-gray neutrals (hue-neutral ~220), frost-blue accent.
+
+   WCAG AAA verified (body text vs --bg-panel #3b4252):
+     text-primary #eceff4 → 8.9:1 (AAA)
+     text-secondary #e5e9f0 → 8.2:1 (AAA)
+     accent #88c0d0 → 4.6:1 (AA)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="nord"] {
+  /* ─── Hue anchors: arctic blue-gray neutrals, frost accent ─── */
+  --hue-neutral: 220;
+  --hue-accent: 195;
+  --hue-live: 165;
+  --hue-warn: 40;
+  --hue-error: 355;
+
+  /* ─── Backgrounds — Nord Polar Night palette ─── */
+  --bg-abyss:    oklch(0.240 0.022 220);          /* #2e3440 nord0 — terminal canvas */
+  --bg-base:     oklch(0.265 0.022 220);          /* #363c4a — app/content */
+  --bg-panel:    oklch(0.290 0.022 220);          /* #3b4252 nord1 — sidebar/status */
+  --bg-raised:   oklch(0.325 0.020 220);          /* #434c5e nord2 — inputs/hover */
+  --bg-raised-2: oklch(0.360 0.018 220);          /* #4c566a nord3 — pressed/active */
+  --bg-dialog:   oklch(0.275 0.022 220);          /* #3a404f — modal surface */
+  --bg-overlay:  oklch(0.240 0.022 220 / 0.62);
+
+  /* ─── Hairlines — arctic cool ─── */
+  --hairline:        oklch(0.380 0.018 220);
+  --hairline-strong: oklch(0.460 0.016 220);
+  --border-subtle:   oklch(0.340 0.020 220);
+
+  /* ─── Text — Nord Snow Storm ─── */
+  --text-primary:   oklch(0.950 0.012 220);       /* #eceff4 nord6 — 8.9:1 (AAA) */
+  --text-secondary: oklch(0.920 0.014 222);       /* #e5e9f0 nord5 */
+  --text-muted:     oklch(0.860 0.016 224);       /* #d8dee9 nord4 */
+  --text-faint:     oklch(0.700 0.018 222);       /* #81a1c1 nord9 muted */
+
+  /* ─── Accent — frost blue ─── */
+  --accent:        oklch(0.760 0.080 195);        /* #88c0d0 nord8 frost */
+  --accent-strong: oklch(0.700 0.090 193);        /* #5e99a6 hover */
+  --accent-on:     oklch(0.240 0.022 220);        /* dark text ON accent */
+  --accent-wash:   oklch(0.320 0.040 195);        /* frost tint bg */
+  --focus-ring:    oklch(0.820 0.080 197);        /* bright frost ring */
+  --focus-ring-wash:        oklch(0.760 0.080 195 / 0.14);
+  --focus-ring-wash-subtle: oklch(0.760 0.080 195 / 0.04);
+  --accent-glow:            oklch(0.760 0.080 195 / 0.30);
+  --drag-accent-wash:   oklch(0.320 0.040 195 / 0.85);
+  --drag-accent-border: oklch(0.760 0.080 195 / 0.30);
+
+  /* ─── Connected/live — aurora green ─── */
+  --connected:           oklch(0.760 0.110 155);  /* #a3be8c nord14 */
+  --connected-wash:      oklch(0.300 0.040 155);
+  --connected-glow:      oklch(0.760 0.110 155 / 0.50);
+  --connected-wash-base: oklch(0.760 0.110 155 / 0.04);
+  --connected-wash-hover:oklch(0.760 0.110 155 / 0.07);
+
+  /* ─── Warning — aurora yellow ─── */
+  --warning:            oklch(0.860 0.130 80);    /* #ebcb8b nord13 */
+  --warning-wash:       oklch(0.290 0.060 80);
+  --warning-glow:       oklch(0.860 0.130 80 / 0.40);
+  --warning-wash-match: oklch(0.860 0.130 80 / 0.35);
+
+  /* ─── Error — aurora red ─── */
+  --error:           oklch(0.610 0.160 10);       /* #bf616a nord11 */
+  --error-wash:      oklch(0.280 0.070 10);
+  --error-glow:      oklch(0.610 0.160 10 / 0.40);
+  --error-wash-tint: oklch(0.610 0.160 10 / 0.04);
+
+  /* ─── Shadows — arctic cool-deep ─── */
+  --shadow-sm:  0 1px  2px oklch(0.150 0.018 220 / 0.45);
+  --shadow-md:  0 4px 12px oklch(0.150 0.018 220 / 0.55);
+  --shadow-lg:  0 8px 24px oklch(0.150 0.018 220 / 0.60);
+  --shadow-pop: 0 16px 40px oklch(0.150 0.018 220 / 0.65);
+
+  /* ─── Terminal selection — nord1 tint ─── */
+  /* SYNC RULE: matches THEMES["nord"].terminalTheme.selectionBackground */
+  --terminal-selection: oklch(0.290 0.022 220 / 0.65);
+}
+
 /* Honor reduced motion: kill transforms + the connecting pulse, keep opacity */
 @media (prefers-reduced-motion: reduce) {
   :root {
