@@ -6655,3 +6655,367 @@ dialog::backdrop {
   gap: 12px;
   justify-content: center;
 }
+
+/* ═══════════════════════════════════════════════════
+   Monitoring Panel
+   Live remote-system metrics: sparklines, disk bars,
+   process table + two-step kill confirm.
+   ═══════════════════════════════════════════════════ */
+
+/* ── Container ── */
+.monitoring-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 14px 16px;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-size: var(--fs-body);
+}
+
+/* ── Status states (loading / unsupported) ── */
+.monitoring-loading,
+.monitoring-unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 120px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  text-align: center;
+  padding: 24px;
+}
+
+.monitoring-unsupported {
+  color: var(--warning);
+}
+
+/* ── Section title (Disk, Processes) ── */
+.monitoring-section-title {
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  padding: 10px 0 6px;
+  border-top: 1px solid var(--hairline);
+  margin-top: 4px;
+}
+
+/* ── Metrics grid (4 sparkline cards) ── */
+.monitoring-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+/* ── Individual metric card ── */
+.monitoring-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+
+.monitoring-metric-label {
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.monitoring-metric svg {
+  display: block;
+  color: var(--connected);
+  width: 100%;
+  height: 24px;
+}
+
+.monitoring-metric svg polyline {
+  stroke: var(--connected);
+}
+
+.monitoring-metric-value {
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Disk section ── */
+.monitoring-disk {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.monitoring-disk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.monitoring-disk-fs {
+  font-size: var(--fs-meta);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 60px;
+  max-width: 110px;
+  flex-shrink: 0;
+}
+
+.monitoring-disk-bar-track {
+  flex: 1;
+  height: 6px;
+  background-color: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+}
+
+.monitoring-disk-bar-fill {
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: var(--radius-sm);
+  transition: width var(--transition-normal);
+  min-width: 2px; /* always visible even at ~0% */
+}
+
+/* Grade the fill color toward warning/error at high usage */
+.monitoring-disk-bar-fill[style*="width: 8"],
+.monitoring-disk-bar-fill[style*="width: 9"] {
+  background-color: var(--warning);
+}
+
+.monitoring-disk-bar-fill[style*="width: 100"],
+.monitoring-disk-bar-fill[style*="width: 99"],
+.monitoring-disk-bar-fill[style*="width: 98"],
+.monitoring-disk-bar-fill[style*="width: 97"],
+.monitoring-disk-bar-fill[style*="width: 96"],
+.monitoring-disk-bar-fill[style*="width: 95"] {
+  background-color: var(--error);
+}
+
+.monitoring-disk-pct {
+  font-size: var(--fs-meta);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: right;
+}
+
+/* ── Process section ── */
+.monitoring-processes {
+  display: flex;
+  flex-direction: column;
+}
+
+.monitoring-process-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-meta);
+}
+
+.monitoring-process-table thead th {
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  font-size: 0.625rem; /* 10px — eyebrow scale */
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.monitoring-process-table tbody tr {
+  border-bottom: 1px solid var(--hairline);
+  transition: background-color var(--transition-fast);
+}
+
+.monitoring-process-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.monitoring-process-table tbody tr:hover {
+  background-color: var(--bg-raised);
+}
+
+.monitoring-process-table td {
+  padding: 5px 6px;
+  vertical-align: middle;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* PID column — monospace, muted */
+.monitoring-process-table td:first-child {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  min-width: 42px;
+}
+
+/* User column */
+.monitoring-process-table td:nth-child(2) {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CPU% / MEM% columns — tabular numerics */
+.monitoring-process-table td:nth-child(3),
+.monitoring-process-table td:nth-child(4) {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 38px;
+}
+
+/* Process name — truncate, full width */
+.monitoring-process-name {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary) !important;
+  font-size: var(--fs-meta);
+}
+
+/* Actions column */
+.monitoring-process-table td:last-child {
+  width: 1%;
+  padding-right: 2px;
+  white-space: nowrap;
+}
+
+/* ── Kill arm button (per-row, subtle) ── */
+.monitoring-kill-arm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.monitoring-kill-arm-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash-tint);
+}
+
+.monitoring-kill-arm-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── Kill confirm dialog (armed state) ── */
+.kill-confirm-dialog {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.kill-confirm-pid {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.kill-confirm-pid strong {
+  color: var(--error);
+}
+
+.kill-confirm-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* Base kill confirm button */
+.kill-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.kill-confirm-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Arm button (first click — neutral) */
+.kill-confirm-btn-arm {
+  color: var(--text-muted);
+  border-color: var(--hairline);
+  background: none;
+}
+
+.kill-confirm-btn-arm:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash-tint);
+}
+
+/* Danger confirm (second click) */
+.kill-confirm-btn-danger {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash);
+  font-weight: var(--fw-medium);
+}
+
+.kill-confirm-btn-danger:hover {
+  background-color: var(--error-wash);
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px var(--error-glow);
+}
+
+/* Cancel */
+.kill-confirm-btn-cancel {
+  color: var(--text-muted);
+  border-color: var(--hairline);
+  background: none;
+}
+
+.kill-confirm-btn-cancel:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
