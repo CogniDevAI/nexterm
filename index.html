@@ -8,6 +8,26 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
+    <!-- FOUC-guard: reads persisted theme before React mounts so the correct
+         [data-theme] is on <html> before the first CSS paint (zero FOUC).
+         Parses the Zustand persist envelope {"state":{"themeId":"..."},"version":0}.
+         Default "lamplight" MUST equal DEFAULT_THEME_ID in src/lib/themes.ts. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("nexterm-theme");
+          var id = "lamplight"; /* default = DEFAULT_THEME_ID */
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            var v = parsed && parsed.state && parsed.state.themeId;
+            if (v === "lamplight" || v === "dark") id = v;
+          }
+          document.documentElement.dataset.theme = id;
+        } catch (e) {
+          document.documentElement.dataset.theme = "lamplight";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
