@@ -66,6 +66,8 @@ export const es: Record<TranslationKey, string> = {
   "connection.passwordPlaceholder": "Opcional — se pedirá al conectar",
   "connection.rememberPassword": "Guardar contraseña",
   "connection.privateKeyPath": "Ruta de Clave Privada",
+  "connection.browse": "Buscar…",
+  "connection.browseKey": "Elegir un archivo de clave privada",
   "connection.save": "Guardar",
   "connection.saveConnect": "Guardar y Conectar",
   "connection.cancel": "Cancelar",

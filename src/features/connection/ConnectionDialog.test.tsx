@@ -57,6 +57,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockOpenFileDialog = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (...args: unknown[]) => mockOpenFileDialog(...args),
+}));
+
 vi.mock("../../lib/i18n", () => ({
   useI18n: () => ({ t: (k: string) => k }),
 }));
@@ -323,5 +328,136 @@ describe("ConnectionDialog — Generate new key button", () => {
         screen.getByTitle("connection.keygen.hint"),
       ).toBeInTheDocument();
     });
+  });
+});
+
+// ─── Key file browse (native dialog) ────────────────────────────────────────────
+
+describe("ConnectionDialog — browse for a private key file", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMockProfiles = STABLE_PROFILES;
+    mockTauriInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_ssh_keys") return Promise.resolve(MOCK_KEYS);
+      return Promise.resolve(undefined);
+    });
+  });
+
+  async function selectOther() {
+    await renderDialogAndWaitForKeys();
+    await switchToPublicKeyAuth();
+    const select = await waitFor(() => screen.getByTestId("key-picker-select"));
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "__other__" } });
+    });
+    return select as HTMLSelectElement;
+  }
+
+  it("reveals the manual row + Browse button when 'Other…' is picked, even with keys present", async () => {
+    await selectOther();
+    // Regression: previously the manual row stayed hidden because isOther was
+    // false for an empty path, so picking "Other…" showed nothing.
+    expect(screen.getByTitle("connection.browseKey")).toBeInTheDocument();
+    expect(document.querySelector(".cd-key-picker-manual")).not.toBeNull();
+  });
+
+  it("clicking Browse opens the native dialog and sets the chosen path", async () => {
+    mockOpenFileDialog.mockResolvedValue("/Users/dev/.ssh/custom_key");
+    await selectOther();
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("connection.browseKey"));
+    });
+    await waitFor(() => {
+      const manual = document.querySelector<HTMLInputElement>(
+        ".cd-key-picker-manual",
+      );
+      expect(manual?.value).toBe("/Users/dev/.ssh/custom_key");
+    });
+    expect(mockOpenFileDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles the dialog returning an array of paths", async () => {
+    mockOpenFileDialog.mockResolvedValue(["/Users/dev/.ssh/arr_key"]);
+    await selectOther();
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("connection.browseKey"));
+    });
+    await waitFor(() => {
+      const manual = document.querySelector<HTMLInputElement>(
+        ".cd-key-picker-manual",
+      );
+      expect(manual?.value).toBe("/Users/dev/.ssh/arr_key");
+    });
+  });
+
+  it("does nothing when the dialog is cancelled (null)", async () => {
+    mockOpenFileDialog.mockResolvedValue(null);
+    await selectOther();
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("connection.browseKey"));
+    });
+    const manual = document.querySelector<HTMLInputElement>(
+      ".cd-key-picker-manual",
+    );
+    expect(manual?.value).toBe("");
+  });
+});
+
+// ─── Folder suggestions (datalist) ──────────────────────────────────────────────
+
+describe("ConnectionDialog — existing folder suggestions", () => {
+  function folderProfile(
+    id: string,
+    folder: string | undefined,
+  ): import("../../lib/types").ConnectionProfile {
+    return {
+      id,
+      name: id,
+      host: "h",
+      port: 22,
+      users: [
+        { id: `${id}-u`, username: "u", authMethod: { type: "password" }, isDefault: true },
+      ],
+      folder,
+      startupCommands: [],
+      tunnels: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTauriInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "list_ssh_keys") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+  });
+
+  it("offers existing folders as deduped, sorted datalist options", async () => {
+    currentMockProfiles = [
+      folderProfile("a", "Staging"),
+      folderProfile("b", "Produccion"),
+      folderProfile("c", "Staging"),
+      folderProfile("d", undefined),
+      folderProfile("e", "  "),
+    ];
+    await act(async () => {
+      render(<ConnectionDialog open onClose={vi.fn()} />);
+    });
+    const list = document.querySelector("#profile-folder-list");
+    expect(list).not.toBeNull();
+    const values = Array.from(list!.querySelectorAll("option")).map((o) =>
+      o.getAttribute("value"),
+    );
+    expect(values).toEqual(["Produccion", "Staging"]);
+  });
+
+  it("renders no datalist when no profiles have folders", async () => {
+    currentMockProfiles = STABLE_PROFILES;
+    await act(async () => {
+      render(<ConnectionDialog open onClose={vi.fn()} />);
+    });
+    expect(document.querySelector("#profile-folder-list")).toBeNull();
   });
 });

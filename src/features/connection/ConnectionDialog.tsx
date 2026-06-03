@@ -4,6 +4,7 @@
 // (collapsible user cards with username + auth method + default toggle).
 
 import { useState, useEffect } from "react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "../../components/ui/Dialog";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
@@ -129,6 +130,20 @@ export function ConnectionDialog({
   const [availableKeys, setAvailableKeys] = useState<KeyInfo[]>([]);
   // Keygen dialog state: which user we're generating a key for (null = closed)
   const [keygenForUserId, setKeygenForUserId] = useState<string | null>(null);
+  // User IDs that explicitly picked "Other…" in the key picker, so the manual
+  // path row (with Browse) stays visible even while the path is still empty.
+  const [manualKeyUserIds, setManualKeyUserIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // Distinct folders already in use, for the folder combobox suggestions.
+  const existingFolders = Array.from(
+    new Set(
+      profiles
+        .map((p) => p.folder?.trim())
+        .filter((f): f is string => !!f),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
 
   useEffect(() => {
     if (open) {
@@ -377,7 +392,16 @@ export function ConnectionDialog({
               }))
             }
             placeholder={t("connection.folderPlaceholder")}
+            list="profile-folder-list"
+            autoComplete="off"
           />
+          {existingFolders.length > 0 && (
+            <datalist id="profile-folder-list">
+              {existingFolders.map((f) => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+          )}
           <div className="cd-row">
             <Input
               id="profile-host"
@@ -496,6 +520,32 @@ export function ConnectionDialog({
                       const isOther =
                         currentPath !== "" &&
                         !availableKeys.some((k) => k.path === currentPath);
+                      const inManualMode = manualKeyUserIds.has(user.id);
+                      // Show the manual path row + Browse when the user picked
+                      // "Other…", when the saved path is outside ~/.ssh, or when
+                      // there are no discovered keys at all.
+                      const showManual =
+                        isOther ||
+                        inManualMode ||
+                        (currentPath === "" && availableKeys.length === 0);
+
+                      function enterManualMode() {
+                        setManualKeyUserIds((prev) => {
+                          if (prev.has(user.id)) return prev;
+                          const next = new Set(prev);
+                          next.add(user.id);
+                          return next;
+                        });
+                      }
+
+                      function exitManualMode() {
+                        setManualKeyUserIds((prev) => {
+                          if (!prev.has(user.id)) return prev;
+                          const next = new Set(prev);
+                          next.delete(user.id);
+                          return next;
+                        });
+                      }
 
                       function setKeyPath(path: string) {
                         updateUser(user.id, {
@@ -505,6 +555,18 @@ export function ConnectionDialog({
                             passphraseInKeychain,
                           },
                         });
+                      }
+
+                      async function browseForKey() {
+                        const selected = await openFileDialog({
+                          title: t("connection.browseKey"),
+                          multiple: false,
+                          directory: false,
+                        });
+                        const path = Array.isArray(selected)
+                          ? selected[0]
+                          : selected;
+                        if (path) setKeyPath(path);
                       }
 
                       return (
@@ -524,11 +586,15 @@ export function ConnectionDialog({
                           <select
                             data-testid="key-picker-select"
                             className={`cd-user-row-input cd-key-picker-select ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
-                            value={isOther ? "__other__" : currentPath}
+                            value={
+                              isOther || inManualMode ? "__other__" : currentPath
+                            }
                             onChange={(e) => {
                               if (e.target.value === "__other__") {
+                                enterManualMode();
                                 setKeyPath(currentPath || "");
                               } else {
+                                exitManualMode();
                                 setKeyPath(e.target.value);
                               }
                             }}
@@ -547,16 +613,24 @@ export function ConnectionDialog({
                             ))}
                             <option value="__other__">Other…</option>
                           </select>
-                          {(isOther ||
-                            (currentPath === "" &&
-                              availableKeys.length === 0)) && (
-                            <input
-                              className={`cd-user-row-input cd-key-picker-manual ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
-                              value={currentPath}
-                              onChange={(e) => setKeyPath(e.target.value)}
-                              placeholder="~/.ssh/id_ed25519"
-                              spellCheck={false}
-                            />
+                          {showManual && (
+                            <div className="cd-key-picker-manual-row">
+                              <input
+                                className={`cd-user-row-input cd-key-picker-manual ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
+                                value={currentPath}
+                                onChange={(e) => setKeyPath(e.target.value)}
+                                placeholder="~/.ssh/id_ed25519"
+                                spellCheck={false}
+                              />
+                              <button
+                                type="button"
+                                className="cd-key-picker-browse"
+                                title={t("connection.browseKey")}
+                                onClick={browseForKey}
+                              >
+                                {t("connection.browse")}
+                              </button>
+                            </div>
                           )}
                         </div>
                       );

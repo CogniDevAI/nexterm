@@ -3878,6 +3878,44 @@ dialog::backdrop {
   border-color: var(--danger);
 }
 
+.cd-key-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cd-key-picker-manual-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.cd-key-picker-manual-row .cd-key-picker-manual {
+  flex: 1;
+  min-width: 0;
+}
+
+.cd-key-picker-browse {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.cd-key-picker-browse:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
 .cd-auth-hint {
   font-size: 12px;
   color: var(--text-secondary);

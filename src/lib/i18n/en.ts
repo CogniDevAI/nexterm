@@ -64,6 +64,8 @@ export const en = {
   "connection.passwordPlaceholder": "Optional — will prompt on connect",
   "connection.rememberPassword": "Remember password",
   "connection.privateKeyPath": "Private Key Path",
+  "connection.browse": "Browse…",
+  "connection.browseKey": "Choose a private key file",
   "connection.save": "Save",
   "connection.saveConnect": "Save & Connect",
   "connection.cancel": "Cancel",
