@@ -8,6 +8,8 @@ import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
+import type { ISearchOptions } from "@xterm/addon-search";
 import { Channel } from "@tauri-apps/api/core";
 import { tauriInvoke } from "../../lib/tauri";
 import {
@@ -22,6 +24,7 @@ import type { SessionId, TerminalId, TerminalEvent } from "../../lib/types";
 interface TerminalInstance {
   terminal: Terminal;
   fitAddon: FitAddon;
+  searchAddon: SearchAddon;
   terminalId: TerminalId;
   sessionId: SessionId;
   resizeObserver: ResizeObserver;
@@ -30,12 +33,58 @@ interface TerminalInstance {
    *  Needed for re-attaching when React remounts the TerminalView
    *  component (e.g., on session switch). */
   container: HTMLDivElement;
+  /** Callback registered by TerminalView to open the find-bar overlay.
+   *  Called by attachCustomKeyEventHandler when Cmd/Ctrl+F is detected. */
+  callbackOnOpenFindBar: (() => void) | null;
 }
 
 // Module-level singleton: all useTerminal() hook instances share the same Map.
 // This prevents instance duplication/leaks when TerminalView and TerminalTabs
 // each call useTerminal() independently (Bug H3).
 const terminalInstances = new Map<string, TerminalInstance>();
+
+// ── Find-bar bridge ──────────────────────────────────────────────────────────
+
+/** Register a callback that opens the find-bar for a specific terminal.
+ *  Called by TerminalView after mounting (and after re-attach). */
+export function registerFindBarOpener(terminalId: TerminalId, fn: () => void): void {
+  const instance = terminalInstances.get(terminalId);
+  if (instance) {
+    instance.callbackOnOpenFindBar = fn;
+  }
+}
+
+/** Unregister the find-bar opener callback (called on TerminalView unmount). */
+export function unregisterFindBarOpener(terminalId: TerminalId): void {
+  const instance = terminalInstances.get(terminalId);
+  if (instance) {
+    instance.callbackOnOpenFindBar = null;
+  }
+}
+
+/** Search forward in the terminal using the SearchAddon.
+ *  Returns true if a match was found, false otherwise. */
+export function findNextInTerminal(
+  terminalId: TerminalId,
+  query: string,
+  opts?: ISearchOptions,
+): boolean {
+  const instance = terminalInstances.get(terminalId);
+  if (!instance || instance.disposed || !query) return false;
+  return instance.searchAddon.findNext(query, opts) ?? false;
+}
+
+/** Search backward in the terminal using the SearchAddon.
+ *  Returns true if a match was found, false otherwise. */
+export function findPrevInTerminal(
+  terminalId: TerminalId,
+  query: string,
+  opts?: ISearchOptions,
+): boolean {
+  const instance = terminalInstances.get(terminalId);
+  if (!instance || instance.disposed || !query) return false;
+  return instance.searchAddon.findPrevious(query, opts) ?? false;
+}
 
 /**
  * Re-themes all live (non-disposed) terminal instances.
@@ -89,9 +138,21 @@ export function useTerminal() {
       const webLinksAddon = new WebLinksAddon();
       term.loadAddon(webLinksAddon);
 
+      const searchAddon = new SearchAddon();
+      term.loadAddon(searchAddon);
+
       // Attach to DOM
       term.open(container);
       fitAddon.fit();
+
+      // Copy-on-select: when the user makes a selection, copy it to clipboard.
+      // (xterm v6 removed the copyOnSelect option; we wire it via onSelectionChange)
+      term.onSelectionChange(() => {
+        const selection = term.getSelection();
+        if (selection) {
+          void navigator.clipboard.writeText(selection);
+        }
+      });
 
       const { cols, rows } = term;
 
@@ -160,14 +221,52 @@ export function useTerminal() {
       });
       resizeObserver.observe(container);
 
+      // Custom key event handler:
+      // - Cmd/Ctrl+F → open find-bar overlay (block key from reaching shell)
+      // - Ctrl+C with selection → copy to clipboard (block SIGINT)
+      // - Ctrl+Shift+C → always copy selection to clipboard (block)
+      // - All other keys → pass through to shell
+      term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+        const isMac = isApplePlatform();
+        const isMod = isMac ? event.metaKey : event.ctrlKey;
+
+        // Cmd/Ctrl+F → open find-bar
+        if (isMod && !event.shiftKey && event.key === "f" && event.type === "keydown") {
+          const inst = terminalInstances.get(terminalId);
+          inst?.callbackOnOpenFindBar?.();
+          return false; // block key from reaching shell
+        }
+
+        // Ctrl+Shift+C → always copy selection
+        if (event.ctrlKey && event.shiftKey && event.key === "C" && event.type === "keydown") {
+          const selection = term.getSelection();
+          if (selection) {
+            void navigator.clipboard.writeText(selection);
+          }
+          return false; // block
+        }
+
+        // Ctrl+C (non-Mac) with selection → copy instead of SIGINT
+        if (!isMac && event.ctrlKey && !event.shiftKey && event.key === "c" && event.type === "keydown") {
+          if (term.hasSelection()) {
+            void navigator.clipboard.writeText(term.getSelection());
+            return false; // block SIGINT
+          }
+        }
+
+        return true; // pass all other keys to shell
+      });
+
       const instance: TerminalInstance = {
         terminal: term,
         fitAddon,
+        searchAddon,
         terminalId,
         sessionId,
         resizeObserver,
         disposed: false,
         container,
+        callbackOnOpenFindBar: null,
       };
       terminalInstances.set(terminalId, instance);
 

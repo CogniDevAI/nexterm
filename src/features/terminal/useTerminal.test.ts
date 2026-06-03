@@ -45,6 +45,16 @@ vi.mock("@xterm/addon-web-links", () => ({
   WebLinksAddon: vi.fn().mockImplementation(() => ({ dispose: vi.fn() })),
 }));
 
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: vi.fn().mockImplementation(() => ({
+    activate: vi.fn(),
+    dispose: vi.fn(),
+    findNext: vi.fn().mockReturnValue(false),
+    findPrevious: vi.fn().mockReturnValue(false),
+    onDidChangeResults: vi.fn(),
+  })),
+}));
+
 vi.mock("../../lib/tauri", () => ({
   tauriInvoke: vi.fn().mockResolvedValue("term-id-1"),
 }));
@@ -96,6 +106,47 @@ describe("applyThemeToAllTerminals", () => {
       brightWhite: "#eeeae7",
     };
     expect(() => applyThemeToAllTerminals(fullTheme)).not.toThrow();
+  });
+});
+
+// SearchAddon exports
+import {
+  registerFindBarOpener,
+  unregisterFindBarOpener,
+  findNextInTerminal,
+  findPrevInTerminal,
+} from "./useTerminal";
+
+describe("registerFindBarOpener / unregisterFindBarOpener", () => {
+  it("exports registerFindBarOpener as a function", () => {
+    expect(typeof registerFindBarOpener).toBe("function");
+  });
+
+  it("exports unregisterFindBarOpener as a function", () => {
+    expect(typeof unregisterFindBarOpener).toBe("function");
+  });
+
+  it("calling registerFindBarOpener and unregisterFindBarOpener does not throw", () => {
+    expect(() => registerFindBarOpener("term-x", () => {})).not.toThrow();
+    expect(() => unregisterFindBarOpener("term-x")).not.toThrow();
+  });
+});
+
+describe("findNextInTerminal / findPrevInTerminal", () => {
+  it("exports findNextInTerminal as a function", () => {
+    expect(typeof findNextInTerminal).toBe("function");
+  });
+
+  it("exports findPrevInTerminal as a function", () => {
+    expect(typeof findPrevInTerminal).toBe("function");
+  });
+
+  it("findNextInTerminal returns false for unknown terminalId", () => {
+    expect(findNextInTerminal("nonexistent", "query")).toBe(false);
+  });
+
+  it("findPrevInTerminal returns false for unknown terminalId", () => {
+    expect(findPrevInTerminal("nonexistent", "query")).toBe(false);
   });
 });
 
