@@ -29,6 +29,7 @@ import type {
 } from "../../lib/types";
 import type { PaneSource, FileAction } from "./sftp.types";
 import { processTransfersSequentially } from "./conflictBatch";
+import { createBatchConflictResolver } from "./batchConflictResolver";
 import { useProfileStore } from "../../stores/profileStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import {
@@ -121,9 +122,10 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   const [conflictDialog, setConflictDialog] = useState<ConflictInfo | null>(null);
   // Callback to resolve the pending conflict dialog (called by ConflictDialog buttons)
   const conflictResolveRef = useRef<((r: ConflictResolution) => void) | null>(null);
-  // Batch short-circuit: when user picks skip_all or overwrite_all, store the decision
-  // here so subsequent files in the same multi-file transfer skip the dialog.
-  const batchDecisionRef = useRef<ConflictResolution | null>(null);
+  // Batch short-circuit: tracks skip_all / overwrite_all decisions per operation.
+  // beginOperation() must be called at every transfer entry-point to prevent
+  // cross-operation leaks (a stale _all decision bleeding into the next transfer).
+  const conflictResolverRef = useRef(createBatchConflictResolver());
 
   // Error banner (download failures, etc.)
   const [tooLargeMessage, setTooLargeMessage] = useState<string | null>(null);
@@ -265,17 +267,14 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
    * Show the ConflictDialog for a single-file conflict and wait for the user
    * to pick Skip / Overwrite / Skip All / Overwrite All.
    *
-   * Returns the chosen resolution. Stores skip_all / overwrite_all in
-   * batchDecisionRef so subsequent files in the same batch skip the dialog.
+   * Returns the chosen resolution. The caller (conflictResolverRef.resolve)
+   * persists skip_all / overwrite_all so subsequent files in the same batch skip the dialog.
    */
   const askConflict = useCallback((info: ConflictInfo): Promise<ConflictResolution> => {
     return new Promise<ConflictResolution>((resolve) => {
       conflictResolveRef.current = (resolution: ConflictResolution) => {
         conflictResolveRef.current = null;
         setConflictDialog(null);
-        if (resolution === "skip_all" || resolution === "overwrite_all") {
-          batchDecisionRef.current = resolution;
-        }
         resolve(resolution);
       };
       setConflictDialog(info);
@@ -347,19 +346,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
    * or skip ("skip").
    */
   const resolveConflict = useCallback(
-    async (info: ConflictInfo): Promise<"skip" | "overwrite"> => {
-      // Batch short-circuit: if user already chose skip_all or overwrite_all,
-      // apply it without showing the dialog again.
-      if (batchDecisionRef.current === "skip_all") {
-        return "skip";
-      }
-      if (batchDecisionRef.current === "overwrite_all") {
-        return "overwrite";
-      }
-
-      const resolution = await askConflict(info);
-      if (resolution === "skip" || resolution === "skip_all") return "skip";
-      return "overwrite";
+    (info: ConflictInfo): Promise<"skip" | "overwrite"> => {
+      return conflictResolverRef.current.resolve(info, askConflict);
     },
     [askConflict],
   );
@@ -373,7 +361,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
       if (!isOverRemotePane(x, y)) return;
       if (!sftp.remotePane.path) return;
 
-      batchDecisionRef.current = null;
+      conflictResolverRef.current.beginOperation();
       for (const localPath of paths) {
         const fileName = localPath.split(/[/\\]/).pop() ?? localPath;
         const remoteDest = sftp.remotePane.path + "/" + fileName;
@@ -690,7 +678,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           const uploadEntry = action.entry;
           const remoteDest = sftp.remotePane.path + "/" + uploadEntry.name;
           // Single-file op: reset so a stale _all decision from a prior batch cannot leak.
-          batchDecisionRef.current = null;
+          conflictResolverRef.current.beginOperation();
           void (async () => {
             try {
               const conflictInfo = await checkUploadConflict(uploadEntry.path, remoteDest);
@@ -715,7 +703,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             dlEntry.fileType === "directory" ||
             (dlEntry.fileType === "symlink" && dlEntry.linkTarget === "directory");
           // Single-file op: reset so a stale _all decision from a prior batch cannot leak.
-          batchDecisionRef.current = null;
+          conflictResolverRef.current.beginOperation();
           void (async () => {
             try {
               if (isDir) {
@@ -927,7 +915,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           const localUploadEntry = action.entry;
           const localUploadDest = sftp.remotePane.path + "/" + localUploadEntry.name;
           // Single-file op: reset so a stale _all decision from a prior batch cannot leak.
-          batchDecisionRef.current = null;
+          conflictResolverRef.current.beginOperation();
           void (async () => {
             try {
               const conflictInfo = await checkUploadConflict(localUploadEntry.path, localUploadDest);
@@ -1053,7 +1041,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   const handleUpload = useCallback(() => {
     // Reset batch decision: a stale _all from a prior operation must not leak into this batch.
-    batchDecisionRef.current = null;
+    conflictResolverRef.current.beginOperation();
     // Collect only uploadable entries (file / symlink-to-file)
     const uploadEntries = [...localSelected]
       .map((path) => sftp.localPane.entries.find((e) => e.path === path))
@@ -1083,7 +1071,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   const handleDownload = useCallback(() => {
     // Reset batch decision for a new multi-file transfer
-    batchDecisionRef.current = null;
+    conflictResolverRef.current.beginOperation();
     const downloadEntries = [...remoteSelected]
       .map((path) => sftp.remotePane.entries.find((e) => e.path === path))
       .filter((entry): entry is FileEntry => !!entry);
@@ -1142,7 +1130,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     (entries: FileEntry[]) => {
       // Dropped from remote → download (file or folder) with conflict checking.
       // Sequential for...of prevents concurrent access to the shared conflict dialog.
-      batchDecisionRef.current = null;
+      conflictResolverRef.current.beginOperation();
       void (async () => {
         for (const entry of entries) {
           const localDest = sftp.localPane.path + "/" + entry.name;
@@ -1193,7 +1181,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     (entries: FileEntry[]) => {
       // Dropped from local → upload with conflict checking.
       // Reset batch decision: a stale _all from a prior operation must not leak into this batch.
-      batchDecisionRef.current = null;
+      conflictResolverRef.current.beginOperation();
       // Sequential for...of prevents concurrent access to the shared conflict dialog.
       void processTransfersSequentially(
         entries,
