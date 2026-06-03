@@ -148,6 +148,8 @@ pub struct SessionHandle {
     pub sftp: Option<SftpSessionHandle>,
     pub tunnels: HashMap<TunnelId, TunnelHandle>,
     pub keepalive_task: Option<tokio::task::JoinHandle<()>>,
+    /// Active monitoring sampler task. Aborted on disconnect to prevent resource leaks.
+    pub monitoring_task: Option<tokio::task::JoinHandle<()>>,
     pub cancel_token: tokio_util::sync::CancellationToken,
     /// Remote forward registry — shared with the SshClientHandler for remote tunnel callbacks.
     pub remote_forward_registry: Option<RemoteForwardRegistry>,
@@ -515,6 +517,65 @@ pub struct KeyboardInteractiveResponse {
 pub enum TerminalEvent {
     Output { data: Vec<u8> },
     Closed { reason: String },
+    Error { message: String },
+}
+
+// ─── Monitoring Types (streamed via Tauri Channel) ──────
+
+/// One disk entry in a MetricSample.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskEntry {
+    pub filesystem: String,
+    /// Used percentage (0–100).
+    pub used_pct: u8,
+    pub available_kb: u64,
+}
+
+/// One process row in a MetricSample.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorProcessRow {
+    pub pid: u32,
+    pub user: String,
+    pub cpu_pct: f32,
+    pub mem_pct: f32,
+    pub name: String,
+}
+
+/// A full system metrics snapshot for one tick.
+///
+/// `tick == 0` means this is the first sample — delta-based fields (cpu_pct,
+/// net_rx_bps, net_tx_bps) are 0.0 / 0 and the UI should show "—" instead
+/// of a numeric value until tick >= 1.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricSample {
+    pub session_id: SessionId,
+    /// CPU usage percentage (0.0–100.0). 0.0 on first tick (no delta yet).
+    pub cpu_pct: f32,
+    /// Memory usage percentage (0.0–100.0).
+    pub mem_pct: f32,
+    pub disk_entries: Vec<DiskEntry>,
+    /// Network receive bytes-per-second. 0 on first tick.
+    pub net_rx_bps: u64,
+    /// Network transmit bytes-per-second. 0 on first tick.
+    pub net_tx_bps: u64,
+    pub processes: Vec<MonitorProcessRow>,
+    /// Monotonic tick counter. First tick = 0.
+    pub tick: u64,
+}
+
+/// Events emitted over the monitoring Tauri Channel.
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+pub enum MetricEvent {
+    /// A successful metrics sample.
+    Sample(MetricSample),
+    /// /proc is absent — remote is not Linux; UI should show "not supported".
+    /// The sampler stops after emitting this.
+    Unsupported,
+    /// A transient error (logged, sampler continues).
     Error { message: String },
 }
 

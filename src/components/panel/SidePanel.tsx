@@ -14,6 +14,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { SftpBrowser } from "../../features/sftp/SftpBrowser";
 import { TunnelManager } from "../../features/tunnel/TunnelManager";
 import { HistoryPanel } from "../../features/history/HistoryPanel";
+import { MonitoringPanel } from "../../features/monitoring/MonitoringPanel";
 import type { PanelSection } from "../../stores/workspaceStore";
 
 // ── SVG icons (inline, no external dep) ─────────────────────────────────────
@@ -98,6 +99,42 @@ function HistoryIcon() {
   );
 }
 
+function MonitoringIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* CPU activity line */}
+      <polyline
+        points="1,10 3,10 4,6 5,12 6,8 7,10 9,10"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      {/* Desktop monitor outline */}
+      <rect
+        x="1"
+        y="2"
+        width="14"
+        height="9"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+      />
+      <line x1="6" y1="11" x2="6" y2="14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="10" y1="11" x2="10" y2="14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="4.5" y1="14" x2="11.5" y2="14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg
@@ -149,7 +186,7 @@ export function SidePanel() {
 
   const sessionId = activeSession?.id ?? "";
 
-  function handleToggle(section: "sftp" | "tunnel" | "history") {
+  function handleToggle(section: "sftp" | "tunnel" | "history" | "monitoring") {
     if (!workspaceKey) return;
     const isActive = panelOpen && panelSection === section;
     if (isActive) {
@@ -205,6 +242,17 @@ export function SidePanel() {
         >
           <HistoryIcon />
         </button>
+
+        <button
+          type="button"
+          aria-pressed={panelOpen && panelSection === "monitoring"}
+          aria-label={t("panel.monitoring")}
+          className={`side-panel-rail-btn${panelOpen && panelSection === "monitoring" ? " side-panel-rail-btn-active" : ""}`}
+          onClick={() => handleToggle("monitoring")}
+          title={t("panel.monitoring")}
+        >
+          <MonitoringIcon />
+        </button>
       </div>
 
       {/* Collapsible content pane */}
@@ -224,7 +272,9 @@ export function SidePanel() {
                   ? t("panel.sftp")
                   : panelSection === "history"
                     ? t("panel.history")
-                    : t("panel.tunnels")}
+                    : panelSection === "monitoring"
+                      ? t("panel.monitoring")
+                      : t("panel.tunnels")}
               </span>
               <button
                 type="button"
@@ -250,6 +300,9 @@ export function SidePanel() {
                   terminalId={activeSession?.activeTerminalId ?? null}
                   host={activeSession?.host ?? ""}
                 />
+              )}
+              {panelSection === "monitoring" && sessionId && (
+                <MonitoringPanel sessionId={sessionId} />
               )}
             </div>
           </section>

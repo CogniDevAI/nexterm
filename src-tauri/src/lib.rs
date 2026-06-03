@@ -186,6 +186,10 @@ pub fn run() {
             commands::keygen::generate_ssh_key,
             // SSH exec
             commands::exec::ssh_exec,
+            // Monitoring
+            commands::monitoring::start_monitoring,
+            commands::monitoring::stop_monitoring,
+            commands::monitoring::kill_remote_process,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -684,6 +684,7 @@ pub async fn do_handshake(
         sftp: None,
         tunnels: HashMap::new(),
         keepalive_task: None,
+        monitoring_task: None,
         cancel_token: handshake.cancel_token,
         remote_forward_registry: Some(handshake.remote_fwd_registry),
     };
@@ -1123,6 +1124,14 @@ pub async fn disconnect(handle: &mut SessionHandle) -> Result<(), AppError> {
 
     // Cancel keepalive task
     if let Some(task) = handle.keepalive_task.take() {
+        task.abort();
+    }
+
+    // Abort monitoring sampler — MUST be explicit to prevent resource leak.
+    // The monitoring task holds a reference to the session and runs an SSH channel;
+    // if not aborted here, it would keep sampling until the CancellationToken fires,
+    // but the SSH handle below is about to be dropped which would make it error-loop.
+    if let Some(task) = handle.monitoring_task.take() {
         task.abort();
     }
 
