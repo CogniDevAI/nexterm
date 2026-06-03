@@ -72,8 +72,10 @@ describe("tokenize — choice variable {{env:choice:prod|staging|dev}}", () => {
 
   it("choice default is first item", () => {
     const tokens = tokenize("{{region:choice:us-east|eu-west}}");
-    const v = tokens[0];
-    if (v.kind === "variable" && v.type === "choice") {
+    const v = tokens[0]!;
+    expect(v.kind).toBe("variable");
+    if (v.kind === "variable") {
+      expect(v.type).toBe("choice");
       expect(v.default).toBe("us-east");
     }
   });

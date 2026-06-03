@@ -3,7 +3,7 @@
 // Pattern mirrors themeStore.test.ts exactly (vi.hoisted localStorage stub,
 // rehydrate() calls, merge validator).
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── localStorage stub (must be hoisted before any module import) ──
 const { localStorageMap } = vi.hoisted(() => {
@@ -54,8 +54,8 @@ describe("snippetStore — addSnippet", () => {
     });
     const { snippets } = useSnippetStore.getState();
     expect(snippets).toHaveLength(1);
-    expect(snippets[0].id).toBeTruthy();
-    expect(snippets[0].id).toMatch(
+    expect(snippets[0]!.id).toBeTruthy();
+    expect(snippets[0]!.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
   });
@@ -68,7 +68,7 @@ describe("snippetStore — addSnippet", () => {
       favorite: false,
     });
     const after = Date.now();
-    const s = useSnippetStore.getState().snippets[0];
+    const s = useSnippetStore.getState().snippets[0]!;
     expect(s.createdAt).toBeGreaterThanOrEqual(before);
     expect(s.createdAt).toBeLessThanOrEqual(after);
     expect(s.updatedAt).toBe(s.createdAt);
@@ -80,7 +80,7 @@ describe("snippetStore — addSnippet", () => {
       template: "df -h {{path:text:/}}",
       favorite: true,
     });
-    const s = useSnippetStore.getState().snippets[0];
+    const s = useSnippetStore.getState().snippets[0]!;
     expect(s.name).toBe("Disk usage");
     expect(s.template).toBe("df -h {{path:text:/}}");
     expect(s.favorite).toBe(true);
@@ -96,9 +96,9 @@ describe("snippetStore — updateSnippet", () => {
       template: "old template",
       favorite: false,
     });
-    const { id, createdAt } = useSnippetStore.getState().snippets[0];
+    const { id, createdAt } = useSnippetStore.getState().snippets[0]!;
     useSnippetStore.getState().updateSnippet(id, { name: "New name" });
-    const s = useSnippetStore.getState().snippets[0];
+    const s = useSnippetStore.getState().snippets[0]!;
     expect(s.name).toBe("New name");
     expect(s.template).toBe("old template"); // unchanged
     expect(s.createdAt).toBe(createdAt); // unchanged
@@ -111,9 +111,9 @@ describe("snippetStore — updateSnippet", () => {
       template: "ls",
       favorite: false,
     });
-    const before = useSnippetStore.getState().snippets[0];
+    const before = useSnippetStore.getState().snippets[0]!;
     useSnippetStore.getState().updateSnippet("nonexistent-id", { name: "X" });
-    const after = useSnippetStore.getState().snippets[0];
+    const after = useSnippetStore.getState().snippets[0]!;
     expect(after.name).toBe(before.name);
   });
 });
@@ -127,7 +127,7 @@ describe("snippetStore — deleteSnippet", () => {
       template: "rm -rf {{path}}",
       favorite: false,
     });
-    const { id } = useSnippetStore.getState().snippets[0];
+    const { id } = useSnippetStore.getState().snippets[0]!;
     useSnippetStore.getState().deleteSnippet(id);
     expect(useSnippetStore.getState().snippets).toHaveLength(0);
   });
@@ -135,11 +135,11 @@ describe("snippetStore — deleteSnippet", () => {
   it("leaves other snippets intact", () => {
     useSnippetStore.getState().addSnippet({ name: "A", template: "ls", favorite: false });
     useSnippetStore.getState().addSnippet({ name: "B", template: "pwd", favorite: false });
-    const [a, b] = useSnippetStore.getState().snippets;
+    const [a, b] = useSnippetStore.getState().snippets as [Snippet, Snippet];
     useSnippetStore.getState().deleteSnippet(a.id);
     const remaining = useSnippetStore.getState().snippets;
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].id).toBe(b.id);
+    expect(remaining[0]!.id).toBe(b.id);
   });
 });
 
@@ -150,7 +150,7 @@ describe("snippetStore — reorderSnippets", () => {
     useSnippetStore.getState().addSnippet({ name: "A", template: "a", favorite: false });
     useSnippetStore.getState().addSnippet({ name: "B", template: "b", favorite: false });
     useSnippetStore.getState().addSnippet({ name: "C", template: "c", favorite: false });
-    const [a, b, c] = useSnippetStore.getState().snippets;
+    const [a, b, c] = useSnippetStore.getState().snippets as [Snippet, Snippet, Snippet];
     useSnippetStore.getState().reorderSnippets([c.id, a.id, b.id]);
     const after = useSnippetStore.getState().snippets;
     expect(after.map((s) => s.name)).toEqual(["C", "A", "B"]);
@@ -206,7 +206,7 @@ describe("snippetStore — rehydration merge validator", () => {
     localStorageMap.set("nexterm-snippets", envelope);
     await useSnippetStore.persist.rehydrate();
     expect(useSnippetStore.getState().snippets).toHaveLength(1);
-    expect(useSnippetStore.getState().snippets[0].id).toBe("abc-123");
+    expect(useSnippetStore.getState().snippets[0]!.id).toBe("abc-123");
   });
 
   it("drops snippets missing id", async () => {
@@ -246,6 +246,6 @@ describe("snippetStore — rehydration merge validator", () => {
     localStorageMap.set("nexterm-snippets", envelope);
     await useSnippetStore.persist.rehydrate();
     expect(useSnippetStore.getState().snippets).toHaveLength(1);
-    expect(useSnippetStore.getState().snippets[0].id).toBe("g1");
+    expect(useSnippetStore.getState().snippets[0]!.id).toBe("g1");
   });
 });

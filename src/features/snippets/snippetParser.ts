@@ -36,11 +36,6 @@ export class MissingVariableError extends Error {
   }
 }
 
-// Regex that matches:
-//   group 1: an escaped opening \\{{
-//   group 2: a {{...}} expression (non-greedy)
-const TOKEN_RE = /\\(\{\{)|(\{\{[^}]*}\})/g;
-
 /**
  * Tokenize a snippet template string into an array of Token objects.
  * Pure function — no side effects, no async.
