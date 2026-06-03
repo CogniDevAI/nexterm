@@ -67,6 +67,12 @@ pub enum AppError {
     #[error("Connection timeout")]
     ConnectionTimeout,
 
+    #[error("Exec timeout")]
+    ExecTimeout,
+
+    #[error("Exec cancelled")]
+    ExecCancelled,
+
     #[error("User selection required: profile has multiple users — provide a userId")]
     UserSelectionRequired,
 
@@ -150,6 +156,13 @@ mod tests {
     }
 
     #[test]
+    fn exec_cancelled_serializes() {
+        let err = AppError::ExecCancelled;
+        let serialized = serde_json::to_string(&err).unwrap();
+        assert_eq!(serialized, "\"Exec cancelled\"");
+    }
+
+    #[test]
     fn all_variants_serialize() {
         let id = uuid::Uuid::nil();
         let variants: Vec<AppError> = vec![
@@ -171,6 +184,8 @@ mod tests {
             AppError::TransferCancelled,
             AppError::KeyError("test".into()),
             AppError::ConnectionTimeout,
+            AppError::ExecTimeout,
+            AppError::ExecCancelled,
             AppError::UserSelectionRequired,
             AppError::UserNotFound(id),
             AppError::Other("test".into()),
