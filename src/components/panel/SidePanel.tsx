@@ -13,6 +13,7 @@ import { useWorkspaceStore, buildWorkspaceKey } from "../../stores/workspaceStor
 import { useSessionStore } from "../../stores/sessionStore";
 import { SftpBrowser } from "../../features/sftp/SftpBrowser";
 import { TunnelManager } from "../../features/tunnel/TunnelManager";
+import { HistoryPanel } from "../../features/history/HistoryPanel";
 import type { PanelSection } from "../../stores/workspaceStore";
 
 // ── SVG icons (inline, no external dep) ─────────────────────────────────────
@@ -70,6 +71,33 @@ function TunnelIcon() {
   );
 }
 
+function HistoryIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.2" />
+      <path
+        d="M8 5v3.5l2 1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.5 4L3 2.5M4.5 4l.5-1.5"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg
@@ -121,7 +149,7 @@ export function SidePanel() {
 
   const sessionId = activeSession?.id ?? "";
 
-  function handleToggle(section: "sftp" | "tunnel") {
+  function handleToggle(section: "sftp" | "tunnel" | "history") {
     if (!workspaceKey) return;
     const isActive = panelOpen && panelSection === section;
     if (isActive) {
@@ -166,6 +194,17 @@ export function SidePanel() {
         >
           <TunnelIcon />
         </button>
+
+        <button
+          type="button"
+          aria-pressed={panelOpen && panelSection === "history"}
+          aria-label={t("panel.history")}
+          className={`side-panel-rail-btn${panelOpen && panelSection === "history" ? " side-panel-rail-btn-active" : ""}`}
+          onClick={() => handleToggle("history")}
+          title={t("panel.history")}
+        >
+          <HistoryIcon />
+        </button>
       </div>
 
       {/* Collapsible content pane */}
@@ -181,7 +220,11 @@ export function SidePanel() {
             {/* Header with close button */}
             <div className="side-panel-header">
               <span className="side-panel-title">
-                {panelSection === "sftp" ? t("panel.sftp") : t("panel.tunnels")}
+                {panelSection === "sftp"
+                  ? t("panel.sftp")
+                  : panelSection === "history"
+                    ? t("panel.history")
+                    : t("panel.tunnels")}
               </span>
               <button
                 type="button"
@@ -200,6 +243,13 @@ export function SidePanel() {
               )}
               {panelSection === "tunnel" && sessionId && (
                 <TunnelManager sessionId={sessionId} />
+              )}
+              {panelSection === "history" && sessionId && (
+                <HistoryPanel
+                  sessionId={sessionId}
+                  terminalId={activeSession?.activeTerminalId ?? null}
+                  host={activeSession?.host ?? ""}
+                />
               )}
             </div>
           </section>
