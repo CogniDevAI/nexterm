@@ -167,8 +167,9 @@
 }
 
 /* ═══════════════════════════════════════════════════
-   Split Terminal Layout (prep — CSS only)
-   Future: split-pane terminal layout
+   Split Terminal Layout
+   Flat 1D pane grid — horizontal or vertical.
+   Focus ring driven by data-focused attr.
    ═══════════════════════════════════════════════════ */
 
 .terminal-split {
@@ -191,24 +192,68 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  /* Smooth transition when ratios change on drag end */
+  transition: flex var(--transition-fast);
+  /* Subtle border to visually separate panes */
+  outline: none;
 }
+
+/* Focus ring on the focused pane.
+   data-focused="true" is set by PaneSplitView via focusedSlotId. */
+.terminal-split-pane[data-focused="true"] {
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+/* Keyboard focus visible ring (distinct from mouse focus ring) */
+.terminal-split-pane:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
+/* ── Resize handle ──────────────────────────────── */
 
 .terminal-split-handle {
   flex-shrink: 0;
-  background-color: var(--border);
+  background-color: var(--border-subtle);
   transition: background-color var(--transition-fast);
+  /* Touch-friendly hit area without changing the visual gap */
+  padding: 0 2px;
+  box-sizing: content-box;
 }
 
-.terminal-split-handle:hover {
+.terminal-split-handle:hover,
+.terminal-split-handle:active {
   background-color: var(--accent);
 }
 
 .terminal-split-horizontal > .terminal-split-handle {
-  width: 3px;
+  width: 1px;
   cursor: col-resize;
 }
 
 .terminal-split-vertical > .terminal-split-handle {
-  height: 3px;
+  height: 1px;
   cursor: row-resize;
+}
+
+/* ── Tab bar split button ────────────────────────── */
+
+.terminal-tab-split {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 6px;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.terminal-tab-split:hover {
+  color: var(--text-primary);
+}
+
+.terminal-tab-split:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
