@@ -111,15 +111,8 @@ pub async fn start_monitoring_task(
             // We encode this by storing a wrapper task that the child_token controls.
             // The actual child_token cancellation is done via stop_monitoring_task below.
             session.monitoring_task = Some(task);
-            // Store child token on the session for stop_monitoring to use.
-            // We repurpose the cancel slot: child_token lives in the closure captured above.
-            // To cancel from stop_monitoring we need to hold the child_token somewhere.
-            // Solution: wrap the child_token in the task JoinHandle by storing it separately.
-            // For simplicity: store child_token as a separate field would require state change.
-            // Instead: abort() the task from stop_monitoring (same effect — task exits cleanly
-            // because it handles TaskCancelled in its select! via the abort path).
-            // The loop is written so abort() causes an immediate clean exit.
-            let _ = child_token; // child_token cancellation not needed separately: abort works
+            // child_token was cloned into the loop above; abort() on the JoinHandle
+            // is sufficient to stop the sampler — no separate cancel needed here.
         }
     }
 
