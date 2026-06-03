@@ -260,6 +260,79 @@
   cursor: not-allowed;
 }
 
+/* ── Broadcast toggle button (tab bar) ──────────── */
+
+/* Visible only when paneCount >= 2 (conditional render in TerminalTabs).
+   ON state: warning color + wash background.
+   OFF state: muted like other tab-bar buttons. */
+.terminal-tab-broadcast {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-meta);
+  font-family: var(--font-sans);
+  padding: 2px 7px;
+  line-height: var(--lh-body);
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.terminal-tab-broadcast:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+/* ON state: warning token so it's clearly active */
+.terminal-tab-broadcast[aria-pressed="true"] {
+  color: var(--warning);
+  background-color: var(--warning-wash);
+}
+
+.terminal-tab-broadcast[aria-pressed="true"]:hover {
+  background-color: var(--warning-wash);
+}
+
+/* ── Broadcast banner (inside .terminal-split) ───── */
+
+/* Full-width strip at the top of the split container.
+   Uses --warning / --warning-wash LAMPLIGHT tokens.
+   z-index above terminal canvas but below dialogs.
+   NOT color-only: explicit text label required by design. */
+.terminal-broadcast-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background-color: var(--warning-wash);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-body);
+  pointer-events: none; /* passthrough to terminal beneath */
+}
+
+.terminal-broadcast-banner-icon {
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.terminal-broadcast-banner-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Per-pane close button ───────────────────────── */
 
 /* Positioned absolutely in the top-right corner of the pane.
