@@ -159,6 +159,15 @@ export const en = {
   "terminal.connected": "Connected",
   "terminal.noTerminal": "No terminal open. Click + to create one.",
 
+  // Terminal find-bar
+  "terminal.find.placeholder": "Search in terminal...",
+  "terminal.find.matchCount": "{current} of {total}",
+  "terminal.find.noMatches": "No matches",
+  "terminal.find.prevMatch": "Previous match (Shift+Enter)",
+  "terminal.find.nextMatch": "Next match (Enter)",
+  "terminal.find.closeSearch": "Close search (Escape)",
+  "terminal.find.caseToggle": "Case sensitive",
+
   // SFTP toolbar
   "sftp.upload": "Upload",
   "sftp.download": "Download",

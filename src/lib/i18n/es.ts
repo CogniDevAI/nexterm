@@ -161,6 +161,15 @@ export const es: Record<TranslationKey, string> = {
   "terminal.connected": "Conectado",
   "terminal.noTerminal": "Sin terminal abierta. Hacé clic en + para crear una.",
 
+  // Terminal find-bar
+  "terminal.find.placeholder": "Buscar en la terminal...",
+  "terminal.find.matchCount": "{current} de {total}",
+  "terminal.find.noMatches": "Sin coincidencias",
+  "terminal.find.prevMatch": "Coincidencia anterior (Shift+Enter)",
+  "terminal.find.nextMatch": "Siguiente coincidencia (Enter)",
+  "terminal.find.closeSearch": "Cerrar búsqueda (Escape)",
+  "terminal.find.caseToggle": "Distinguir mayúsculas",
+
   // SFTP toolbar
   "sftp.upload": "Subir",
   "sftp.download": "Descargar",

@@ -64,6 +64,16 @@ vi.mock("@xterm/addon-web-links", () => ({
   WebLinksAddon: vi.fn().mockImplementation(() => ({ dispose: vi.fn() })),
 }));
 
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: vi.fn().mockImplementation(() => ({
+    activate: vi.fn(),
+    dispose: vi.fn(),
+    findNext: vi.fn().mockReturnValue(false),
+    findPrevious: vi.fn().mockReturnValue(false),
+    onDidChangeResults: vi.fn(),
+  })),
+}));
+
 vi.mock("./TerminalView", () => ({
   TerminalView: ({ active }: { active: boolean }) => (
     <div data-testid="terminal-view" data-active={active} />

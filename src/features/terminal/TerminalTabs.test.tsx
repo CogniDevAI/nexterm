@@ -56,6 +56,16 @@ vi.mock("@xterm/addon-web-links", () => ({
   })),
 }));
 
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: vi.fn().mockImplementation(() => ({
+    activate: vi.fn(),
+    dispose: vi.fn(),
+    findNext: vi.fn().mockReturnValue(false),
+    findPrevious: vi.fn().mockReturnValue(false),
+    onDidChangeResults: vi.fn(),
+  })),
+}));
+
 // Mock TerminalView — we only care about TerminalTabs rendering the shell
 vi.mock("./TerminalView", () => ({
   TerminalView: ({ active }: { active: boolean }) => (
