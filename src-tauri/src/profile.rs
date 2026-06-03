@@ -137,6 +137,13 @@ pub struct ConnectionProfile {
     pub startup_directory: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub startup_commands: Vec<String>,
+    /// User-assigned folder name for sidebar grouping.
+    /// When set, the sidebar groups this profile under the folder name verbatim
+    /// instead of falling back to the name-heuristic group.
+    /// `#[serde(default)]` keeps pre-existing profiles (written before this
+    /// field) deserializing without error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     pub tunnels: Vec<TunnelConfig>,
     #[serde(default)]
     pub display_order: i32,
@@ -191,6 +198,7 @@ impl Default for ConnectionProfile {
             users: Vec::new(),
             startup_directory: None,
             startup_commands: Vec::new(),
+            folder: None,
             tunnels: Vec::new(),
             display_order: 0,
             created_at: Utc::now(),
@@ -903,6 +911,79 @@ mod tests {
         assert!(
             profile.startup_commands.is_empty(),
             "startup_commands must default to empty for old profiles"
+        );
+    }
+
+    // ─── folder field back-compat tests ────────────────────────────────────
+
+    #[test]
+    fn folder_field_defaults_none_on_old_profile() {
+        // A profile written before the folder field existed must still
+        // deserialize cleanly with folder == None (back-compat critical path).
+        let old_json = r#"{
+            "id": "00000000-0000-0000-0000-000000000020",
+            "name": "Old Server",
+            "host": "old.example.com",
+            "port": 22,
+            "users": [{
+                "id": "00000000-0000-0000-0000-000000000021",
+                "username": "root",
+                "authMethod": {"type": "password"},
+                "isDefault": true
+            }],
+            "startupDirectory": null,
+            "tunnels": [],
+            "displayOrder": 0,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z"
+        }"#;
+
+        let profile: ConnectionProfile = serde_json::from_str(old_json).unwrap();
+        assert!(
+            profile.folder.is_none(),
+            "missing folder key must default to None"
+        );
+    }
+
+    #[test]
+    fn folder_roundtrips_on_disk() {
+        let dir = std::env::temp_dir().join(format!("folder_roundtrip_test_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let profiles = vec![ConnectionProfile {
+            name: "Folder Server".to_string(),
+            host: "folder.example.com".to_string(),
+            users: vec![UserCredential {
+                id: Uuid::new_v4(),
+                username: "deploy".to_string(),
+                auth_method: AuthMethodConfig::Password,
+                is_default: true,
+            }],
+            folder: Some("production".to_string()),
+            ..ConnectionProfile::default()
+        }];
+
+        save_profiles_to_disk(&profiles, Some(&dir)).unwrap();
+        let loaded = load_profiles_from_disk(Some(&dir)).unwrap();
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(
+            loaded[0].folder.as_deref(),
+            Some("production"),
+            "folder must survive save+load roundtrip"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folder_omitted_from_json_when_none() {
+        // skip_serializing_if = "Option::is_none" keeps clean JSON when no folder.
+        let profile = test_profile("No Folder", "example.com", "user");
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(
+            !json.contains("folder"),
+            "folder must be omitted when None, got: {json}"
         );
     }
 
