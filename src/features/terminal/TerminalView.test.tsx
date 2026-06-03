@@ -85,7 +85,7 @@ vi.mock("@xterm/addon-search", () => {
     dispose = vi.fn();
     findNext = vi.fn().mockReturnValue(false);
     findPrevious = vi.fn().mockReturnValue(false);
-    onDidChangeResults = vi.fn();
+    onDidChangeResults = vi.fn().mockReturnValue({ dispose: vi.fn() });
   }
   return { SearchAddon: MockSearchAddon };
 });
@@ -114,7 +114,7 @@ Object.defineProperty(navigator, "clipboard", {
 });
 
 import { TerminalView } from "./TerminalView";
-import { registerFindBarOpener } from "./useTerminal";
+import { registerFindBarOpener, _testGetFindBarOpener } from "./useTerminal";
 
 function renderTerminalView(props?: { active?: boolean }) {
   return render(
@@ -153,37 +153,87 @@ describe("TerminalView — find-bar integration", () => {
     await waitFor(() => expect(onTerminalOpened).toHaveBeenCalled());
     const termId: string = onTerminalOpened.mock.calls[0]?.[0] as string;
 
-    // Directly invoke the registered opener (simulates attachCustomKeyEventHandler calling it)
+    // Confirm find-bar is not visible before the opener fires
+    expect(screen.queryByTestId("find-bar")).toBeNull();
+
+    // Retrieve the actual React setState-based opener that TerminalView registered
+    const opener = _testGetFindBarOpener(termId);
+    expect(opener).not.toBeNull();
+
+    // Invoke the opener — this drives the actual find-bar open state
     act(() => {
-      registerFindBarOpener(termId, () => {
-        // This re-invokes the existing opener stored in the instance
-      });
-      // The find-bar opener is set by TerminalView itself; we need to trigger it.
-      // Since the xterm mock's attachCustomKeyEventHandler is a noop, we simulate
-      // the find-bar opening via the internal callback by registering a known opener
-      // then testing via direct state manipulation is not possible.
-      // Instead, the find-bar open state is tested via the component's own effect.
+      opener?.();
     });
 
-    // The instance has callbackOnOpenFindBar set by TerminalView.
-    // We need to import _testSeedTerminalInstance to call it.
-    // But the simpler test: verify the TerminalView renders a wrapper and
-    // the find-bar can be opened by re-registering with a forced open call.
-    // This is tested via the integration in FindBar.test.tsx.
-    // Here, just confirm the find-bar is NOT rendered by default.
-    expect(screen.queryByTestId("find-bar")).toBeNull();
+    // Find-bar should now be visible
+    expect(screen.getByTestId("find-bar")).toBeTruthy();
   });
 
-  it("closes the find-bar when onClose is called (state toggle)", async () => {
-    // Since testing the xterm key handler in jsdom is not feasible without
-    // real xterm instance, we verify the wrapper renders correctly and
-    // FindBar close works when the find-bar is open.
-    // This is covered by FindBar.test.tsx individual unit tests.
-    // Here we ensure the component doesn't crash when rendered.
-    const { container } = renderTerminalView();
-    await act(async () => {});
-    expect(container.querySelector(".terminal-wrapper")).not.toBeNull();
+  it("closes the find-bar when onClose is called", async () => {
+    const onTerminalOpened = vi.fn();
+    render(
+      <TerminalView
+        sessionId="sess-close"
+        terminalId={null}
+        onTerminalOpened={onTerminalOpened}
+        active={true}
+      />,
+    );
+
+    await waitFor(() => expect(onTerminalOpened).toHaveBeenCalled());
+    const termId: string = onTerminalOpened.mock.calls[0]?.[0] as string;
+
+    // Open the find-bar
+    const opener = _testGetFindBarOpener(termId);
+    act(() => { opener?.(); });
+    expect(screen.getByTestId("find-bar")).toBeTruthy();
+
+    // Close it via the close button
+    act(() => {
+      screen.getByTestId("find-bar-close").click();
+    });
     expect(screen.queryByTestId("find-bar")).toBeNull();
+  });
+});
+
+describe("TerminalView — opener registration lifecycle", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("registers an opener callback after mount that is non-null", async () => {
+    const onTerminalOpened = vi.fn();
+    render(
+      <TerminalView
+        sessionId="sess-reg"
+        terminalId={null}
+        onTerminalOpened={onTerminalOpened}
+        active={true}
+      />,
+    );
+    await waitFor(() => expect(onTerminalOpened).toHaveBeenCalled());
+    const termId: string = onTerminalOpened.mock.calls[0]?.[0] as string;
+
+    // The opener slot must be populated by TerminalView via registerFindBarOpener
+    expect(_testGetFindBarOpener(termId)).toBeTypeOf("function");
+  });
+
+  it("re-registering with a different callback replaces the previous one (no-throw)", async () => {
+    const onTerminalOpened = vi.fn();
+    render(
+      <TerminalView
+        sessionId="sess-rereg"
+        terminalId={null}
+        onTerminalOpened={onTerminalOpened}
+        active={true}
+      />,
+    );
+    await waitFor(() => expect(onTerminalOpened).toHaveBeenCalled());
+    const termId: string = onTerminalOpened.mock.calls[0]?.[0] as string;
+
+    const newFn = vi.fn();
+    expect(() => registerFindBarOpener(termId, newFn)).not.toThrow();
+    expect(_testGetFindBarOpener(termId)).toBe(newFn);
   });
 });
 

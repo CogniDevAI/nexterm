@@ -150,6 +150,98 @@ describe("findNextInTerminal / findPrevInTerminal", () => {
   });
 });
 
+// MAJOR-8: decideTerminalKeyAction pure function tests (RED first)
+import { decideTerminalKeyAction } from "./useTerminal";
+
+function makeEvent(overrides: Partial<KeyboardEvent>): KeyboardEvent {
+  return {
+    type: "keydown",
+    key: "",
+    code: "",
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...overrides,
+  } as KeyboardEvent;
+}
+
+describe("decideTerminalKeyAction — all branches", () => {
+  // Cmd/Ctrl+F → open-find (only keydown)
+  it("Mac: Cmd+F returns open-find", () => {
+    const e = makeEvent({ metaKey: true, code: "KeyF" });
+    expect(decideTerminalKeyAction(e, { isMac: true, hasSelection: false })).toBe("open-find");
+  });
+
+  it("non-Mac: Ctrl+F returns open-find", () => {
+    const e = makeEvent({ ctrlKey: true, code: "KeyF" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: false })).toBe("open-find");
+  });
+
+  it("Ctrl+F on keyup returns passthrough (only keydown triggers find)", () => {
+    const e = makeEvent({ ctrlKey: true, code: "KeyF", type: "keyup" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: false })).toBe("passthrough");
+  });
+
+  it("Mac: Ctrl+F returns passthrough (Mac uses Cmd, not Ctrl)", () => {
+    const e = makeEvent({ ctrlKey: true, code: "KeyF" });
+    expect(decideTerminalKeyAction(e, { isMac: true, hasSelection: false })).toBe("passthrough");
+  });
+
+  // Ctrl+C + selection (non-Mac) → copy
+  it("non-Mac: Ctrl+C with selection returns copy", () => {
+    const e = makeEvent({ ctrlKey: true, code: "KeyC" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: true })).toBe("copy");
+  });
+
+  // Ctrl+C no selection (non-Mac) → passthrough (SIGINT)
+  it("non-Mac: Ctrl+C without selection returns passthrough (SIGINT)", () => {
+    const e = makeEvent({ ctrlKey: true, code: "KeyC" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: false })).toBe("passthrough");
+  });
+
+  // Ctrl+Shift+C → copy (always)
+  it("Ctrl+Shift+C returns copy (non-Mac, no selection)", () => {
+    const e = makeEvent({ ctrlKey: true, shiftKey: true, code: "KeyC" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: false })).toBe("copy");
+  });
+
+  it("Ctrl+Shift+C returns copy (non-Mac, with selection)", () => {
+    const e = makeEvent({ ctrlKey: true, shiftKey: true, code: "KeyC" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: true })).toBe("copy");
+  });
+
+  // Mac: Cmd+C → passthrough (handled by OS)
+  it("Mac: Cmd+C returns passthrough (OS handles it)", () => {
+    const e = makeEvent({ metaKey: true, code: "KeyC" });
+    expect(decideTerminalKeyAction(e, { isMac: true, hasSelection: true })).toBe("passthrough");
+  });
+
+  // Plain key → passthrough
+  it("plain key (letter) returns passthrough", () => {
+    const e = makeEvent({ code: "KeyA" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: false })).toBe("passthrough");
+  });
+
+  // MINOR-5: layout-independent — code-based, not key-based
+  it("uses event.code (KeyF/KeyC) not event.key — Ctrl+F with key='ƒ' still opens find", () => {
+    // Option+F on Mac produces key='ƒ' — if we checked key we'd miss it with metaKey
+    const e = makeEvent({ metaKey: true, code: "KeyF", key: "ƒ" });
+    expect(decideTerminalKeyAction(e, { isMac: true, hasSelection: false })).toBe("open-find");
+  });
+
+  it("uses event.code (KeyC) not event.key — Ctrl+Shift+C with key='C' still copies", () => {
+    const e = makeEvent({ ctrlKey: true, shiftKey: true, code: "KeyC", key: "C" });
+    expect(decideTerminalKeyAction(e, { isMac: false, hasSelection: false })).toBe("copy");
+  });
+
+  // non-keydown event type → passthrough
+  it("Cmd+F on keypress (not keydown) returns passthrough", () => {
+    const e = makeEvent({ metaKey: true, code: "KeyF", type: "keypress" });
+    expect(decideTerminalKeyAction(e, { isMac: true, hasSelection: false })).toBe("passthrough");
+  });
+});
+
 // MINOR-4: applyThemeToAllTerminals live-instance coverage
 // We expose a test-only seeding helper to register fake instances into the Map.
 // Import it only in test context; production code never uses it.

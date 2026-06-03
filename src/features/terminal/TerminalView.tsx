@@ -9,13 +9,35 @@ import { useTerminal } from "./useTerminal";
 import {
   registerFindBarOpener,
   unregisterFindBarOpener,
+  registerSearchResultsCallback,
+  unregisterSearchResultsCallback,
   findNextInTerminal,
   findPrevInTerminal,
 } from "./useTerminal";
+import type { SearchResults } from "./useTerminal";
 import { FindBar } from "./FindBar";
 import { tauriInvoke } from "../../lib/tauri";
 import "../../styles/terminal.css";
 import "@xterm/xterm/css/xterm.css";
+
+/** Shared search options — MUST be passed to every findNext/findPrevious call.
+ *  Decorations are required for onDidChangeResults to fire. Colors are concrete
+ *  hex/rgba strings (xterm cannot resolve CSS var() references). */
+function buildSearchOptions(caseSensitive: boolean) {
+  return {
+    caseSensitive,
+    decorations: {
+      // Non-active matches: warm amber wash
+      matchBackground: "rgba(212,160,58,0.25)",
+      matchBorder: "rgba(212,160,58,0.55)",
+      matchOverviewRuler: "#d4a03a",
+      // Active match: copper accent (#ea9e51 from LAMPLIGHT/DARK cursor)
+      activeMatchBackground: "rgba(234,158,81,0.45)",
+      activeMatchBorder: "rgba(234,158,81,0.90)",
+      activeMatchColorOverviewRuler: "#ea9e51",
+    },
+  } as const;
+}
 
 interface TerminalViewProps {
   sessionId: SessionId;
@@ -47,9 +69,15 @@ export function TerminalView({
   const [matchCurrent, setMatchCurrent] = useState(0);
   const [matchTotal, setMatchTotal] = useState(0);
 
-  // Helper: register find-bar opener for a given terminalId
+  // Helper: register find-bar opener and search results callback for a given terminalId
   const registerOpener = useCallback((id: TerminalId) => {
     registerFindBarOpener(id, () => setFindBarOpen(true));
+    registerSearchResultsCallback(id, (r: SearchResults) => {
+      // resultIndex is -1 when there are no matches or when the decoration threshold
+      // has been exceeded. Display 1-based: current = resultIndex + 1 (0 when -1).
+      setMatchCurrent(r.resultIndex < 0 ? 0 : r.resultIndex + 1);
+      setMatchTotal(r.resultCount);
+    });
     registeredTerminalIdRef.current = id;
   }, []);
 
@@ -77,16 +105,17 @@ export function TerminalView({
     const didReattach = reattachTerminal(terminalId, containerRef.current);
     if (didReattach) {
       attachedRef.current = true;
-      // Re-register find-bar opener after reattach (the instance is fresh)
+      // Re-register find-bar opener and search results callback after reattach
       registerOpener(terminalId);
     }
   }, [terminalId, reattachTerminal, registerOpener]);
 
-  // Unregister opener on unmount
+  // Unregister opener and search results callback on unmount
   useEffect(() => {
     return () => {
       if (registeredTerminalIdRef.current) {
         unregisterFindBarOpener(registeredTerminalIdRef.current);
+        unregisterSearchResultsCallback(registeredTerminalIdRef.current);
       }
     };
   }, []);
@@ -98,7 +127,10 @@ export function TerminalView({
     }
   }, [active, terminalId, focusTerminal]);
 
-  // Run search whenever query, caseSensitive, or findBarOpen changes
+  // Run search whenever query, caseSensitive, or findBarOpen changes.
+  // Match counts are updated via the onDidChangeResults subscription wired in
+  // openTerminal → they arrive through the callbackOnSearchResults callback.
+  // We reset counts when the bar is closed or the query is empty.
   useEffect(() => {
     const id = terminalId ?? registeredTerminalIdRef.current;
     if (!id || !findBarOpen || !findQuery) {
@@ -106,19 +138,8 @@ export function TerminalView({
       setMatchTotal(0);
       return;
     }
-    // Run findNext to highlight the first match and get a result
-    const found = findNextInTerminal(id, findQuery, { caseSensitive, decorations: {
-      matchBackground: "rgba(255,200,0,0.3)",
-      matchBorder: "rgba(255,200,0,0.6)",
-      matchOverviewRuler: "#ffcc00",
-      activeMatchBackground: "rgba(255,160,0,0.5)",
-      activeMatchBorder: "rgba(255,160,0,0.9)",
-      activeMatchColorOverviewRuler: "#ffa000",
-    }});
-    // xterm SearchAddon doesn't expose total count synchronously in v6;
-    // we track found as a boolean and show 1/? or 0
-    setMatchTotal(found ? 1 : 0);
-    setMatchCurrent(found ? 1 : 0);
+    // Trigger the initial search — onDidChangeResults will fire and update counts.
+    findNextInTerminal(id, findQuery, buildSearchOptions(caseSensitive));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findQuery, caseSensitive, findBarOpen]);
 
@@ -135,13 +156,15 @@ export function TerminalView({
   const handleFindNext = useCallback(() => {
     const id = terminalId ?? registeredTerminalIdRef.current;
     if (!id || !findQuery) return;
-    findNextInTerminal(id, findQuery, { caseSensitive });
+    // Use shared options (with decorations) so highlights + counts are preserved
+    findNextInTerminal(id, findQuery, buildSearchOptions(caseSensitive));
   }, [terminalId, findQuery, caseSensitive]);
 
   const handleFindPrev = useCallback(() => {
     const id = terminalId ?? registeredTerminalIdRef.current;
     if (!id || !findQuery) return;
-    findPrevInTerminal(id, findQuery, { caseSensitive });
+    // Use shared options (with decorations) so highlights + counts are preserved
+    findPrevInTerminal(id, findQuery, buildSearchOptions(caseSensitive));
   }, [terminalId, findQuery, caseSensitive]);
 
   // Right-click paste: read clipboard and send to terminal
