@@ -9,6 +9,25 @@
 // - Escape sequences (CSI/SS3): on \x1b set inEscSeq=true, skip until letter or ~.
 // - Buffer cap: >2048 chars resets without flush (runaway paste guard).
 // - Flushed command is trimmed; empty-after-trim → no flush.
+//
+// ACCEPTED v1 LIMITATIONS (no behavior change planned):
+//
+// MINOR-1 — Bare ESC followed by typing may swallow the next char.
+//   A lone ESC keypress (not part of a CSI/SS3 sequence) sets inEscSeq=true.
+//   The very next character is then treated as a CSI/SS3 byte and skipped
+//   instead of being appended to the buffer. We cannot distinguish a standalone
+//   ESC from the introducer of a two-byte sequence without lookahead, and
+//   xterm.js delivers the ESC in a separate onData chunk when it is part of a
+//   real sequence anyway. Practical impact is negligible — bare ESC at a shell
+//   prompt exits most modes without producing output.
+//
+// MINOR-2 — A single onData chunk containing multiple \r-terminated commands
+//   records only the last one.
+//   reduceLineBuffer processes chars sequentially; each \r flushes and the
+//   `flushed` field is overwritten on every flush within the same chunk. Only
+//   the final flush in the chunk is visible to the caller. This is a v1
+//   simplification: pasting multiple commands at once is unusual, and recording
+//   the last is more useful than recording nothing.
 
 /** Maximum buffer length. Exceeded → reset without recording. */
 const BUFFER_CAP = 2048;

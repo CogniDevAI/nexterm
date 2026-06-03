@@ -8,7 +8,6 @@ import { describe, it, expect } from "vitest";
 import {
   reduceLineBuffer,
   makeLineBufferState,
-  type LineBufferState,
 } from "./lineBufferReducer";
 
 // ── Initial state ─────────────────────────────────────────────────────────────
@@ -270,6 +269,49 @@ describe("lineBufferReducer — buffer cap", () => {
     s = reduceLineBuffer(s, "x".repeat(2049));
     s = reduceLineBuffer(s, "ok");
     expect(s.buffer).toBe("ok");
+  });
+});
+
+// ── Cross-chunk escape state (inEscSeq / inSS3 persists between chunks) ──────
+//
+// The reducer carries escape-sequence state across calls. These tests verify
+// that a sequence split across two onData chunks is handled correctly and no
+// char leaks into the buffer.
+
+describe("lineBufferReducer — cross-chunk escape state (MINOR-3)", () => {
+  it("CSI split: feeding 'ls\\x1b' then '[A' keeps buffer as 'ls'", () => {
+    // Simulates an up-arrow split: chunk1 ends with bare ESC, chunk2 has '[A'
+    let s = makeLineBufferState();
+    s = reduceLineBuffer(s, "ls\x1b");
+    // inEscSeq must be true after chunk1
+    expect(s.inEscSeq).toBe(true);
+    s = reduceLineBuffer(s, "[A");
+    // '[' is an intermediate CSI char; 'A' is the letter terminator
+    expect(s.buffer).toBe("ls");
+    expect(s.inEscSeq).toBe(false);
+    expect(s.flushed).toBeUndefined();
+  });
+
+  it("CSI split: buffer flushes correctly on \\r after cross-chunk sequence", () => {
+    let s = makeLineBufferState();
+    s = reduceLineBuffer(s, "ls\x1b");
+    s = reduceLineBuffer(s, "[A\r");
+    // The up-arrow should be eaten; only 'ls' should flush
+    expect(s.flushed).toBe("ls");
+    expect(s.buffer).toBe("");
+  });
+
+  it("SS3 split: feeding 'x\\x1b' then 'OP' (F1) keeps buffer as 'x'", () => {
+    // ESC O is SS3 introducer, P is the F1 terminator — split across two chunks
+    let s = makeLineBufferState();
+    s = reduceLineBuffer(s, "x\x1b");
+    expect(s.inEscSeq).toBe(true);
+    s = reduceLineBuffer(s, "OP");
+    // 'O' transitions to inSS3; 'P' terminates it — 'x' must remain, no leakage
+    expect(s.buffer).toBe("x");
+    expect(s.inEscSeq).toBe(false);
+    expect(s.inSS3).toBe(false);
+    expect(s.flushed).toBeUndefined();
   });
 });
 

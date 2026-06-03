@@ -542,11 +542,15 @@ function _processOnDataChunk(
 ): LineBufferState {
   const prev = prevState ?? makeLineBufferState();
 
-  // SECURITY: early return when capture is disabled — do not run the reducer
-  // at all so there is zero processing overhead when the feature is off.
+  // SECURITY: early return when capture is disabled — do NOT run the reducer
+  // and do NOT accumulate any chars. Return a fresh empty state so that typed
+  // characters (including passwords at no-echo prompts) are never held in
+  // memory. Re-enabling capture starts from a clean slate. Keystrokes are
+  // still forwarded to write_terminal by the caller — this tap never affects
+  // normal terminal I/O.
   const { captureEnabled, addCommand } = useCommandHistoryStore.getState();
   if (!captureEnabled) {
-    return reduceLineBuffer(prev, chunk);
+    return makeLineBufferState();
   }
 
   const next = reduceLineBuffer(prev, chunk);

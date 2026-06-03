@@ -327,7 +327,32 @@ describe("_testProcessOnDataChunk — onData history tap", () => {
     expect(mockAddCommand).not.toHaveBeenCalled();
   });
 
-  it("accumulates chars without flushing when no \\r", () => {
+  // MAJOR-1 (SECURITY): with captureEnabled=false the reducer must NOT accumulate
+  // typed chars — the per-instance lineBuffer.buffer must stay "" so passwords
+  // typed at no-echo prompts are never held in memory.
+  it("does NOT accumulate chars in buffer when captureEnabled=false (SECURITY)", () => {
+    // captureEnabled: false is set by beforeEach
+    const state = _testProcessOnDataChunk(undefined, "secret-password", "sess-1", "host");
+    expect(state.buffer).toBe("");
+    expect(mockAddCommand).not.toHaveBeenCalled();
+  });
+
+  it("returns fresh empty state on every call when captureEnabled=false", () => {
+    // Even when called with an existing non-empty prev state, capture-off must
+    // discard everything and return a clean slate.
+    const fakeNonEmpty = { buffer: "already-accumulated", inEscSeq: false, inSS3: false };
+    const state = _testProcessOnDataChunk(fakeNonEmpty as never, "more", "sess-1", "host");
+    expect(state.buffer).toBe("");
+    expect(mockAddCommand).not.toHaveBeenCalled();
+  });
+
+  it("accumulates chars without flushing when no \\r (captureEnabled=true)", () => {
+    // Accumulation requires capture to be enabled — with capture off the buffer
+    // is always reset to empty (SECURITY, see MAJOR-1 tests above).
+    mockedHistoryStore.getState.mockReturnValue({
+      captureEnabled: true,
+      addCommand: mockAddCommand,
+    } as never);
     const state1 = _testProcessOnDataChunk(undefined, "git", "sess-1", "host");
     const state2 = _testProcessOnDataChunk(state1, " status", "sess-1", "host");
     expect(state2.buffer).toBe("git status");
