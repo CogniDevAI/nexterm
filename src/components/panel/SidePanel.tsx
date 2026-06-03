@@ -7,9 +7,17 @@
 //   - Icon rail (role="toolbar"): two toggle buttons (SFTP, Tunnels)
 //   - Content pane: conditionally mounts SftpBrowser or TunnelManager
 //   - Width transition 200ms so ResizeObserver/FitAddon fires after CSS ends
+//   - Drag handle on the left edge of the content pane for resizing
 
+import { useCallback, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
-import { useWorkspaceStore, buildWorkspaceKey } from "../../stores/workspaceStore";
+import {
+  useWorkspaceStore,
+  buildWorkspaceKey,
+  PANEL_WIDTH_MIN,
+  PANEL_WIDTH_MAX,
+  PANEL_WIDTH_DEFAULT,
+} from "../../stores/workspaceStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { TunnelManager } from "../../features/tunnel/TunnelManager";
 import { HistoryPanel } from "../../features/history/HistoryPanel";
@@ -278,11 +286,61 @@ export function SidePanel() {
       ? ((s.workspaces[workspaceKey]?.panelSection ?? null) as PanelSection)
       : null,
   );
+  const panelWidth = useWorkspaceStore((s) =>
+    workspaceKey
+      ? (s.workspaces[workspaceKey]?.panelWidth ?? PANEL_WIDTH_DEFAULT)
+      : PANEL_WIDTH_DEFAULT,
+  );
   const setPanelSection = useWorkspaceStore((s) => s.setPanelSection);
   const setPanelOpen = useWorkspaceStore((s) => s.setPanelOpen);
+  const setPanelWidth = useWorkspaceStore((s) => s.setPanelWidth);
   const setMainView = useWorkspaceStore((s) => s.setMainView);
 
   const sessionId = activeSession?.id ?? "";
+
+  // ── Resize handle state ──────────────────────────────────────────────────────
+  // isDragging suppresses the width CSS transition while drag is in progress so
+  // the panel follows the pointer without fighting the animation.
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(PANEL_WIDTH_DEFAULT);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      isDraggingRef.current = true;
+      dragStartXRef.current = e.clientX;
+      dragStartWidthRef.current = panelWidth;
+      setIsDragging(true);
+    },
+    [panelWidth],
+  );
+
+  const handleResizePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDraggingRef.current || !workspaceKey) return;
+      // Dragging left (negative delta) grows the panel; right shrinks it.
+      // Panel is docked to the right, so left edge drag: delta = startX - currentX
+      const delta = dragStartXRef.current - e.clientX;
+      const newWidth = Math.min(
+        PANEL_WIDTH_MAX,
+        Math.max(PANEL_WIDTH_MIN, dragStartWidthRef.current + delta),
+      );
+      setPanelWidth(workspaceKey, newWidth);
+    },
+    [workspaceKey, setPanelWidth],
+  );
+
+  const handleResizePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      setIsDragging(false);
+    },
+    [],
+  );
 
   function handleToggle(section: "tunnel" | "history" | "monitoring" | "docker" | "proxmox") {
     if (!workspaceKey) return;
@@ -382,13 +440,29 @@ export function SidePanel() {
 
       {/* Collapsible content pane */}
       <div
-        className={`side-panel-content${panelOpen ? " side-panel-content-open" : ""}`}
+        className={`side-panel-content${panelOpen ? " side-panel-content-open" : ""}${isDragging ? " side-panel-content-dragging" : ""}`}
+        style={panelOpen ? { width: `${panelWidth}px` } : undefined}
         aria-hidden={!panelOpen}
       >
+        {panelOpen && (
+          <>
+            {/* Draggable resize handle — left edge of content pane */}
+            <div
+              className="side-panel-resize-handle"
+              role="separator"
+              aria-label="Resize panel"
+              aria-orientation="vertical"
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={handleResizePointerUp}
+            />
+          </>
+        )}
         {panelOpen && (
           <section
             aria-label={t("panel.region")}
             className="side-panel-section"
+            style={{ width: `${panelWidth}px` }}
           >
             {/* Header with close button */}
             <div className="side-panel-header">

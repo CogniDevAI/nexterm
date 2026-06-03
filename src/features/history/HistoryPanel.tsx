@@ -97,7 +97,7 @@ export function HistoryPanel({ sessionId, terminalId, host }: HistoryPanelProps)
 
         <button
           type="button"
-          className="history-clear-btn"
+          className="history-clear-btn btn btn-ghost btn-sm"
           onClick={handleClearAll}
           aria-label={t("history.clearAll")}
         >

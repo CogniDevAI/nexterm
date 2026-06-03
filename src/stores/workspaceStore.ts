@@ -30,9 +30,14 @@ export interface WorkspaceSnapshot {
   sftp: WorkspaceSftpSnapshot;
   panelSection: PanelSection;
   panelOpen: boolean;
+  panelWidth: number;
   mainView: MainView;
   updatedAt: number;
 }
+
+export const PANEL_WIDTH_MIN = 320;
+export const PANEL_WIDTH_MAX = 820;
+export const PANEL_WIDTH_DEFAULT = 420;
 
 interface WorkspaceStoreState {
   workspaces: Record<string, WorkspaceSnapshot>;
@@ -47,6 +52,7 @@ interface WorkspaceStoreState {
   ) => void;
   setPanelSection: (workspaceKey: string, section: PanelSection) => void;
   setPanelOpen: (workspaceKey: string, open: boolean) => void;
+  setPanelWidth: (workspaceKey: string, px: number) => void;
   setMainView: (workspaceKey: string, view: MainView) => void;
 }
 
@@ -82,6 +88,7 @@ function createWorkspaceSnapshot(
     },
     panelSection: null,
     panelOpen: false,
+    panelWidth: PANEL_WIDTH_DEFAULT,
     mainView: "terminal",
     updatedAt: Date.now(),
   };
@@ -190,6 +197,23 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
               [workspaceKey]: {
                 ...current,
                 panelOpen: open,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      setPanelWidth: (workspaceKey, px) =>
+        set((state) => {
+          const current = state.workspaces[workspaceKey];
+          if (!current) return state;
+          const clamped = Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, px));
+          return {
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: {
+                ...current,
+                panelWidth: clamped,
                 updatedAt: Date.now(),
               },
             },

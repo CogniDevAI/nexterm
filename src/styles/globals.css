@@ -1870,6 +1870,7 @@ body {
 /* Width transition 200ms — longer than RESIZE_DEBOUNCE_MS (100ms) so
    the FitAddon fires after transition ends */
 .side-panel-content {
+  position: relative;
   width: 0;
   overflow: hidden;
   transition: width 200ms var(--ease-out);
@@ -1877,7 +1878,34 @@ body {
 }
 
 .side-panel-content-open {
+  /* Width is driven by inline style (panelWidth from store, default 420px).
+     The CSS value acts as the animation start/end for open/close transitions only. */
   width: 420px;
+}
+
+/* Suppress the width transition while the user is actively dragging so the
+   panel follows the pointer without the animation fighting the drag. */
+.side-panel-content-dragging {
+  transition: none !important;
+}
+
+/* ── Resize handle — left edge of content pane ── */
+.side-panel-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background-color var(--transition-fast);
+}
+
+.side-panel-resize-handle:hover,
+.side-panel-resize-handle:active {
+  background-color: var(--accent);
+  opacity: 0.5;
 }
 
 /* ── Panel section container ── */
@@ -1885,7 +1913,9 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: 420px;
+  /* Width is driven by inline style from panelWidth store value */
+  min-width: 320px;
+  max-width: 820px;
   overflow: hidden;
   background-color: var(--bg-base);
 }
@@ -8139,4 +8169,239 @@ dialog::backdrop {
 .snapshot-confirm-btn-cancel:hover {
   color: var(--text-primary);
   background-color: var(--bg-raised);
+}
+
+/* ═══════════════════════════════════════════════════
+   History Panel
+   ═══════════════════════════════════════════════════ */
+
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Privacy notice ── */
+.history-notice {
+  padding: 10px 14px;
+  background-color: var(--bg-raised);
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.history-notice strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+  margin-bottom: 4px;
+}
+
+.history-notice p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.history-notice button {
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.history-notice button:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
+.history-notice button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Toolbar: capture toggle + clear-all ── */
+/* flex row with space-between so toggle and button never collide */
+.history-toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background-color: var(--bg-panel);
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.history-capture-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.history-capture-toggle input[type="checkbox"] {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.history-capture-toggle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Clear-all: uses .btn .btn-ghost .btn-sm from the global button system;
+   additional specificity only for layout placement */
+.history-clear-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Filter row ── */
+.history-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background-color: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.history-filter-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background-color: var(--bg-input, var(--bg-base));
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.history-filter-input::placeholder {
+  color: var(--text-muted);
+}
+
+.history-filter-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.history-host-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.history-host-filter input[type="checkbox"] {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+/* ── Entry list ── */
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.history-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.history-entry:last-child {
+  border-bottom: none;
+}
+
+.history-entry-command {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.history-entry-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.history-entry-actions button {
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.history-entry-actions button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+.history-entry-actions button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ── Empty state ── */
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 24px 16px;
+  text-align: center;
+  gap: 6px;
+}
+
+.history-empty p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.history-empty-hint {
+  font-size: var(--fs-xs, 0.625rem);
+  color: var(--text-tertiary, var(--text-muted));
 }

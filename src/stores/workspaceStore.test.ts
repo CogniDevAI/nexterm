@@ -22,7 +22,13 @@ vi.hoisted(() => {
   });
 });
 
-import { useWorkspaceStore, buildWorkspaceKey } from "./workspaceStore";
+import {
+  useWorkspaceStore,
+  buildWorkspaceKey,
+  PANEL_WIDTH_DEFAULT,
+  PANEL_WIDTH_MIN,
+  PANEL_WIDTH_MAX,
+} from "./workspaceStore";
 
 function resetStore() {
   useWorkspaceStore.setState({ workspaces: {} });
@@ -132,6 +138,73 @@ describe("workspaceStore — mainView", () => {
   it("does nothing when workspaceKey not found in setMainView", () => {
     const before = { ...useWorkspaceStore.getState().workspaces };
     useWorkspaceStore.getState().setMainView("missing-key", "files");
+    expect(useWorkspaceStore.getState().workspaces).toEqual(before);
+  });
+});
+
+describe("workspaceStore — panelWidth", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it("new workspace defaults panelWidth to PANEL_WIDTH_DEFAULT (420)", () => {
+    const ws = useWorkspaceStore
+      .getState()
+      .getOrCreateWorkspace("profile-1", "user-1");
+    expect(ws.panelWidth).toBe(PANEL_WIDTH_DEFAULT);
+    expect(ws.panelWidth).toBe(420);
+  });
+
+  it("setPanelWidth sets a valid width within bounds", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setPanelWidth(key, 500);
+    expect(useWorkspaceStore.getState().workspaces[key]!.panelWidth).toBe(500);
+  });
+
+  it("setPanelWidth clamps to PANEL_WIDTH_MIN (320) when below minimum", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setPanelWidth(key, 100);
+    expect(useWorkspaceStore.getState().workspaces[key]!.panelWidth).toBe(PANEL_WIDTH_MIN);
+  });
+
+  it("setPanelWidth clamps to PANEL_WIDTH_MAX (820) when above maximum", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setPanelWidth(key, 9999);
+    expect(useWorkspaceStore.getState().workspaces[key]!.panelWidth).toBe(PANEL_WIDTH_MAX);
+  });
+
+  it("setPanelWidth accepts the exact minimum boundary (320)", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setPanelWidth(key, PANEL_WIDTH_MIN);
+    expect(useWorkspaceStore.getState().workspaces[key]!.panelWidth).toBe(PANEL_WIDTH_MIN);
+  });
+
+  it("setPanelWidth accepts the exact maximum boundary (820)", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setPanelWidth(key, PANEL_WIDTH_MAX);
+    expect(useWorkspaceStore.getState().workspaces[key]!.panelWidth).toBe(PANEL_WIDTH_MAX);
+  });
+
+  it("setPanelWidth is independent per workspace key", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-a", "user-1");
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-b", "user-1");
+    const keyA = buildWorkspaceKey("profile-a", "user-1");
+    const keyB = buildWorkspaceKey("profile-b", "user-1");
+
+    useWorkspaceStore.getState().setPanelWidth(keyA, 600);
+
+    expect(useWorkspaceStore.getState().workspaces[keyA]!.panelWidth).toBe(600);
+    expect(useWorkspaceStore.getState().workspaces[keyB]!.panelWidth).toBe(PANEL_WIDTH_DEFAULT);
+  });
+
+  it("does nothing when workspaceKey not found in setPanelWidth", () => {
+    const before = { ...useWorkspaceStore.getState().workspaces };
+    useWorkspaceStore.getState().setPanelWidth("missing-key", 500);
     expect(useWorkspaceStore.getState().workspaces).toEqual(before);
   });
 });

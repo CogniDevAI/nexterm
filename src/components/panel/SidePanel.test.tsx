@@ -43,6 +43,7 @@ vi.mock("../../lib/i18n", () => ({
 // The mock must apply the selector when one is provided.
 const mockSetPanelSection = vi.fn();
 const mockSetPanelOpen = vi.fn();
+const mockSetPanelWidth = vi.fn();
 const mockSetMainView = vi.fn();
 
 let _workspaceStoreState: ReturnType<typeof makeStoreState>;
@@ -56,6 +57,9 @@ vi.mock("../../stores/workspaceStore", () => ({
     return _workspaceStoreState;
   }),
   buildWorkspaceKey: vi.fn((p: string, u: string) => `${p}:${u}`),
+  PANEL_WIDTH_DEFAULT: 420,
+  PANEL_WIDTH_MIN: 320,
+  PANEL_WIDTH_MAX: 820,
 }));
 
 // ── sessionStore mock ─────────────────────────────────────────────────────────
@@ -107,12 +111,14 @@ function makeStoreState(
         },
         panelSection,
         panelOpen,
+        panelWidth: 420,
         mainView: "terminal" as const,
         updatedAt: Date.now(),
       },
     },
     setPanelSection: mockSetPanelSection,
     setPanelOpen: mockSetPanelOpen,
+    setPanelWidth: mockSetPanelWidth,
     setMainView: mockSetMainView,
     getOrCreateWorkspace: vi.fn(),
     setActiveTerminalId: vi.fn(),
