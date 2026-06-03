@@ -1,6 +1,6 @@
 // features/tunnel/TunnelRow.tsx — Single tunnel row with status and controls
 //
-// Shows: type icon (-L/-R), bind:port -> target:port, status badge,
+// Shows: type icon (-L/-R/-D), bind:port -> target:port (or SOCKS5), status badge,
 // active connections count, start/stop toggle, delete button.
 
 import { useCallback } from "react";
@@ -33,6 +33,7 @@ export function TunnelRow({ tunnel, onStart, onStop, onDelete }: TunnelRowProps)
   const { t } = useI18n();
   const { config, state, bytesIn, bytesOut } = tunnel;
   const isLocal = config.tunnelType === "local";
+  const isDynamic = config.tunnelType === "dynamic";
   const stateLabel = getTunnelStateLabel(state);
   const indicatorClass = getTunnelStateIndicator(state);
   const connections = getActiveConnections(state);
@@ -52,11 +53,27 @@ export function TunnelRow({ tunnel, onStart, onStop, onDelete }: TunnelRowProps)
     onDelete(config.id);
   }, [config.id, onDelete]);
 
+  // Badge: -L, -R, or -D
+  const badgeText = isDynamic ? "-D" : isLocal ? "-L" : "-R";
+  const badgeTitle = isDynamic
+    ? t("tunnel.dynamicForward")
+    : isLocal
+      ? t("tunnel.localForward")
+      : t("tunnel.remoteForward");
+
+  // Arrow direction: local = →, remote = ←, dynamic = →
+  const arrowChar = isLocal || isDynamic ? "→" : "←";
+
+  // Destination display: SOCKS5 proxy (no fixed target) or targetHost:targetPort
+  const destinationDisplay = isDynamic
+    ? "SOCKS5"
+    : `${config.targetHost}:${config.targetPort}`;
+
   return (
     <div className={`tunnel-row ${errorMsg ? "tunnel-row-error" : ""}`}>
       {/* Type badge */}
-      <div className="tunnel-type-badge" title={isLocal ? t("tunnel.localForward") : t("tunnel.remoteForward")}>
-        {isLocal ? "-L" : "-R"}
+      <div className="tunnel-type-badge" title={badgeTitle}>
+        {badgeText}
       </div>
 
       {/* Tunnel info */}
@@ -69,9 +86,9 @@ export function TunnelRow({ tunnel, onStart, onStop, onDelete }: TunnelRowProps)
             <span className="tunnel-endpoint">
               {config.bindHost}:{config.bindPort}
             </span>
-            <span className="tunnel-arrow">{isLocal ? "\u2192" : "\u2190"}</span>
+            <span className="tunnel-arrow">{arrowChar}</span>
             <span className="tunnel-endpoint">
-              {config.targetHost}:{config.targetPort}
+              {destinationDisplay}
             </span>
           </span>
         </div>
@@ -87,7 +104,7 @@ export function TunnelRow({ tunnel, onStart, onStop, onDelete }: TunnelRowProps)
           )}
           {(bytesIn > 0 || bytesOut > 0) && (
             <span className="tunnel-traffic">
-              {"\u2191"}{formatBytes(bytesOut)} {"\u2193"}{formatBytes(bytesIn)}
+              {"↑"}{formatBytes(bytesOut)} {"↓"}{formatBytes(bytesIn)}
             </span>
           )}
         </div>
@@ -114,7 +131,7 @@ export function TunnelRow({ tunnel, onStart, onStop, onDelete }: TunnelRowProps)
           title={t("tunnel.deleteTitle")}
           disabled={isStarting}
         >
-          {"\u00D7"}
+          {"×"}
         </button>
       </div>
     </div>
