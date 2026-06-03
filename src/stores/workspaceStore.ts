@@ -5,6 +5,8 @@ import { persist } from "zustand/middleware";
 import type { SearchMode } from "../features/sftp/FilePane";
 import type { ActiveFeature, TerminalId } from "../lib/types";
 
+export type PanelSection = "sftp" | "tunnel" | null;
+
 export interface WorkspacePaneSnapshot {
   path: string;
   history: string[];
@@ -26,6 +28,8 @@ export interface WorkspaceSnapshot {
   activeFeature: ActiveFeature;
   activeTerminalId: TerminalId | null;
   sftp: WorkspaceSftpSnapshot;
+  panelSection: PanelSection;
+  panelOpen: boolean;
   updatedAt: number;
 }
 
@@ -41,6 +45,8 @@ interface WorkspaceStoreState {
     workspaceKey: string,
     snapshot: Partial<WorkspaceSftpSnapshot>,
   ) => void;
+  setPanelSection: (workspaceKey: string, section: PanelSection) => void;
+  setPanelOpen: (workspaceKey: string, open: boolean) => void;
 }
 
 const DEFAULT_PANE_SNAPSHOT: WorkspacePaneSnapshot = {
@@ -74,6 +80,8 @@ function createWorkspaceSnapshot(
       searchMode: DEFAULT_SFTP_SNAPSHOT.searchMode,
       searchQuery: DEFAULT_SFTP_SNAPSHOT.searchQuery,
     },
+    panelSection: null,
+    panelOpen: false,
     updatedAt: Date.now(),
   };
 }
@@ -165,6 +173,38 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
                     ? clonePaneSnapshot(snapshot.remote)
                     : current.sftp.remote,
                 },
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      setPanelSection: (workspaceKey, section) =>
+        set((state) => {
+          const current = state.workspaces[workspaceKey];
+          if (!current) return state;
+          return {
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: {
+                ...current,
+                panelSection: section,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      setPanelOpen: (workspaceKey, open) =>
+        set((state) => {
+          const current = state.workspaces[workspaceKey];
+          if (!current) return state;
+          return {
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: {
+                ...current,
+                panelOpen: open,
                 updatedAt: Date.now(),
               },
             },
