@@ -302,6 +302,12 @@ pub struct TunnelConfig {
 pub enum TunnelType {
     Local,
     Remote,
+    /// Dynamic port forwarding (-D / SOCKS5 proxy).
+    ///
+    /// A local SOCKS5 listener that forwards each CONNECT request through the
+    /// SSH session via `channel_open_direct_tcpip`. `target_host` and `target_port`
+    /// in `TunnelConfig` are unused for this variant (kept for struct uniformity).
+    Dynamic,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -640,5 +646,87 @@ mod tests {
         let json = r#"{"responses":["hunter2","123456"]}"#;
         let resp: KeyboardInteractiveResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.responses, vec!["hunter2", "123456"]);
+    }
+
+    // ─── TunnelType::Dynamic serde ──────────────────────────────────
+
+    #[test]
+    fn tunnel_type_dynamic_serializes_to_camel_case() {
+        let json = serde_json::to_string(&TunnelType::Dynamic).unwrap();
+        assert_eq!(
+            json, r#""dynamic""#,
+            "Dynamic variant must serialize as \"dynamic\""
+        );
+    }
+
+    #[test]
+    fn tunnel_type_dynamic_deserializes_from_camel_case() {
+        let t: TunnelType = serde_json::from_str(r#""dynamic""#).unwrap();
+        assert_eq!(t, TunnelType::Dynamic);
+    }
+
+    #[test]
+    fn tunnel_type_dynamic_roundtrips_through_json() {
+        let original = TunnelType::Dynamic;
+        let json = serde_json::to_string(&original).unwrap();
+        let back: TunnelType = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, TunnelType::Dynamic);
+    }
+
+    #[test]
+    fn existing_local_remote_tunnel_types_still_deserialize() {
+        // Back-compat: old profiles with "local"/"remote" must load without error
+        let local: TunnelType = serde_json::from_str(r#""local""#).unwrap();
+        let remote: TunnelType = serde_json::from_str(r#""remote""#).unwrap();
+        assert_eq!(local, TunnelType::Local);
+        assert_eq!(remote, TunnelType::Remote);
+    }
+
+    #[test]
+    fn tunnel_config_with_dynamic_type_deserializes() {
+        // A full TunnelConfig round-trip with tunnelType "dynamic"
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000000",
+            "tunnelType": "dynamic",
+            "bindHost": "127.0.0.1",
+            "bindPort": 1080,
+            "targetHost": "",
+            "targetPort": 0,
+            "label": null
+        }"#;
+        let config: TunnelConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.tunnel_type, TunnelType::Dynamic);
+        assert_eq!(config.bind_port, 1080);
+        assert_eq!(config.target_host, "");
+        assert_eq!(config.target_port, 0);
+    }
+
+    #[test]
+    fn old_tunnel_config_vec_with_local_and_remote_still_loads() {
+        // Back-compat: loading an old Vec<TunnelConfig> that has no "dynamic" entries
+        let json = r#"[
+            {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "tunnelType": "local",
+                "bindHost": "127.0.0.1",
+                "bindPort": 8080,
+                "targetHost": "db.internal",
+                "targetPort": 5432,
+                "label": "Database"
+            },
+            {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "tunnelType": "remote",
+                "bindHost": "0.0.0.0",
+                "bindPort": 9090,
+                "targetHost": "localhost",
+                "targetPort": 3000,
+                "label": null
+            }
+        ]"#;
+        let tunnels: Vec<TunnelConfig> = serde_json::from_str(json).unwrap();
+        assert_eq!(tunnels.len(), 2);
+        assert_eq!(tunnels[0].tunnel_type, TunnelType::Local);
+        assert_eq!(tunnels[1].tunnel_type, TunnelType::Remote);
     }
 }

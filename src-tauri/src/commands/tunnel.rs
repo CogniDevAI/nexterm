@@ -56,8 +56,11 @@ pub async fn create_tunnel(
 
     // Start the tunnel based on type
     let tunnel_handle = match config.tunnel_type {
-        TunnelType::Local => {
-            // Get shared sessions Arc and session cancel token
+        TunnelType::Local | TunnelType::Dynamic => {
+            // Local forward: bind local port, forward to fixed target.
+            // Dynamic forward: bind local SOCKS5 port, target resolved per-connection.
+            // Both use the same accept-loop pattern via start_local_forward /
+            // start_dynamic_forward; the session Arc is the shared connection handle.
             let shared_sessions = state.sessions.clone();
             let session_cancel = {
                 let sessions = state.sessions.lock().await;
@@ -68,14 +71,25 @@ pub async fn create_tunnel(
                     .clone()
             };
 
-            tunnel::start_local_forward(
-                shared_sessions,
-                session_id,
-                &config,
-                session_cancel,
-                on_event,
-            )
-            .await?
+            if config.tunnel_type == TunnelType::Dynamic {
+                tunnel::start_dynamic_forward(
+                    shared_sessions,
+                    session_id,
+                    &config,
+                    session_cancel,
+                    on_event,
+                )
+                .await?
+            } else {
+                tunnel::start_local_forward(
+                    shared_sessions,
+                    session_id,
+                    &config,
+                    session_cancel,
+                    on_event,
+                )
+                .await?
+            }
         }
         TunnelType::Remote => {
             let mut sessions = state.sessions.lock().await;
@@ -154,7 +168,7 @@ pub async fn start_tunnel(
 
     // Start the tunnel
     let new_handle = match config.tunnel_type {
-        TunnelType::Local => {
+        TunnelType::Local | TunnelType::Dynamic => {
             let shared_sessions = state.sessions.clone();
             let session_cancel = {
                 let sessions = state.sessions.lock().await;
@@ -165,14 +179,25 @@ pub async fn start_tunnel(
                     .clone()
             };
 
-            tunnel::start_local_forward(
-                shared_sessions,
-                session_id,
-                &config,
-                session_cancel,
-                on_event,
-            )
-            .await?
+            if config.tunnel_type == TunnelType::Dynamic {
+                tunnel::start_dynamic_forward(
+                    shared_sessions,
+                    session_id,
+                    &config,
+                    session_cancel,
+                    on_event,
+                )
+                .await?
+            } else {
+                tunnel::start_local_forward(
+                    shared_sessions,
+                    session_id,
+                    &config,
+                    session_cancel,
+                    on_event,
+                )
+                .await?
+            }
         }
         TunnelType::Remote => {
             let mut sessions = state.sessions.lock().await;

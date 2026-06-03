@@ -92,19 +92,32 @@ export function TunnelForm({ open, onClose, onSubmit }: TunnelFormProps) {
   const handleTypeChange = useCallback(
     (type: TunnelType) => {
       updateField("tunnelType", type);
-      if (type === "local") {
-        updateField("bindHost", "127.0.0.1");
-      } else {
+      // Default bindHost per type: loopback for local and dynamic (security boundary),
+      // all-interfaces for remote (legitimate server-side listen).
+      if (type === "remote") {
         updateField("bindHost", "0.0.0.0");
+      } else {
+        updateField("bindHost", "127.0.0.1");
       }
     },
     [updateField],
   );
 
   const isLocal = form.tunnelType === "local";
-  const bindLabel = isLocal ? t("tunnelForm.listenLocal") : t("tunnelForm.listenRemote");
-  const targetLabel = isLocal ? t("tunnelForm.destRemote") : t("tunnelForm.destLocal");
-  const description = isLocal ? t("tunnelForm.descLocal") : t("tunnelForm.descRemote");
+  const isDynamic = form.tunnelType === "dynamic";
+  const isRemote = form.tunnelType === "remote";
+
+  const bindLabel = isRemote
+    ? t("tunnelForm.listenRemote")
+    : isDynamic
+      ? t("tunnelForm.listenDynamic")
+      : t("tunnelForm.listenLocal");
+
+  const description = isRemote
+    ? t("tunnelForm.descRemote")
+    : isDynamic
+      ? t("tunnelForm.descDynamic")
+      : t("tunnelForm.descLocal");
 
   return (
     <Dialog open={open} onClose={handleClose} title="" width="460px">
@@ -141,6 +154,14 @@ export function TunnelForm({ open, onClose, onSubmit }: TunnelFormProps) {
               <span className="tunnel-type-icon">-R</span>
               <span>{t("tunnel.remoteShort")}</span>
             </button>
+            <button
+              type="button"
+              className={`cd-segmented-btn ${form.tunnelType === "dynamic" ? "cd-segmented-btn-active" : ""}`}
+              onClick={() => handleTypeChange("dynamic")}
+            >
+              <span className="tunnel-type-icon">-D</span>
+              <span>{t("tunnel.dynamicShort")}</span>
+            </button>
           </div>
 
           <Input
@@ -164,7 +185,7 @@ export function TunnelForm({ open, onClose, onSubmit }: TunnelFormProps) {
               value={form.bindHost}
               error={errors.bindHost}
               onChange={(e) => updateField("bindHost", e.target.value)}
-              placeholder={isLocal ? "127.0.0.1" : "0.0.0.0"}
+              placeholder={isRemote ? "0.0.0.0" : "127.0.0.1"}
               className="cd-row-flex"
             />
             <Input
@@ -174,53 +195,59 @@ export function TunnelForm({ open, onClose, onSubmit }: TunnelFormProps) {
               value={form.bindPort}
               error={errors.bindPort}
               onChange={(e) => updateField("bindPort", e.target.value)}
-              placeholder="8080"
+              placeholder={isDynamic ? "1080" : "8080"}
               className="cd-row-port"
             />
           </div>
         </div>
       </div>
 
-      {/* ─── Arrow ─── */}
-      <div className="tunnel-form-arrow">
-        <ArrowIcon direction={isLocal ? "right" : "left"} />
-      </div>
-
-      {/* ─── Section: Target (destination) ─── */}
-      <div className="cd-section">
-        <div className="cd-section-label">{targetLabel}</div>
-        <div className="cd-section-content">
-          <div className="cd-row">
-            <Input
-              id="tunnel-target-host"
-              label={t("tunnelForm.host")}
-              value={form.targetHost}
-              error={errors.targetHost}
-              onChange={(e) => updateField("targetHost", e.target.value)}
-              placeholder={isLocal ? "db.internal" : "localhost"}
-              className="cd-row-flex"
-            />
-            <Input
-              id="tunnel-target-port"
-              label={t("tunnelForm.port")}
-              type="number"
-              value={form.targetPort}
-              error={errors.targetPort}
-              onChange={(e) => updateField("targetPort", e.target.value)}
-              placeholder="5432"
-              className="cd-row-port"
-            />
+      {/* ─── Arrow + Target section: hidden for dynamic ─── */}
+      {!isDynamic && (
+        <>
+          <div className="tunnel-form-arrow">
+            <ArrowIcon direction={isLocal ? "right" : "left"} />
           </div>
-        </div>
-      </div>
+
+          {/* ─── Section: Target (destination) ─── */}
+          <div className="cd-section">
+            <div className="cd-section-label">
+              {isLocal ? t("tunnelForm.destRemote") : t("tunnelForm.destLocal")}
+            </div>
+            <div className="cd-section-content">
+              <div className="cd-row">
+                <Input
+                  id="tunnel-target-host"
+                  label={t("tunnelForm.host")}
+                  value={form.targetHost}
+                  error={errors.targetHost}
+                  onChange={(e) => updateField("targetHost", e.target.value)}
+                  placeholder={isLocal ? "db.internal" : "localhost"}
+                  className="cd-row-flex"
+                />
+                <Input
+                  id="tunnel-target-port"
+                  label={t("tunnelForm.port")}
+                  type="number"
+                  value={form.targetPort}
+                  error={errors.targetPort}
+                  onChange={(e) => updateField("targetPort", e.target.value)}
+                  placeholder="5432"
+                  className="cd-row-port"
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ─── SSH equivalent preview ─── */}
       <div className="tunnel-form-preview">
         <span className="tunnel-form-preview-label">{t("tunnelForm.sshEquiv")}</span>
         <code className="tunnel-form-preview-cmd">
-          ssh {isLocal ? "-L" : "-R"} {form.bindHost || "*"}:
-          {form.bindPort || "?"}:{form.targetHost || "?"}:
-          {form.targetPort || "?"} ...
+          {isDynamic
+            ? `ssh -D ${form.bindHost || "*"}:${form.bindPort || "?"} ...`
+            : `ssh ${isLocal ? "-L" : "-R"} ${form.bindHost || "*"}:${form.bindPort || "?"}:${form.targetHost || "?"}:${form.targetPort || "?"} ...`}
         </code>
       </div>
 
