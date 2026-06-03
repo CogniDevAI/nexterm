@@ -517,6 +517,33 @@ export const en = {
   "keygen.done": "Done",
   "keygen.errorAlreadyExists": "Key already exists",
   "keygen.hint": "Generate new key",
+
+  // Side panel — docker section
+  "panel.docker": "Docker",
+
+  // Docker panel
+  "docker.unavailable": "Docker is not available on this host (not installed or permission denied)",
+  "docker.loading": "Loading containers...",
+  "docker.empty": "No containers found",
+  "docker.refresh": "Refresh",
+  "docker.col.name": "Name",
+  "docker.col.image": "Image",
+  "docker.col.state": "State",
+  "docker.col.status": "Status",
+  "docker.col.ports": "Ports",
+  "docker.col.actions": "Actions",
+  "docker.action.start": "Start",
+  "docker.action.stop": "Stop",
+  "docker.action.restart": "Restart",
+  "docker.action.rm": "Remove",
+  "docker.action.shell": "Shell",
+  "docker.rm.arm": "Remove",
+  "docker.rm.confirm": "Confirm Remove",
+  "docker.rm.cancel": "Cancel",
+  "docker.rm.container": "Container",
+  "docker.logs.title": "Logs",
+  "docker.logs.close": "Close",
+  "docker.logs.truncated": "Output truncated (size limit reached)",
 } as const;
 
 export type TranslationKey = keyof typeof en;

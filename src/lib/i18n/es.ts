@@ -519,4 +519,31 @@ export const es: Record<TranslationKey, string> = {
   "keygen.done": "Listo",
   "keygen.errorAlreadyExists": "La clave ya existe",
   "keygen.hint": "Generar nueva clave",
+
+  // Side panel — docker section
+  "panel.docker": "Docker",
+
+  // Docker panel
+  "docker.unavailable": "Docker no está disponible en este host (no instalado o sin permisos)",
+  "docker.loading": "Cargando contenedores...",
+  "docker.empty": "No se encontraron contenedores",
+  "docker.refresh": "Actualizar",
+  "docker.col.name": "Nombre",
+  "docker.col.image": "Imagen",
+  "docker.col.state": "Estado",
+  "docker.col.status": "Status",
+  "docker.col.ports": "Puertos",
+  "docker.col.actions": "Acciones",
+  "docker.action.start": "Iniciar",
+  "docker.action.stop": "Detener",
+  "docker.action.restart": "Reiniciar",
+  "docker.action.rm": "Eliminar",
+  "docker.action.shell": "Shell",
+  "docker.rm.arm": "Eliminar",
+  "docker.rm.confirm": "Confirmar",
+  "docker.rm.cancel": "Cancelar",
+  "docker.rm.container": "Contenedor",
+  "docker.logs.title": "Logs",
+  "docker.logs.close": "Cerrar",
+  "docker.logs.truncated": "Salida truncada (límite de tamaño alcanzado)",
 };
