@@ -28,6 +28,7 @@ import type {
   ConflictEntry,
 } from "../../lib/types";
 import type { PaneSource, FileAction } from "./sftp.types";
+import { processTransfersSequentially } from "./conflictBatch";
 import { useProfileStore } from "../../stores/profileStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import {
@@ -291,7 +292,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
       const fileName = localPath.split(/[/\\]/).pop() ?? localPath;
       const [localMetaResult, remoteEntry] = await Promise.all([
         tauriInvoke<LocalFileStat | null>("local_stat", { path: localPath }).catch(() => null),
-        tauriInvoke<import("../../lib/types").FileEntry | null>("sftp_remote_exists", {
+        tauriInvoke<FileEntry | null>("sftp_remote_exists", {
           sessionId,
           path: remotePath,
         }),
@@ -349,10 +350,10 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     async (info: ConflictInfo): Promise<"skip" | "overwrite"> => {
       // Batch short-circuit: if user already chose skip_all or overwrite_all,
       // apply it without showing the dialog again.
-      if (batchDecisionRef.current === "skip_all" || batchDecisionRef.current === "skip") {
+      if (batchDecisionRef.current === "skip_all") {
         return "skip";
       }
-      if (batchDecisionRef.current === "overwrite_all" || batchDecisionRef.current === "overwrite") {
+      if (batchDecisionRef.current === "overwrite_all") {
         return "overwrite";
       }
 
@@ -1045,46 +1046,52 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   // ─── Toolbar Actions ──────────────────────────────────
 
   const handleUpload = useCallback(() => {
-    // Reset batch decision for a new multi-file transfer
-    batchDecisionRef.current = null;
-    // Upload all selected local files to remote with conflict checking
-    for (const path of localSelected) {
-      const entry = sftp.localPane.entries.find((e) => e.path === path);
-      if (entry && (entry.fileType === "file" || (entry.fileType === "symlink" && entry.linkTarget === "file"))) {
-        const remoteDest = sftp.remotePane.path + "/" + entry.name;
-        void (async () => {
-          try {
-            const conflictInfo = await checkUploadConflict(entry.path, remoteDest);
-            if (conflictInfo) {
-              const decision = await resolveConflict(conflictInfo);
-              if (decision === "skip") return;
-            }
-            void sftp.uploadFile(entry.path, remoteDest);
-          } catch {
-            void sftp.uploadFile(entry.path, remoteDest);
-          }
-        })();
-      }
-    }
-  }, [localSelected, sftp, checkUploadConflict, resolveConflict]);
+    // Collect only uploadable entries (file / symlink-to-file)
+    const uploadEntries = [...localSelected]
+      .map((path) => sftp.localPane.entries.find((e) => e.path === path))
+      .filter(
+        (entry): entry is FileEntry =>
+          !!entry &&
+          (entry.fileType === "file" ||
+            (entry.fileType === "symlink" && entry.linkTarget === "file")),
+      );
+
+    void processTransfersSequentially(
+      uploadEntries,
+      async (entry) => checkUploadConflict(entry.path, sftp.remotePane.path + "/" + entry.name),
+      // Pass askConflict directly so processTransfersSequentially receives the full
+      // ConflictResolution (including skip_all / overwrite_all) to drive batch short-circuit.
+      async (info) => askConflict(info as ConflictInfo),
+      async (entry) => {
+        await sftp.uploadFile(entry.path, sftp.remotePane.path + "/" + entry.name);
+      },
+      {
+        onError: (entry, err) => {
+          console.error(`Upload failed for ${entry.name}:`, err);
+        },
+      },
+    );
+  }, [localSelected, sftp, checkUploadConflict, askConflict]);
 
   const handleDownload = useCallback(() => {
     // Reset batch decision for a new multi-file transfer
     batchDecisionRef.current = null;
-    // Download all selected remote files and folders to local with conflict checking
-    for (const path of remoteSelected) {
-      const entry = sftp.remotePane.entries.find((e) => e.path === path);
-      if (!entry) continue;
-      const localDest = sftp.localPane.path + "/" + entry.name;
-      const isDir =
-        entry.fileType === "directory" ||
-        (entry.fileType === "symlink" && entry.linkTarget === "directory");
-      const isFile =
-        entry.fileType === "file" ||
-        (entry.fileType === "symlink" && entry.linkTarget === "file");
-      if (isDir) {
-        void (async () => {
-          try {
+    const downloadEntries = [...remoteSelected]
+      .map((path) => sftp.remotePane.entries.find((e) => e.path === path))
+      .filter((entry): entry is FileEntry => !!entry);
+
+    void (async () => {
+      for (const entry of downloadEntries) {
+        const localDest = sftp.localPane.path + "/" + entry.name;
+        const isDir =
+          entry.fileType === "directory" ||
+          (entry.fileType === "symlink" && entry.linkTarget === "directory");
+        const isFile =
+          entry.fileType === "file" ||
+          (entry.fileType === "symlink" && entry.linkTarget === "file");
+
+        try {
+          if (isDir) {
             const conflicts = await tauriInvoke<ConflictEntry[]>("sftp_check_conflicts", {
               sessionId,
               remotePath: entry.path,
@@ -1102,45 +1109,41 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
               };
               const decision = await resolveConflict(folderConflictInfo);
               const policy = decision === "skip" ? "skip" : "overwrite";
-              void sftp.downloadFolder(entry.path, localDest, policy);
+              await sftp.downloadFolder(entry.path, localDest, policy);
             } else {
-              void sftp.downloadFolder(entry.path, localDest, "overwrite");
+              await sftp.downloadFolder(entry.path, localDest, "overwrite");
             }
-          } catch {
-            void sftp.downloadFolder(entry.path, localDest);
-          }
-        })();
-      } else if (isFile) {
-        void (async () => {
-          try {
+          } else if (isFile) {
             const conflictInfo = await checkDownloadConflict(entry.path, localDest, entry.size);
             if (conflictInfo) {
               const decision = await resolveConflict(conflictInfo);
-              if (decision === "skip") return;
+              if (decision === "skip") continue;
             }
-            void sftp.downloadFile(entry.path, localDest);
-          } catch {
-            void sftp.downloadFile(entry.path, localDest);
+            await sftp.downloadFile(entry.path, localDest);
           }
-        })();
+        } catch (err) {
+          console.error(`Download failed for ${entry.name}:`, err);
+        }
       }
-    }
+    })();
   }, [remoteSelected, sftp, sessionId, checkDownloadConflict, resolveConflict]);
 
   // ─── Drag & Drop between panes ────────────────────────
 
   const handleLocalDrop = useCallback(
     (entries: FileEntry[]) => {
-      // Dropped from remote → download (file or folder) with conflict checking
+      // Dropped from remote → download (file or folder) with conflict checking.
+      // Sequential for...of prevents concurrent access to the shared conflict dialog.
       batchDecisionRef.current = null;
-      for (const entry of entries) {
-        const localDest = sftp.localPane.path + "/" + entry.name;
-        const isDir =
-          entry.fileType === "directory" ||
-          (entry.fileType === "symlink" && entry.linkTarget === "directory");
-        if (isDir) {
-          void (async () => {
-            try {
+      void (async () => {
+        for (const entry of entries) {
+          const localDest = sftp.localPane.path + "/" + entry.name;
+          const isDir =
+            entry.fileType === "directory" ||
+            (entry.fileType === "symlink" && entry.linkTarget === "directory");
+
+          try {
+            if (isDir) {
               const conflicts = await tauriInvoke<ConflictEntry[]>("sftp_check_conflicts", {
                 sessionId,
                 remotePath: entry.path,
@@ -1157,54 +1160,49 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
                   direction: "download",
                 };
                 const decision = await resolveConflict(info);
-                void sftp.downloadFolder(entry.path, localDest, decision === "skip" ? "skip" : "overwrite");
+                await sftp.downloadFolder(entry.path, localDest, decision === "skip" ? "skip" : "overwrite");
               } else {
-                void sftp.downloadFolder(entry.path, localDest, "overwrite");
+                await sftp.downloadFolder(entry.path, localDest, "overwrite");
               }
-            } catch {
-              void sftp.downloadFolder(entry.path, localDest);
-            }
-          })();
-        } else {
-          void (async () => {
-            try {
+            } else {
               const conflictInfo = await checkDownloadConflict(entry.path, localDest, entry.size);
               if (conflictInfo) {
                 const decision = await resolveConflict(conflictInfo);
-                if (decision === "skip") return;
+                if (decision === "skip") continue;
               }
-              void sftp.downloadFile(entry.path, localDest);
-            } catch {
-              void sftp.downloadFile(entry.path, localDest);
+              await sftp.downloadFile(entry.path, localDest);
             }
-          })();
+          } catch (err) {
+            console.error(`Drop download failed for ${entry.name}:`, err);
+          }
         }
-      }
+      })();
     },
     [sftp, sessionId, checkDownloadConflict, resolveConflict],
   );
 
   const handleRemoteDrop = useCallback(
     (entries: FileEntry[]) => {
-      // Dropped from local → upload with conflict checking
-      batchDecisionRef.current = null;
-      for (const entry of entries) {
-        const remoteDest = sftp.remotePane.path + "/" + entry.name;
-        void (async () => {
-          try {
-            const conflictInfo = await checkUploadConflict(entry.path, remoteDest);
-            if (conflictInfo) {
-              const decision = await resolveConflict(conflictInfo);
-              if (decision === "skip") return;
-            }
-            void sftp.uploadFile(entry.path, remoteDest);
-          } catch {
-            void sftp.uploadFile(entry.path, remoteDest);
-          }
-        })();
-      }
+      // Dropped from local → upload with conflict checking.
+      // Sequential for...of prevents concurrent access to the shared conflict dialog.
+      void processTransfersSequentially(
+        entries,
+        async (entry) =>
+          checkUploadConflict(entry.path, sftp.remotePane.path + "/" + entry.name),
+        // Pass askConflict directly so processTransfersSequentially receives the full
+        // ConflictResolution (including skip_all / overwrite_all) to drive batch short-circuit.
+        async (info) => askConflict(info as ConflictInfo),
+        async (entry) => {
+          await sftp.uploadFile(entry.path, sftp.remotePane.path + "/" + entry.name);
+        },
+        {
+          onError: (entry, err) => {
+            console.error(`Remote DnD upload failed for ${entry.name}:`, err);
+          },
+        },
+      );
     },
-    [sftp, checkUploadConflict, resolveConflict],
+    [sftp, checkUploadConflict, askConflict],
   );
 
   // ─── Render ───────────────────────────────────────────

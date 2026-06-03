@@ -464,10 +464,6 @@ export const es: Record<TranslationKey, string> = {
   "sftp.conflict.skipAll": "Omitir todo",
   "sftp.conflict.overwrite": "Sobreescribir",
   "sftp.conflict.overwriteAll": "Sobreescribir todo",
-  "sftp.conflict.folderTitle": "Conflictos detectados",
-  "sftp.conflict.folderMessage": "{count} archivo(s) ya existen en el destino.",
-  "sftp.conflict.folderSkipAll": "Omitir existentes",
-  "sftp.conflict.folderOverwriteAll": "Sobreescribir todo",
 
   // General
   "general.ok": "OK",

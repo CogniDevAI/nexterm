@@ -1174,6 +1174,25 @@ impl From<Option<String>> for ConflictPolicy {
 
 // ─── Remote Existence Check ─────────────────────────────
 
+/// Returns `true` ONLY when `e` is the SSH_FX_NO_SUCH_FILE status (code 2).
+///
+/// This is the sole classification gate for ENOENT discrimination.  Keeping it
+/// as a named pure function makes it independently testable: a future refactor
+/// that widens the match (e.g. `Err(_) => Ok(None)`) would break the guard
+/// tests before it could reintroduce the data-loss footgun.
+///
+/// # Critical invariant
+/// Permission errors, network failures, timeouts, and any status code other
+/// than `NoSuchFile` MUST return `false` so callers propagate them as `Err`.
+pub fn is_no_such_file(e: &russh_sftp::client::error::Error) -> bool {
+    use russh_sftp::protocol::StatusCode;
+    if let russh_sftp::client::error::Error::Status(ref s) = e {
+        s.status_code == StatusCode::NoSuchFile
+    } else {
+        false
+    }
+}
+
 /// Check whether a remote path exists, discriminating ENOENT from real errors.
 ///
 /// Returns:
@@ -1190,22 +1209,17 @@ impl From<Option<String>> for ConflictPolicy {
 /// so callers cannot accidentally treat a permission error or network failure as
 /// "file not found" and silently overwrite.
 pub async fn remote_exists(sftp: &SftpSession, path: &str) -> Result<Option<FileEntry>, AppError> {
-    use russh_sftp::protocol::StatusCode;
-
     match sftp.metadata(path).await {
         Ok(attrs) => {
             let name = path.rsplit('/').next().unwrap_or(path).to_string();
             Ok(Some(attrs_to_file_entry(name, path.to_string(), &attrs)))
         }
         Err(e) => {
-            // Inspect the raw russh_sftp error BEFORE it is erased into AppError.
-            // Only SSH_FX_NO_SUCH_FILE (code 2) is treated as "doesn't exist".
+            // Only SSH_FX_NO_SUCH_FILE (code 2) → Ok(None).
             // All other variants (PermissionDenied, Failure, Timeout, IO, …)
             // propagate as Err so callers are not misled.
-            if let russh_sftp::client::error::Error::Status(ref s) = e {
-                if s.status_code == StatusCode::NoSuchFile {
-                    return Ok(None);
-                }
+            if is_no_such_file(&e) {
+                return Ok(None);
             }
             Err(AppError::Sftp(format!(
                 "Failed to stat remote path '{path}': {e}"
@@ -1299,6 +1313,7 @@ pub async fn check_conflicts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use russh_sftp::protocol::StatusCode;
 
     #[test]
     fn format_permissions_file() {
@@ -1429,6 +1444,49 @@ mod tests {
         // Unknown value → safe backward-compat default (overwrite).
         let policy: ConflictPolicy = Some("unknown_value".to_string()).into();
         assert_eq!(policy, ConflictPolicy::Overwrite);
+    }
+
+    // ── is_no_such_file tests ────────────────────────────────────────────────
+    // Guard: a future refactor that widens is_no_such_file (e.g. Err(_) => Ok(None))
+    // would silently reintroduce the data-loss footgun; these tests prevent that.
+
+    fn make_status_error(code: StatusCode) -> russh_sftp::client::error::Error {
+        russh_sftp::client::error::Error::Status(russh_sftp::protocol::Status {
+            id: 0,
+            status_code: code,
+            error_message: String::new(),
+            language_tag: String::new(),
+        })
+    }
+
+    #[test]
+    fn is_no_such_file_returns_true_for_no_such_file() {
+        let e = make_status_error(StatusCode::NoSuchFile);
+        assert!(is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_permission_denied() {
+        let e = make_status_error(StatusCode::PermissionDenied);
+        assert!(!is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_failure() {
+        let e = make_status_error(StatusCode::Failure);
+        assert!(!is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_timeout() {
+        let e = russh_sftp::client::error::Error::Timeout;
+        assert!(!is_no_such_file(&e));
+    }
+
+    #[test]
+    fn is_no_such_file_returns_false_for_io_error() {
+        let e = russh_sftp::client::error::Error::IO("connection reset".to_string());
+        assert!(!is_no_such_file(&e));
     }
 
     // ── local_stat_result tests ──────────────────────────────────────────────

@@ -462,10 +462,6 @@ export const en = {
   "sftp.conflict.skipAll": "Skip All",
   "sftp.conflict.overwrite": "Overwrite",
   "sftp.conflict.overwriteAll": "Overwrite All",
-  "sftp.conflict.folderTitle": "Conflicts Detected",
-  "sftp.conflict.folderMessage": "{count} file(s) already exist at the destination.",
-  "sftp.conflict.folderSkipAll": "Skip existing",
-  "sftp.conflict.folderOverwriteAll": "Overwrite all",
 
   // General
   "general.ok": "OK",
