@@ -151,9 +151,26 @@ export const en = {
   // Side panel
   "panel.sftp": "Files",
   "panel.tunnels": "Tunnels",
+  "panel.history": "History",
   "panel.close": "Close panel",
   "panel.region": "Session panel",
   "panel.sections": "Panel sections",
+
+  // Command history panel
+  "history.empty": "No commands recorded yet",
+  "history.captureOff": "Command capture is disabled",
+  "history.enableCapture": "Enable capture to start recording commands",
+  "history.filter": "Filter commands...",
+  "history.filterByHost": "Filter to current host",
+  "history.copy": "Copy",
+  "history.insert": "Insert",
+  "history.execute": "Execute",
+  "history.delete": "Delete command",
+  "history.clearAll": "Clear all",
+  "history.captureToggleLabel": "Capture commands",
+  "history.noticeTitle": "Privacy notice",
+  "history.noticeMessage": "Command history captures everything you type. Passwords entered at prompts may be recorded. You can disable capture or clear history at any time.",
+  "history.noticeDismiss": "Got it",
 
   // Terminal
   "terminal.newTab": "New terminal",

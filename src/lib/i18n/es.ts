@@ -153,9 +153,26 @@ export const es: Record<TranslationKey, string> = {
   // Side panel
   "panel.sftp": "Archivos",
   "panel.tunnels": "Túneles",
+  "panel.history": "Historial",
   "panel.close": "Cerrar panel",
   "panel.region": "Panel de sesión",
   "panel.sections": "Secciones del panel",
+
+  // Command history panel
+  "history.empty": "Aún no hay comandos registrados",
+  "history.captureOff": "La captura de comandos está desactivada",
+  "history.enableCapture": "Activá la captura para empezar a registrar comandos",
+  "history.filter": "Filtrar comandos...",
+  "history.filterByHost": "Filtrar por host actual",
+  "history.copy": "Copiar",
+  "history.insert": "Insertar",
+  "history.execute": "Ejecutar",
+  "history.delete": "Eliminar comando",
+  "history.clearAll": "Limpiar todo",
+  "history.captureToggleLabel": "Capturar comandos",
+  "history.noticeTitle": "Aviso de privacidad",
+  "history.noticeMessage": "El historial captura todo lo que escribís. Las contraseñas ingresadas en prompts pueden quedar registradas. Podés desactivar la captura o limpiar el historial en cualquier momento.",
+  "history.noticeDismiss": "Entendido",
 
   // Terminal
   "terminal.newTab": "Nueva terminal",
