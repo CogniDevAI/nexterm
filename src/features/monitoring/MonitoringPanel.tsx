@@ -161,7 +161,13 @@ export function MonitoringPanel({ sessionId }: MonitoringPanelProps) {
                 aria-label={`${d.filesystem}: ${d.usedPct}%`}
               >
                 <div
-                  className="monitoring-disk-bar-fill"
+                  className={`monitoring-disk-bar-fill${
+                    d.usedPct >= 95
+                      ? " monitoring-disk-bar-fill--critical"
+                      : d.usedPct >= 80
+                        ? " monitoring-disk-bar-fill--warning"
+                        : ""
+                  }`}
                   style={{ width: `${d.usedPct}%` }}
                 />
               </div>

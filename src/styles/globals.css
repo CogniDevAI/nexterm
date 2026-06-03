@@ -6797,18 +6797,14 @@ dialog::backdrop {
   min-width: 2px; /* always visible even at ~0% */
 }
 
-/* Grade the fill color toward warning/error at high usage */
-.monitoring-disk-bar-fill[style*="width: 8"],
-.monitoring-disk-bar-fill[style*="width: 9"] {
+/* Grade the fill color toward warning/error at high usage.
+   Driven by a class computed from the real usedPct (>=80 warn, >=95 critical),
+   not a brittle [style*=width] substring match. */
+.monitoring-disk-bar-fill--warning {
   background-color: var(--warning);
 }
 
-.monitoring-disk-bar-fill[style*="width: 100"],
-.monitoring-disk-bar-fill[style*="width: 99"],
-.monitoring-disk-bar-fill[style*="width: 98"],
-.monitoring-disk-bar-fill[style*="width: 97"],
-.monitoring-disk-bar-fill[style*="width: 96"],
-.monitoring-disk-bar-fill[style*="width: 95"] {
+.monitoring-disk-bar-fill--critical {
   background-color: var(--error);
 }
 
