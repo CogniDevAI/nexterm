@@ -543,7 +543,7 @@ export const en = {
   "docker.rm.container": "Container",
   "docker.logs.title": "Logs",
   "docker.logs.close": "Close",
-  "docker.logs.truncated": "Output truncated (> 10 MB — showing first 200 lines)",
+  "docker.logs.truncated": "Output truncated (size limit reached)",
 } as const;
 
 export type TranslationKey = keyof typeof en;

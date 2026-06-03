@@ -16,10 +16,12 @@
 //   outside that set — semicolons, pipes, $, spaces, quotes, backticks, slashes,
 //   newlines — is rejected with DockerInjectionError. Commands are built from
 //   validated tokens only; no raw interpolation.
+//
+//   The validator is a pure manual char-loop (no external crate). Every byte is
+//   checked individually, so any non-ASCII character, control character, or shell
+//   metacharacter is rejected at the first forbidden byte encountered.
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 
 use crate::error::AppError;
 
@@ -55,39 +57,60 @@ pub enum DockerAction {
 
 // ─── Container-id validation ─────────────────────────────────────────────────
 
-/// Docker container charset regex.
-/// Matches the exact charset Docker uses for both IDs and names:
-///   - First char: alphanumeric
-///   - Remaining (up to 127 more): alphanumeric, underscore, dot, hyphen
-///
-/// Anything outside this set (shell metacharacters, spaces, slashes, etc.)
-/// is REJECTED — this is the primary injection guard.
-fn container_id_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,127}$").expect("container_id_regex is valid")
-    })
+/// Returns true for bytes that are legal in the *tail* of a container id/name
+/// (positions 1..): ASCII alphanumeric, underscore, dot, or hyphen.
+#[inline]
+fn is_tail_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'-'
 }
 
 /// Validate a container ID or name before use in a shell command.
 ///
 /// Accepts ONLY Docker's actual charset: `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`.
-/// Returns `AppError::Other` (injection error) for anything outside that set.
+///   - Length: 1..=128 bytes
+///   - First byte: ASCII alphanumeric
+///   - Remaining bytes (up to 127): ASCII alphanumeric, `_`, `.`, `-`
+///
+/// Anything outside that set (shell metacharacters, spaces, slashes, quotes,
+/// control chars, non-ASCII) is rejected with an `AppError::Other`.
 ///
 /// # Security
-/// Called at the Rust boundary even when the id came from `docker ps` output:
-/// defense-in-depth against corrupted output or smuggled metacharacters.
+/// Pure manual char-loop — no external crate. Every byte is inspected, so
+/// any non-ASCII character, control character, or shell metacharacter is
+/// rejected at the first forbidden byte. Called at the Rust boundary even
+/// when the id came from `docker ps` output: defense-in-depth against
+/// corrupted daemon output or smuggled metacharacters.
 pub fn validate_container_id(id: &str) -> Result<&str, AppError> {
-    if id.is_empty() {
-        return Err(AppError::Other("Docker container id is empty".to_string()));
+    let bytes = id.as_bytes();
+
+    // Length gate: must be 1..=128 bytes.
+    match bytes.len() {
+        0 => return Err(AppError::Other("Docker container id is empty".to_string())),
+        1..=128 => {}
+        _ => {
+            return Err(AppError::Other(format!(
+                "Invalid container id (injection guard): {id:?}"
+            )))
+        }
     }
-    if container_id_regex().is_match(id) {
-        Ok(id)
-    } else {
-        Err(AppError::Other(format!(
+
+    // First byte must be ASCII alphanumeric.
+    if !bytes[0].is_ascii_alphanumeric() {
+        return Err(AppError::Other(format!(
             "Invalid container id (injection guard): {id:?}"
-        )))
+        )));
     }
+
+    // Remaining bytes: alphanumeric | '_' | '.' | '-'
+    for &b in &bytes[1..] {
+        if !is_tail_byte(b) {
+            return Err(AppError::Other(format!(
+                "Invalid container id (injection guard): {id:?}"
+            )));
+        }
+    }
+
+    Ok(id)
 }
 
 // ─── Lifecycle command builder ────────────────────────────────────────────────
@@ -174,6 +197,11 @@ pub fn parse_docker_ps_line(line: &str) -> Option<ContainerRow> {
     }
     let raw: DockerPsLine = serde_json::from_str(line).ok()?;
     let id = raw.id.filter(|s| !s.is_empty())?;
+    // Validate the ID at the parse source (defense-in-depth).
+    // Any id that fails the charset check silently drops the row — this
+    // guarantees no out-of-charset id can ever populate the store or reach
+    // write_terminal via the interactive-shell path.
+    validate_container_id(&id).ok()?;
     Some(ContainerRow {
         id,
         names: raw.names.unwrap_or_default(),
@@ -279,6 +307,42 @@ mod tests {
         let line = r#"{"Id":"eee555","Names":"epsilon","Image":"postgres","State":"exited","Status":"Exited(0)","Ports":""}"#;
         let row = parse_docker_ps_line(line).expect("should parse lowercase Id alias");
         assert_eq!(row.id, "eee555");
+    }
+
+    // ── MINOR-1: parse_docker_ps_line drops rows with unsafe IDs ────────────
+
+    /// RED → GREEN: a JSON line whose ID contains a shell metacharacter
+    /// must be silently dropped (returns None) — defense-in-depth so no
+    /// out-of-charset id can ever reach write_terminal.
+    #[test]
+    fn parse_line_drops_row_with_metacharacter_in_id() {
+        let line = r#"{"ID":"abc; rm -rf /","Names":"evil","Image":"alpine","State":"running","Status":"Up","Ports":""}"#;
+        assert!(
+            parse_docker_ps_line(line).is_none(),
+            "row with shell metachar in ID must be dropped"
+        );
+    }
+
+    #[test]
+    fn parse_line_drops_row_with_pipe_in_id() {
+        let line = r#"{"ID":"abc|cat /etc/passwd","Names":"evil","Image":"alpine","State":"running","Status":"Up","Ports":""}"#;
+        assert!(parse_docker_ps_line(line).is_none());
+    }
+
+    #[test]
+    fn parse_line_drops_row_with_newline_in_id() {
+        // Newline in JSON would be escaped; simulate a tab instead which is
+        // also rejected by the validator.
+        let line = "{\"ID\":\"abc\\tdef\",\"Names\":\"evil\",\"Image\":\"alpine\",\"State\":\"running\",\"Status\":\"Up\",\"Ports\":\"\"}";
+        assert!(parse_docker_ps_line(line).is_none());
+    }
+
+    /// Sanity: a normal hex ID row still parses fine after the validator is added.
+    #[test]
+    fn parse_line_valid_hex_id_still_parses() {
+        let line = r#"{"ID":"abc123def456","Names":"myapp","Image":"nginx:latest","State":"running","Status":"Up 2 hours","Ports":""}"#;
+        let row = parse_docker_ps_line(line).expect("normal hex id must still parse");
+        assert_eq!(row.id, "abc123def456");
     }
 
     // ── WU2: validator ───────────────────────────────────────────────────────

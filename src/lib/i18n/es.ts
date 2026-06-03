@@ -545,5 +545,5 @@ export const es: Record<TranslationKey, string> = {
   "docker.rm.container": "Contenedor",
   "docker.logs.title": "Logs",
   "docker.logs.close": "Cerrar",
-  "docker.logs.truncated": "Salida truncada (> 10 MB — mostrando primeras 200 líneas)",
+  "docker.logs.truncated": "Salida truncada (límite de tamaño alcanzado)",
 };

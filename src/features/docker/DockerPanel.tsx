@@ -80,6 +80,20 @@ function RefreshIcon() {
   );
 }
 
+// ─── Shell command helper ─────────────────────────────────────────────────────
+
+/**
+ * Build the `docker exec -it <id> sh` command string for the interactive shell
+ * action. Accepts a validated container **id** (NOT the name) so a future
+ * refactor cannot accidentally swap the arguments without breaking the test.
+ *
+ * The trailing `\n` is intentional — write_terminal expects the newline to
+ * submit the command to the PTY just as pressing Enter would.
+ */
+export function buildDockerExecCommand(id: string): string {
+  return `docker exec -it ${id} sh\n`;
+}
+
 // ─── DockerPanel ─────────────────────────────────────────────────────────────
 
 interface DockerPanelProps {
@@ -201,7 +215,7 @@ export function DockerPanel({ sessionId }: DockerPanelProps) {
       return;
     }
 
-    const cmd = `docker exec -it ${container.id} sh\n`;
+    const cmd = buildDockerExecCommand(container.id);
     try {
       await tauriInvoke("write_terminal", {
         sessionId,

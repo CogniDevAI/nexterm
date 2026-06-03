@@ -2468,7 +2468,6 @@ dependencies = [
  "hmac",
  "open",
  "rand 0.8.5",
- "regex",
  "russh",
  "russh-keys",
  "russh-sftp",
