@@ -16,6 +16,7 @@ import { TunnelManager } from "../../features/tunnel/TunnelManager";
 import { HistoryPanel } from "../../features/history/HistoryPanel";
 import { MonitoringPanel } from "../../features/monitoring/MonitoringPanel";
 import { DockerPanel } from "../../features/docker/DockerPanel";
+import { ProxmoxPanel } from "../../features/proxmox/ProxmoxPanel";
 import type { PanelSection } from "../../stores/workspaceStore";
 
 // ── SVG icons (inline, no external dep) ─────────────────────────────────────
@@ -168,6 +169,70 @@ function DockerIcon() {
   );
 }
 
+function ProxmoxIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Proxmox VE: stylized server stack with a highlight bar */}
+      <rect
+        x="1"
+        y="2"
+        width="14"
+        height="4"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+      />
+      <rect
+        x="1"
+        y="7"
+        width="14"
+        height="4"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        fill="none"
+      />
+      <circle cx="12" cy="4" r="0.7" fill="currentColor" />
+      <circle cx="12" cy="9" r="0.7" fill="currentColor" />
+      <line
+        x1="3"
+        y1="4"
+        x2="7"
+        y2="4"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+      <line
+        x1="3"
+        y1="9"
+        x2="7"
+        y2="9"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+      {/* Container indicator line */}
+      <line
+        x1="4"
+        y1="13"
+        x2="12"
+        y2="13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg
@@ -219,7 +284,7 @@ export function SidePanel() {
 
   const sessionId = activeSession?.id ?? "";
 
-  function handleToggle(section: "sftp" | "tunnel" | "history" | "monitoring" | "docker") {
+  function handleToggle(section: "sftp" | "tunnel" | "history" | "monitoring" | "docker" | "proxmox") {
     if (!workspaceKey) return;
     const isActive = panelOpen && panelSection === section;
     if (isActive) {
@@ -297,6 +362,17 @@ export function SidePanel() {
         >
           <DockerIcon />
         </button>
+
+        <button
+          type="button"
+          aria-pressed={panelOpen && panelSection === "proxmox"}
+          aria-label={t("panel.proxmox")}
+          className={`side-panel-rail-btn${panelOpen && panelSection === "proxmox" ? " side-panel-rail-btn-active" : ""}`}
+          onClick={() => handleToggle("proxmox")}
+          title={t("panel.proxmox")}
+        >
+          <ProxmoxIcon />
+        </button>
       </div>
 
       {/* Collapsible content pane */}
@@ -320,7 +396,9 @@ export function SidePanel() {
                       ? t("panel.monitoring")
                       : panelSection === "docker"
                         ? t("panel.docker")
-                        : t("panel.tunnels")}
+                        : panelSection === "proxmox"
+                          ? t("panel.proxmox")
+                          : t("panel.tunnels")}
               </span>
               <button
                 type="button"
@@ -352,6 +430,9 @@ export function SidePanel() {
               )}
               {panelSection === "docker" && sessionId && (
                 <DockerPanel sessionId={sessionId} />
+              )}
+              {panelSection === "proxmox" && sessionId && (
+                <ProxmoxPanel sessionId={sessionId} />
               )}
             </div>
           </section>

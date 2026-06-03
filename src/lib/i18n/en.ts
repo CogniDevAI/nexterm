@@ -544,6 +544,38 @@ export const en = {
   "docker.logs.title": "Logs",
   "docker.logs.close": "Close",
   "docker.logs.truncated": "Output truncated (size limit reached)",
+
+  // Side panel — proxmox section
+  "panel.proxmox": "Proxmox",
+
+  // Proxmox panel
+  "proxmox.unavailable":
+    "Not a Proxmox host or insufficient permissions (pct requires root)",
+  "proxmox.loading": "Loading LXC containers...",
+  "proxmox.empty": "No LXC containers found",
+  "proxmox.refresh": "Refresh",
+  "proxmox.col.vmid": "VMID",
+  "proxmox.col.name": "Name",
+  "proxmox.col.status": "Status",
+  "proxmox.col.actions": "Actions",
+  "proxmox.action.start": "Start",
+  "proxmox.action.stop": "Stop",
+  "proxmox.action.reboot": "Reboot",
+  "proxmox.action.shell": "Shell",
+  "proxmox.action.snapshots": "Snapshots",
+  "proxmox.snapshot.title": "Snapshots",
+  "proxmox.snapshot.empty": "No snapshots",
+  "proxmox.snapshot.close": "Close Snapshots",
+  "proxmox.snapshot.create.label": "New snapshot name",
+  "proxmox.snapshot.create.btn": "Create Snapshot",
+  "proxmox.snapshot.rollback.arm": "Rollback",
+  "proxmox.snapshot.rollback.confirm": "Confirm Rollback",
+  "proxmox.snapshot.rollback.cancel": "Cancel",
+  "proxmox.snapshot.rollback.warning":
+    "Warning: rollback will discard the current container state",
+  "proxmox.snapshot.delete.arm": "Delete",
+  "proxmox.snapshot.delete.confirm": "Confirm Delete",
+  "proxmox.snapshot.delete.cancel": "Cancel",
 } as const;
 
 export type TranslationKey = keyof typeof en;

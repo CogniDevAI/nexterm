@@ -218,6 +218,16 @@ pub(crate) async fn proxmox_list_snapshots_inner(
     };
 
     let output = run_on_channel(channel, command, opts, Some(cancel_token)).await?;
+
+    if output.exit_code != Some(0) {
+        let msg = if output.stderr.is_empty() {
+            format!("pct listsnapshot failed (exit {:?})", output.exit_code)
+        } else {
+            output.stderr.trim().to_string()
+        };
+        return Err(AppError::Other(msg));
+    }
+
     let snapshots = parse_pct_listsnapshot(&output.stdout);
     Ok(ListSnapshotsResult { snapshots })
 }

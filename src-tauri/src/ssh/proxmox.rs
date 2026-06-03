@@ -297,6 +297,9 @@ pub fn parse_pct_listsnapshot(stdout: &str) -> Vec<SnapshotRow> {
         };
 
         // Skip well-known non-snapshot tokens.
+        // Known limitation: a real snapshot literally named "current", "name",
+        // or "snapshots" (case-insensitive) collides with header detection and
+        // will be silently dropped from the result set.
         let lower = name_candidate.to_lowercase();
         if lower == "name" || lower == "current" || lower == "snapshots" {
             continue;

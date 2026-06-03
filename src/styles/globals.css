@@ -7472,3 +7472,507 @@ dialog::backdrop {
   color: var(--text-primary);
   background-color: var(--bg-raised);
 }
+
+/* ═══════════════════════════════════════════════════
+   Proxmox Panel
+   Remote Proxmox LXC management: LXC table, status
+   badges, lifecycle/snapshot/shell action buttons,
+   snapshot sub-view, SnapshotConfirmDialog,
+   unavailable/empty/loading states.
+   Consistent with Docker panel; uses LAMPLIGHT tokens.
+   ═══════════════════════════════════════════════════ */
+
+/* ── Container ── */
+.proxmox-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 12px 14px;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-size: var(--fs-body);
+  position: relative;
+}
+
+/* ── Status states (loading / unavailable) ── */
+.proxmox-loading,
+.proxmox-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 120px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  text-align: center;
+  padding: 24px;
+}
+
+.proxmox-unavailable {
+  color: var(--warning);
+}
+
+/* ── Empty state ── */
+.proxmox-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+/* ── Panel header (refresh + error) ── */
+.proxmox-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* ── Refresh button ── */
+.proxmox-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  gap: 4px;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.proxmox-refresh-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+.proxmox-refresh-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.proxmox-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Action error banner ── */
+.proxmox-action-error {
+  font-size: var(--fs-meta);
+  color: var(--error);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Container table ── */
+.proxmox-containers {
+  display: flex;
+  flex-direction: column;
+}
+
+.proxmox-container-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-meta);
+}
+
+.proxmox-container-table thead th {
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  font-size: 0.625rem;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.proxmox-container-table tbody tr {
+  border-bottom: 1px solid var(--hairline);
+  transition: background-color var(--transition-fast);
+}
+
+.proxmox-container-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.proxmox-container-table tbody tr:hover {
+  background-color: var(--bg-raised);
+}
+
+.proxmox-container-table td {
+  padding: 5px 6px;
+  vertical-align: middle;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* VMID column */
+.proxmox-container-vmid {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  width: 48px;
+}
+
+/* Name column */
+.proxmox-container-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-primary) !important;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Status badge ── */
+.proxmox-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-weight: var(--fw-medium);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* running → connected/green */
+.proxmox-status-badge--running {
+  background-color: var(--connected-wash);
+  color: var(--connected);
+  border: 1px solid color-mix(in oklch, var(--connected) 30%, transparent);
+}
+
+/* stopped → muted */
+.proxmox-status-badge--stopped {
+  background-color: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--hairline);
+}
+
+/* paused → warning */
+.proxmox-status-badge--paused {
+  background-color: color-mix(in oklch, var(--warning) 15%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in oklch, var(--warning) 30%, transparent);
+}
+
+/* unknown */
+.proxmox-status-badge--unknown {
+  background-color: var(--bg-raised);
+  color: var(--text-faint);
+  border: 1px solid var(--hairline);
+}
+
+/* ── Action group (per-row buttons) ── */
+.proxmox-container-table td:last-child {
+  width: 1%;
+  padding-right: 2px;
+  white-space: nowrap;
+}
+
+.proxmox-action-group {
+  display: inline-flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+/* ── Action buttons (lifecycle, snapshots, shell) ── */
+.proxmox-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.proxmox-action-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+.proxmox-action-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.proxmox-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Active/expanded state (snapshots toggle) */
+.proxmox-action-btn--active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+/* Danger button (delete snapshot) */
+.proxmox-action-btn--danger {
+  color: var(--text-muted);
+}
+
+.proxmox-action-btn--danger:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash-tint);
+}
+
+/* ── Snapshot sub-view (inline row below container) ── */
+.proxmox-snapshot-subview {
+  padding: 0 !important;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.proxmox-snapshot-subview > div,
+.proxmox-snapshot-subview > .proxmox-snapshot-header,
+.proxmox-snapshot-subview > .proxmox-snapshot-list,
+.proxmox-snapshot-subview > .proxmox-snapshot-create {
+  padding: 8px 12px;
+}
+
+.proxmox-snapshot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background-color: var(--bg-panel);
+}
+
+.proxmox-snapshot-title {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+
+.proxmox-snapshot-title strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.proxmox-snapshot-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.proxmox-snapshot-close-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+.proxmox-snapshot-close-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.proxmox-snapshot-empty {
+  padding: 8px 12px;
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+/* ── Snapshot list ── */
+.proxmox-snapshot-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proxmox-snapshot-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.proxmox-snapshot-item:last-child {
+  border-bottom: none;
+}
+
+.proxmox-snapshot-item-name {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proxmox-snapshot-actions {
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* ── Snapshot create input + button ── */
+.proxmox-snapshot-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.proxmox-snapshot-create-input {
+  flex: 1;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-size: var(--fs-meta);
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.proxmox-snapshot-create-input:focus {
+  border-color: var(--accent);
+}
+
+.proxmox-snapshot-create-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* ── SnapshotConfirmDialog (mirrors rm-confirm-dialog) ── */
+.snapshot-confirm-dialog {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-wrap: wrap;
+}
+
+.snapshot-confirm-name {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.snapshot-confirm-name strong {
+  color: var(--text-primary);
+}
+
+.snapshot-confirm-warning {
+  font-size: 0.625rem;
+  color: var(--warning);
+  font-weight: var(--fw-medium);
+  width: 100%;
+}
+
+.snapshot-confirm-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Base snapshot confirm button */
+.snapshot-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.snapshot-confirm-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Arm button (default) */
+.snapshot-confirm-btn-arm {
+  color: var(--text-muted);
+  border-color: var(--hairline);
+  background: none;
+}
+
+.snapshot-confirm-btn-arm:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+/* Arm button — warning variant (rollback) */
+.snapshot-confirm-btn-arm--warning:hover {
+  color: var(--warning);
+  border-color: var(--warning);
+  background-color: color-mix(in oklch, var(--warning) 12%, transparent);
+}
+
+/* Danger confirm */
+.snapshot-confirm-btn-danger {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash);
+  font-weight: var(--fw-medium);
+}
+
+.snapshot-confirm-btn-danger:hover {
+  background-color: var(--error-wash);
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px var(--error-glow);
+}
+
+/* Cancel */
+.snapshot-confirm-btn-cancel {
+  color: var(--text-muted);
+  border-color: var(--hairline);
+  background: none;
+}
+
+.snapshot-confirm-btn-cancel:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}

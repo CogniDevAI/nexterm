@@ -546,4 +546,36 @@ export const es: Record<TranslationKey, string> = {
   "docker.logs.title": "Logs",
   "docker.logs.close": "Cerrar",
   "docker.logs.truncated": "Salida truncada (límite de tamaño alcanzado)",
+
+  // Side panel — proxmox section
+  "panel.proxmox": "Proxmox",
+
+  // Proxmox panel
+  "proxmox.unavailable":
+    "No es un host Proxmox o sin permisos suficientes (pct requiere root)",
+  "proxmox.loading": "Cargando contenedores LXC...",
+  "proxmox.empty": "No se encontraron contenedores LXC",
+  "proxmox.refresh": "Actualizar",
+  "proxmox.col.vmid": "VMID",
+  "proxmox.col.name": "Nombre",
+  "proxmox.col.status": "Estado",
+  "proxmox.col.actions": "Acciones",
+  "proxmox.action.start": "Iniciar",
+  "proxmox.action.stop": "Detener",
+  "proxmox.action.reboot": "Reiniciar",
+  "proxmox.action.shell": "Shell",
+  "proxmox.action.snapshots": "Snapshots",
+  "proxmox.snapshot.title": "Snapshots",
+  "proxmox.snapshot.empty": "Sin snapshots",
+  "proxmox.snapshot.close": "Cerrar Snapshots",
+  "proxmox.snapshot.create.label": "Nombre del nuevo snapshot",
+  "proxmox.snapshot.create.btn": "Crear Snapshot",
+  "proxmox.snapshot.rollback.arm": "Rollback",
+  "proxmox.snapshot.rollback.confirm": "Confirmar Rollback",
+  "proxmox.snapshot.rollback.cancel": "Cancelar",
+  "proxmox.snapshot.rollback.warning":
+    "Advertencia: el rollback descartará el estado actual del contenedor",
+  "proxmox.snapshot.delete.arm": "Eliminar",
+  "proxmox.snapshot.delete.confirm": "Confirmar Eliminación",
+  "proxmox.snapshot.delete.cancel": "Cancelar",
 };
