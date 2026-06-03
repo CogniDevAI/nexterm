@@ -112,7 +112,7 @@ export function ConflictDialog({
       <div className="cd-actions">
         {/* Skip All — secondary safe */}
         <button
-          className="cd-btn cd-btn-secondary"
+          className="btn btn-secondary btn-sm"
           onClick={() => onResolve("skip_all")}
         >
           {t("sftp.conflict.skipAll")}
@@ -120,7 +120,7 @@ export function ConflictDialog({
 
         {/* Overwrite All — danger */}
         <button
-          className="cd-btn cd-btn-danger"
+          className="btn btn-danger btn-sm"
           data-variant="danger"
           onClick={() => onResolve("overwrite_all")}
         >
@@ -129,7 +129,7 @@ export function ConflictDialog({
 
         {/* Overwrite — danger */}
         <button
-          className="cd-btn cd-btn-danger"
+          className="btn btn-danger btn-sm"
           data-variant="danger"
           onClick={() => onResolve("overwrite")}
         >
@@ -139,7 +139,7 @@ export function ConflictDialog({
         {/* Skip — primary safe, autofocused */}
         <button
           ref={skipRef}
-          className="cd-btn cd-btn-primary"
+          className="btn btn-primary btn-sm"
           data-autofocus="true"
           autoFocus
           onClick={() => onResolve("skip")}

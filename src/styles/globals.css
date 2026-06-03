@@ -3672,6 +3672,39 @@ dialog::backdrop {
   gap: 12px;
 }
 
+/* ─── Conflict info table (file name / sizes / modified) ─── */
+
+.conflict-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.conflict-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-size: var(--fs-body);
+}
+
+.conflict-info-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.conflict-info-value {
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+}
+
+.conflict-info-filename {
+  font-family: var(--font-mono);
+}
+
 /* ─── Row Layout ─────────────────────────────────── */
 
 .cd-row {

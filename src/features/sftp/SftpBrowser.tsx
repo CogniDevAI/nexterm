@@ -159,6 +159,11 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
   // Pane refs — used for keyboard pane-switching and pane-container layout.
   const remotePaneRef = useRef<HTMLDivElement>(null);
 
+  // Tracks which pane a drag started from (set synchronously on dragstart,
+  // read on drop) so a drop on the SAME pane is ignored — prevents bogus
+  // self-conflict. local→local / remote→remote make no sense as transfers.
+  const dragSourceRef = useRef<"local" | "remote" | null>(null);
+
   // Active pane tracking (PR3 — focus management)
   const [activePane, setActivePane] = useState<PaneSource>("local");
   const localPaneRef = useRef<HTMLDivElement>(null);
@@ -1046,6 +1051,9 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   const handleLocalDrop = useCallback(
     (entries: FileEntry[]) => {
+      // A drop on the local pane only makes sense from the remote pane (download).
+      // Ignore same-pane drops to avoid a bogus self-conflict.
+      if (dragSourceRef.current === "local") return;
       // Dropped from remote → download (file or folder) with conflict checking.
       // Sequential for...of prevents concurrent access to the shared conflict dialog.
       conflictResolverRef.current.beginOperation();
@@ -1097,6 +1105,9 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   const handleRemoteDrop = useCallback(
     (entries: FileEntry[]) => {
+      // A drop on the remote pane only makes sense from the local pane (upload).
+      // Ignore same-pane drops to avoid a bogus self-conflict.
+      if (dragSourceRef.current === "remote") return;
       // Dropped from local → upload with conflict checking.
       // Reset batch decision: a stale _all from a prior operation must not leak into this batch.
       conflictResolverRef.current.beginOperation();
@@ -1211,7 +1222,9 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             selectedEntries={localSelected}
             onSelectionChange={setLocalSelected}
             onFileAction={handleLocalFileAction}
-            onDragStart={() => {}}
+            onDragStart={() => {
+              dragSourceRef.current = "local";
+            }}
             onDrop={handleLocalDrop}
             canGoBack={sftp.localPane.historyIndex > 0}
             canGoForward={sftp.localPane.historyIndex < sftp.localPane.history.length - 1}
@@ -1250,7 +1263,9 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
             selectedEntries={remoteSelected}
             onSelectionChange={setRemoteSelected}
             onFileAction={handleFileAction}
-            onDragStart={() => {}}
+            onDragStart={() => {
+              dragSourceRef.current = "remote";
+            }}
             onDrop={handleRemoteDrop}
             canGoBack={sftp.remotePane.historyIndex > 0}
             canGoForward={sftp.remotePane.historyIndex < sftp.remotePane.history.length - 1}
