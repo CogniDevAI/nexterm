@@ -1,6 +1,6 @@
 // src/features/terminal/useTerminal.test.ts — TDD: applyThemeToAllTerminals export
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ITheme } from "@xterm/xterm";
 
 // ── localStorage stub so themeStore (imported dynamically by useTerminal) can work ──
@@ -62,6 +62,17 @@ vi.mock("../../lib/tauri", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: vi.fn().mockImplementation(() => ({ onmessage: null })),
   invoke: vi.fn().mockResolvedValue(undefined),
+}));
+
+// ── commandHistoryStore mock (for onData tap tests) ───────────────────────────
+const mockAddCommand = vi.fn();
+vi.mock("../../stores/commandHistoryStore", () => ({
+  useCommandHistoryStore: {
+    getState: vi.fn(() => ({
+      captureEnabled: false,
+      addCommand: mockAddCommand,
+    })),
+  },
 }));
 
 import { applyThemeToAllTerminals } from "./useTerminal";
@@ -269,5 +280,69 @@ describe("applyThemeToAllTerminals — live and disposed instances (MINOR-4)", (
     expect(liveOptions2.theme).toBe(theme);
     // disposed instance must NOT be re-themed
     expect(disposedOptions.theme).toBeUndefined();
+  });
+});
+
+// ── onData history tap — _testProcessOnDataChunk ──────────────────────────────
+// Tests that the bridge between the line-buffer reducer and commandHistoryStore
+// works correctly. _testProcessOnDataChunk is a TEST-ONLY export that runs the
+// same logic as the onData handler registered inside openTerminal.
+import { _testProcessOnDataChunk } from "./useTerminal";
+import { useCommandHistoryStore } from "../../stores/commandHistoryStore";
+
+const mockedHistoryStore = vi.mocked(useCommandHistoryStore);
+
+describe("_testProcessOnDataChunk — onData history tap", () => {
+  beforeEach(() => {
+    mockAddCommand.mockReset();
+    // Ensure getState returns a valid object with a fresh mockAddCommand after each reset
+    mockedHistoryStore.getState.mockReturnValue({
+      captureEnabled: false,
+      addCommand: mockAddCommand,
+    } as never);
+  });
+
+  it("is exported as a function", () => {
+    expect(typeof _testProcessOnDataChunk).toBe("function");
+  });
+
+  it("calls addCommand when captureEnabled=true and a command is flushed", () => {
+    mockedHistoryStore.getState.mockReturnValue({
+      captureEnabled: true,
+      addCommand: mockAddCommand,
+    } as never);
+
+    const state = _testProcessOnDataChunk(undefined, "ls -la\r", "sess-1", "host.example.com");
+    expect(mockAddCommand).toHaveBeenCalledWith({
+      command: "ls -la",
+      sessionId: "sess-1",
+      host: "host.example.com",
+    });
+    expect(state.buffer).toBe("");
+  });
+
+  it("does NOT call addCommand when captureEnabled=false", () => {
+    // Default beforeEach sets captureEnabled: false already
+    _testProcessOnDataChunk(undefined, "secret-password\r", "sess-1", "host");
+    expect(mockAddCommand).not.toHaveBeenCalled();
+  });
+
+  it("accumulates chars without flushing when no \\r", () => {
+    const state1 = _testProcessOnDataChunk(undefined, "git", "sess-1", "host");
+    const state2 = _testProcessOnDataChunk(state1, " status", "sess-1", "host");
+    expect(state2.buffer).toBe("git status");
+    expect(mockAddCommand).not.toHaveBeenCalled();
+  });
+
+  it("resets buffer on Ctrl-C without calling addCommand", () => {
+    mockedHistoryStore.getState.mockReturnValue({
+      captureEnabled: true,
+      addCommand: mockAddCommand,
+    } as never);
+
+    const state1 = _testProcessOnDataChunk(undefined, "partial", "sess-1", "host");
+    const state2 = _testProcessOnDataChunk(state1, "\x03", "sess-1", "host");
+    expect(state2.buffer).toBe("");
+    expect(mockAddCommand).not.toHaveBeenCalled();
   });
 });

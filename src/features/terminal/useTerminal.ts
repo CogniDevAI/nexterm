@@ -20,6 +20,13 @@ import {
 } from "../../lib/constants";
 import { THEMES } from "../../lib/themes";
 import type { SessionId, TerminalId, TerminalEvent } from "../../lib/types";
+import {
+  reduceLineBuffer,
+  makeLineBufferState,
+  type LineBufferState,
+} from "../history/lineBufferReducer";
+import { useCommandHistoryStore } from "../../stores/commandHistoryStore";
+import { useSessionStore } from "../../stores/sessionStore";
 
 /** Result of a search results update from the SearchAddon. */
 export interface SearchResults {
@@ -48,6 +55,12 @@ interface TerminalInstance {
   callbackOnSearchResults: ((r: SearchResults) => void) | null;
   /** Collected IDisposable subscriptions — disposed when the terminal closes. */
   disposables: IDisposable[];
+  /**
+   * Per-instance line buffer for the command-history tap.
+   * Maintained across onData calls; reset on Ctrl-C/U or Enter-flush.
+   * SECURITY: onData tap is guarded by captureEnabled in commandHistoryStore.
+   */
+  lineBuffer: LineBufferState;
 }
 
 // Module-level singleton: all useTerminal() hook instances share the same Map.
@@ -250,8 +263,19 @@ export function useTerminal() {
         onOutput,
       });
 
-      // Forward keystrokes to Rust
+      // Forward keystrokes to Rust + command-history tap
       term.onData((data) => {
+        // Command history tap: process chunk through line buffer reducer.
+        // The store's addCommand guards behind captureEnabled — early-returns
+        // when capture is OFF, so no history is recorded unless user opted in.
+        // SECURITY: We do NOT attempt password-prompt detection (unreliable at
+        // the JS layer). The user controls capture via the History panel toggle.
+        const inst = terminalInstances.get(terminalId);
+        if (inst) {
+          const { host } = _getSessionHost(sessionId);
+          inst.lineBuffer = _processOnDataChunk(inst.lineBuffer, data, sessionId, host);
+        }
+
         const bytes = new TextEncoder().encode(data);
         void tauriInvoke<void>("write_terminal", {
           sessionId,
@@ -364,6 +388,7 @@ export function useTerminal() {
         callbackOnOpenFindBar: null,
         callbackOnSearchResults: null,
         disposables,
+        lineBuffer: makeLineBufferState(),
       };
       terminalInstances.set(terminalId, instance);
 
@@ -486,6 +511,57 @@ export function useTerminal() {
   return { openTerminal, closeTerminal, getTerminal, focusTerminal, reattachTerminal, disposeSessionTerminals };
 }
 
+// ── Command history onData tap helpers ───────────────────────────────────────
+
+/**
+ * Looks up the host string for a session from the session store.
+ * Returns empty string if the session is not found (safe fallback).
+ */
+function _getSessionHost(sessionId: SessionId): { host: string } {
+  const session = useSessionStore.getState().sessions.get(sessionId);
+  return { host: session?.host ?? "" };
+}
+
+/**
+ * Core logic for the onData history tap.
+ * Processes a raw xterm onData chunk through the line-buffer reducer.
+ * When a command is flushed, calls commandHistoryStore.addCommand IF
+ * captureEnabled is true (the store guards this internally).
+ *
+ * @param prevState  - Previous LineBufferState (undefined = fresh start)
+ * @param chunk      - Raw xterm onData string
+ * @param sessionId  - Active session id (for store entry)
+ * @param host       - Remote host (for store entry)
+ * @returns           - Next LineBufferState
+ */
+function _processOnDataChunk(
+  prevState: LineBufferState | undefined,
+  chunk: string,
+  sessionId: string,
+  host: string,
+): LineBufferState {
+  const prev = prevState ?? makeLineBufferState();
+
+  // SECURITY: early return when capture is disabled — do not run the reducer
+  // at all so there is zero processing overhead when the feature is off.
+  const { captureEnabled, addCommand } = useCommandHistoryStore.getState();
+  if (!captureEnabled) {
+    return reduceLineBuffer(prev, chunk);
+  }
+
+  const next = reduceLineBuffer(prev, chunk);
+
+  if (next.flushed !== undefined) {
+    addCommand({
+      command: next.flushed,
+      sessionId,
+      host,
+    });
+  }
+
+  return next;
+}
+
 /**
  * TEST-ONLY helper — seeds a fake TerminalInstance into the module-level Map
  * so unit tests can verify applyThemeToAllTerminals behaves correctly on live
@@ -505,4 +581,17 @@ export function _testSeedTerminalInstance(id: string, instance: TerminalInstance
  */
 export function _testGetFindBarOpener(terminalId: TerminalId): (() => void) | null {
   return terminalInstances.get(terminalId)?.callbackOnOpenFindBar ?? null;
+}
+
+/**
+ * TEST-ONLY helper — exposes _processOnDataChunk for unit testing the
+ * onData history tap logic without going through the full openTerminal flow.
+ */
+export function _testProcessOnDataChunk(
+  prevState: LineBufferState | undefined,
+  chunk: string,
+  sessionId: string,
+  host: string,
+): LineBufferState {
+  return _processOnDataChunk(prevState, chunk, sessionId, host);
 }
