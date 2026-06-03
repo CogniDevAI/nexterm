@@ -62,6 +62,22 @@ describe("i18n — broadcast keys", () => {
   }
 });
 
+// ── Theme picker i18n key present in both locales ─────────────────────────
+
+const THEME_PICKER_KEYS = ["theme.picker"] as const;
+
+describe("i18n — theme picker keys", () => {
+  for (const key of THEME_PICKER_KEYS) {
+    it(`en.ts has key: ${key}`, () => {
+      expect(en[key]).toBeTruthy();
+    });
+
+    it(`es.ts has key: ${key}`, () => {
+      expect(es[key]).toBeTruthy();
+    });
+  }
+});
+
 describe("I18nProvider — html lang sync", () => {
   beforeEach(() => {
     localStorage.clear();
