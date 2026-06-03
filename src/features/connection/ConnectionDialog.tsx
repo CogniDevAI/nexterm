@@ -363,6 +363,18 @@ export function ConnectionDialog({
             placeholder="My Server"
             autoFocus
           />
+          <Input
+            id="profile-folder"
+            label={t("connection.folder")}
+            value={profile.folder ?? ""}
+            onChange={(e) =>
+              setProfile((p) => ({
+                ...p,
+                folder: e.target.value || undefined,
+              }))
+            }
+            placeholder={t("connection.folderPlaceholder")}
+          />
           <div className="cd-row">
             <Input
               id="profile-host"
