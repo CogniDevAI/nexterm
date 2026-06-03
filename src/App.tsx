@@ -304,7 +304,7 @@ function App() {
     variables: Token[];
     prefilledValues?: Record<string, string>;
   } | null>(null);
-  const { snippets } = useSnippetStore((s) => ({ snippets: s.snippets }));
+  const snippets = useSnippetStore((s) => s.snippets);
 
   const handleNewProfile = useCallback(() => {
     setEditProfileId(null);

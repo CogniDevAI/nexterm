@@ -29,10 +29,8 @@ export function SnippetManagerDialog({
   onClose,
 }: SnippetManagerDialogProps) {
   const { t } = useI18n();
-  const { addSnippet, deleteSnippet } = useSnippetStore((s) => ({
-    addSnippet: s.addSnippet,
-    deleteSnippet: s.deleteSnippet,
-  }));
+  const addSnippet = useSnippetStore((s) => s.addSnippet);
+  const deleteSnippet = useSnippetStore((s) => s.deleteSnippet);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
