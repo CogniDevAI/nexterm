@@ -26,6 +26,7 @@ import { useTerminal } from "./useTerminal";
 import { useI18n } from "../../lib/i18n";
 import type { SessionId } from "../../lib/types";
 
+
 interface TerminalTabsProps {
   sessionId: SessionId;
   onOpenSnippets?: () => void;
@@ -53,6 +54,7 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
     closeSlot,
     assignTerminal,
     setDirection,
+    toggleBroadcast,
     layouts: paneLayouts,
   } = usePaneLayoutStore();
 
@@ -354,6 +356,27 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
             }
           >
             {paneLayout?.direction === "horizontal" ? "⊠" : "⊟"}
+          </button>
+        )}
+        {paneCount >= 2 && (
+          <button
+            className="terminal-tab-broadcast"
+            onClick={() => toggleBroadcast(sessionId)}
+            aria-pressed={paneLayout?.broadcastEnabled ?? false}
+            title={
+              paneLayout?.broadcastEnabled
+                ? t("terminal.broadcastAriaOn")
+                : t("terminal.broadcastAriaOff")
+            }
+            aria-label={
+              paneLayout?.broadcastEnabled
+                ? t("terminal.broadcastAriaOn")
+                : t("terminal.broadcastAriaOff")
+            }
+          >
+            {paneLayout?.broadcastEnabled
+              ? t("terminal.broadcastToggleOn")
+              : t("terminal.broadcastToggleOff")}
           </button>
         )}
         {onOpenSnippets && (

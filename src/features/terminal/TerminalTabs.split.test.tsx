@@ -192,6 +192,144 @@ describe("TerminalTabs — pane layout initialization", () => {
   });
 });
 
+// ── WU-5: Broadcast toggle button ─────────────────────────────────────────────
+
+describe("TerminalTabs — broadcast toggle button", () => {
+  beforeEach(resetStores);
+  afterEach(resetStores);
+
+  it("broadcast toggle button is NOT rendered when paneCount < 2", async () => {
+    const session = makeSession("sid-bcast-1");
+    useSessionStore.setState({
+      sessions: new Map([["sid-bcast-1", session]]),
+      activeSessionId: "sid-bcast-1",
+    });
+    render(<TerminalTabs sessionId="sid-bcast-1" />);
+    await act(async () => {});
+
+    // Only 1 slot → paneCount < 2 → toggle must not render
+    const broadcastBtn = document.querySelector(".terminal-tab-broadcast");
+    expect(broadcastBtn).toBeNull();
+  });
+
+  it("broadcast toggle button IS rendered when paneCount >= 2", async () => {
+    const session = makeSession("sid-bcast-2");
+    useSessionStore.setState({
+      sessions: new Map([["sid-bcast-2", session]]),
+      activeSessionId: "sid-bcast-2",
+    });
+    render(<TerminalTabs sessionId="sid-bcast-2" />);
+    await act(async () => {});
+
+    // Manually seed a 2-slot layout
+    const layout = usePaneLayoutStore.getState().layouts["sid-bcast-2"];
+    if (layout) {
+      usePaneLayoutStore.getState().splitSlot("sid-bcast-2", layout.slots[0]!.id);
+    }
+
+    // Re-render to pick up new paneCount
+    const { rerender } = render(<TerminalTabs sessionId="sid-bcast-2" />);
+    await act(async () => {});
+    rerender(<TerminalTabs sessionId="sid-bcast-2" />);
+
+    const broadcastBtn = document.querySelector(".terminal-tab-broadcast");
+    expect(broadcastBtn).not.toBeNull();
+  });
+
+  it("broadcast toggle button has aria-pressed='false' when broadcastEnabled is false", async () => {
+    const session = makeSession("sid-bcast-3");
+    useSessionStore.setState({
+      sessions: new Map([["sid-bcast-3", session]]),
+      activeSessionId: "sid-bcast-3",
+    });
+
+    // Pre-seed a 2-slot layout with broadcastEnabled: false
+    usePaneLayoutStore.setState({
+      layouts: {
+        "sid-bcast-3": {
+          direction: "horizontal",
+          slots: [
+            { id: "s1", terminalId: "term-1", ratio: 0.5 },
+            { id: "s2", terminalId: "term-2", ratio: 0.5 },
+          ],
+          focusedSlotId: "s1",
+          broadcastEnabled: false,
+        },
+      },
+    });
+
+    render(<TerminalTabs sessionId="sid-bcast-3" />);
+    await act(async () => {});
+
+    const broadcastBtn = document.querySelector<HTMLButtonElement>(".terminal-tab-broadcast");
+    expect(broadcastBtn).not.toBeNull();
+    expect(broadcastBtn?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("clicking broadcast toggle calls toggleBroadcast in the store", async () => {
+    const session = makeSession("sid-bcast-4");
+    useSessionStore.setState({
+      sessions: new Map([["sid-bcast-4", session]]),
+      activeSessionId: "sid-bcast-4",
+    });
+
+    usePaneLayoutStore.setState({
+      layouts: {
+        "sid-bcast-4": {
+          direction: "horizontal",
+          slots: [
+            { id: "s1", terminalId: "term-1", ratio: 0.5 },
+            { id: "s2", terminalId: "term-2", ratio: 0.5 },
+          ],
+          focusedSlotId: "s1",
+          broadcastEnabled: false,
+        },
+      },
+    });
+
+    render(<TerminalTabs sessionId="sid-bcast-4" />);
+    await act(async () => {});
+
+    const broadcastBtn = document.querySelector<HTMLButtonElement>(".terminal-tab-broadcast");
+    expect(broadcastBtn).not.toBeNull();
+
+    await act(async () => {
+      broadcastBtn!.click();
+    });
+
+    const layout = usePaneLayoutStore.getState().layouts["sid-bcast-4"];
+    expect(layout?.broadcastEnabled).toBe(true);
+  });
+
+  it("aria-pressed reflects broadcastEnabled state in the store", async () => {
+    const session = makeSession("sid-bcast-5");
+    useSessionStore.setState({
+      sessions: new Map([["sid-bcast-5", session]]),
+      activeSessionId: "sid-bcast-5",
+    });
+
+    usePaneLayoutStore.setState({
+      layouts: {
+        "sid-bcast-5": {
+          direction: "horizontal",
+          slots: [
+            { id: "s1", terminalId: "term-1", ratio: 0.5 },
+            { id: "s2", terminalId: "term-2", ratio: 0.5 },
+          ],
+          focusedSlotId: "s1",
+          broadcastEnabled: true,
+        },
+      },
+    });
+
+    render(<TerminalTabs sessionId="sid-bcast-5" />);
+    await act(async () => {});
+
+    const broadcastBtn = document.querySelector<HTMLButtonElement>(".terminal-tab-broadcast");
+    expect(broadcastBtn?.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
 describe("TerminalTabs — split action creates a new pane", () => {
   beforeEach(resetStores);
   afterEach(resetStores);
