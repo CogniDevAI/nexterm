@@ -5,6 +5,7 @@
 
 import { useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
+import type { ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Channel } from "@tauri-apps/api/core";
@@ -13,9 +14,9 @@ import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
   TERMINAL_LINE_HEIGHT,
-  TERMINAL_THEME,
   RESIZE_DEBOUNCE_MS,
 } from "../../lib/constants";
+import { THEMES } from "../../lib/themes";
 import type { SessionId, TerminalId, TerminalEvent } from "../../lib/types";
 
 interface TerminalInstance {
@@ -36,6 +37,21 @@ interface TerminalInstance {
 // each call useTerminal() independently (Bug H3).
 const terminalInstances = new Map<string, TerminalInstance>();
 
+/**
+ * Re-themes all live (non-disposed) terminal instances.
+ *
+ * Called by themeStore.applyThemeSideEffects when the user switches themes.
+ * The terminalInstances Map stays private; this is the only export that touches it.
+ * xterm v6 supports terminal.options.theme as a live setter (no dispose+recreate needed).
+ */
+export function applyThemeToAllTerminals(theme: ITheme): void {
+  for (const instance of terminalInstances.values()) {
+    if (!instance.disposed) {
+      instance.terminal.options.theme = theme;
+    }
+  }
+}
+
 function isApplePlatform() {
   return /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
 }
@@ -47,12 +63,19 @@ export function useTerminal() {
       container: HTMLDivElement,
       sessionId: SessionId,
     ): Promise<TerminalId> => {
+      // Lazy runtime import avoids a module-level cycle: themeStore imports this
+      // module for applyThemeToAllTerminals; this module reads themeStore only
+      // at call time (never at module evaluation). ESM safe. If the bundler warns,
+      // the fallback is parseStoredThemeId(localStorage.getItem("nexterm-theme")).
+      const { useThemeStore } = await import("../../stores/themeStore");
+      const initialThemeId = useThemeStore.getState().themeId;
+
       // Create xterm.js Terminal
       const term = new Terminal({
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: TERMINAL_FONT_SIZE,
         lineHeight: TERMINAL_LINE_HEIGHT,
-        theme: TERMINAL_THEME,
+        theme: THEMES[initialThemeId].terminalTheme,
         cursorBlink: true,
         cursorStyle: "block",
         allowProposedApi: true,
@@ -257,4 +280,16 @@ export function useTerminal() {
   }, []);
 
   return { openTerminal, closeTerminal, getTerminal, focusTerminal, reattachTerminal, disposeSessionTerminals };
+}
+
+/**
+ * TEST-ONLY helper — seeds a fake TerminalInstance into the module-level Map
+ * so unit tests can verify applyThemeToAllTerminals behaves correctly on live
+ * and disposed instances without standing up a real xterm.js environment.
+ *
+ * This export is guarded by the module-level Map being private; calling it in
+ * production is a no-op for callers who don't import it explicitly.
+ */
+export function _testSeedTerminalInstance(id: string, instance: TerminalInstance): void {
+  terminalInstances.set(id, instance);
 }

@@ -45,10 +45,12 @@
   background-color: rgba(99, 92, 87, 0.50);
 }
 
-/* Selection color consistency — copper accent-wash, kept in sync with
-   TERMINAL_THEME.selectionBackground ("#3c2918a6") in src/lib/constants.ts */
+/* Selection color consistency — driven by CSS token, not a hardcoded rgba.
+   SYNC RULE: --terminal-selection in globals.css is the CSS mirror of
+   THEMES[id].terminalTheme.selectionBackground in src/lib/themes.ts.
+   Update both when changing the selection color for any theme. */
 .xterm .xterm-selection div {
-  background-color: rgba(60, 41, 24, 0.65) !important;
+  background-color: var(--terminal-selection) !important;
 }
 
 /* ═══════════════════════════════════════════════════

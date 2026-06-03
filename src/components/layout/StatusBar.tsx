@@ -1,8 +1,11 @@
-// components/layout/StatusBar.tsx — Bottom status bar with language switcher + update badge
+// components/layout/StatusBar.tsx — Bottom status bar with language switcher + theme toggle + update badge
 
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUpdateStore } from "../../stores/updateStore";
 import { useI18n, type Locale } from "../../lib/i18n";
+import { useThemeStore } from "../../stores/themeStore";
+import { THEMES } from "../../lib/themes";
+import type { ThemeId } from "../../lib/themes";
 
 interface StatusBarProps {
   onStartTour?: () => void;
@@ -12,6 +15,9 @@ export function StatusBar({ onStartTour }: StatusBarProps) {
   const { t, locale, setLocale } = useI18n();
   const { sessions, activeSessionId } = useSessionStore();
   const { status, isCritical } = useUpdateStore();
+  const themeId = useThemeStore((s) => s.themeId);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const oppositeThemeId: ThemeId = themeId === "lamplight" ? "dark" : "lamplight";
 
   // Show badge when user dismissed a normal update
   const showUpdateBadge = status === "dismissed" && !isCritical;
@@ -97,6 +103,15 @@ export function StatusBar({ onStartTour }: StatusBarProps) {
             ?
           </button>
         )}
+
+        <button
+          className="statusbar-theme-toggle"
+          onClick={() => setTheme(oppositeThemeId)}
+          title={THEMES[themeId].label}
+          aria-label={THEMES[themeId].label}
+        >
+          {THEMES[themeId].label}
+        </button>
 
         <button
           className="statusbar-lang-toggle"
