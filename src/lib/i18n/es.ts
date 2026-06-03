@@ -182,6 +182,12 @@ export const es: Record<TranslationKey, string> = {
   "terminal.splitHorizontal": "Dividir panel horizontalmente",
   "terminal.splitVertical": "Dividir panel verticalmente",
   "terminal.closePane": "Cerrar panel",
+  "terminal.broadcastToggle": "Difundir",
+  "terminal.broadcastToggleOn": "Difusión ACTIVA",
+  "terminal.broadcastToggleOff": "Difusión inactiva",
+  "terminal.broadcastBanner": "Difusión ACTIVA — teclas enviadas a todos los paneles",
+  "terminal.broadcastAriaOn": "Desactivar difusión de teclado",
+  "terminal.broadcastAriaOff": "Activar difusión de teclado",
 
   // Terminal find-bar
   "terminal.find.placeholder": "Buscar en la terminal...",
