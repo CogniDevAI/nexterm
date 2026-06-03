@@ -146,7 +146,6 @@ export const es: Record<TranslationKey, string> = {
   "sidebar.group.certification": "CERTIFICACIÓN",
   "sidebar.group.staging": "STAGING",
   "sidebar.group.other": "PERFILES",
-  "sidebar.group.ungrouped": "PERFILES",
   // Connection dialog — folder field
   "connection.folder": "Carpeta",
   "connection.folderPlaceholder": "ej. Producción",

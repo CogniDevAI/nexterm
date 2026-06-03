@@ -34,6 +34,11 @@ const STABLE_PROFILES: never[] = [];
 const STABLE_SAVE = vi.fn().mockResolvedValue("profile-id-1");
 const STABLE_STORE_CRED = vi.fn();
 
+// ─── Mutable store override for edit-mode tests ────────────────────────────
+// The store mock below closes over this variable. Tests can swap it to inject
+// a profile list for a specific render; reset to STABLE_PROFILES in beforeEach.
+let currentMockProfiles: import("../../lib/types").ConnectionProfile[] = STABLE_PROFILES;
+
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
 const mockTauriInvoke = vi.fn();
@@ -58,7 +63,7 @@ vi.mock("../../lib/i18n", () => ({
 
 vi.mock("../../stores/profileStore", () => ({
   useProfileStore: () => ({
-    profiles: STABLE_PROFILES,
+    profiles: currentMockProfiles,
     saveProfile: STABLE_SAVE,
     storeCredential: STABLE_STORE_CRED,
   }),
@@ -188,6 +193,8 @@ describe("ConnectionDialog — SSH key picker dropdown", () => {
 describe("ConnectionDialog — folder field", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset to empty so tests that don't need edit-mode start clean
+    currentMockProfiles = STABLE_PROFILES;
     mockTauriInvoke.mockImplementation((cmd: string) => {
       if (cmd === "list_ssh_keys") return Promise.resolve([]);
       return Promise.resolve(undefined);
@@ -256,23 +263,41 @@ describe("ConnectionDialog — folder field", () => {
   });
 
   it("loads existing folder value when editing a profile", async () => {
-    // The store mock at the top of this file uses STABLE_PROFILES (empty).
-    // Use a separate render with an overridden mock via dynamic spying is complex;
-    // instead rely on the fact that ConnectionDialog reads profiles from the store
-    // and sets profile state from editProfileId. We verify folder renders correctly
-    // by directly rendering with the module-level mock (STABLE_PROFILES is empty
-    // so editProfileId won't find it — this test verifies the input is present
-    // and accepts typed values, which is sufficient for v1 coverage).
-    //
-    // A true edit-load test would require overriding the store mock per-test.
-    // That pattern is covered implicitly by the "typing" test above.
+    // Inject a profile with folder: "production" into the mutable store variable.
+    // The vi.mock closure above reads currentMockProfiles at call time, so the
+    // dialog's useEffect will find this profile when it calls profiles.find().
+    const EDIT_PROFILE_ID = "edit-profile-abc";
+    currentMockProfiles = [
+      {
+        id: EDIT_PROFILE_ID,
+        name: "Prod Server",
+        host: "prod.example.com",
+        port: 22,
+        users: [
+          {
+            id: "user-1",
+            username: "deploy",
+            authMethod: { type: "password" },
+            isDefault: true,
+          },
+        ],
+        folder: "production",
+        startupCommands: [],
+        tunnels: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+
     await act(async () => {
-      render(<ConnectionDialog open onClose={vi.fn()} />);
+      render(
+        <ConnectionDialog open onClose={vi.fn()} editProfileId={EDIT_PROFILE_ID} />,
+      );
     });
 
-    // At minimum, the folder input exists and starts empty for new profiles.
+    // The dialog should have loaded the existing profile's folder value
     const folderInput = document.querySelector<HTMLInputElement>("#profile-folder");
     expect(folderInput).not.toBeNull();
-    expect(folderInput?.value).toBe("");
+    expect(folderInput?.value).toBe("production");
   });
 });
