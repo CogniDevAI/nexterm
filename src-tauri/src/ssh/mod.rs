@@ -4,6 +4,7 @@
 // are encapsulated in this module and its submodules.
 
 pub mod handler;
+pub mod keygen;
 pub mod keys;
 pub mod known_hosts;
 pub mod session;

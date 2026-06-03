@@ -25,7 +25,7 @@ russh-keys = "0.48"
 russh-sftp = "2.0.5"
 
 # Key parsing
-ssh-key = { version = "0.6", features = ["rsa", "ed25519", "ecdsa", "encryption"] }
+ssh-key = { version = "0.6", features = ["rsa", "ed25519", "ecdsa", "encryption", "rand_core"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
