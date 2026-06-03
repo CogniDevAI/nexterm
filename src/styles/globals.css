@@ -137,6 +137,101 @@
   /* ─── The single luminous trick (replaces glassmorphism entirely) ─── */
   /* a 4%-white top hairline simulating the lamp catching a raised plane's edge */
   --lit-edge: inset 0 1px 0 oklch(1 0 0 / 0.04);
+
+  /* ─── State glow tokens — semantic-state rgba() replaced with theme-aware vars ─── */
+  /* Previously hardcoded hue-bearing rgba(); now token-driven so DARK can override.  */
+  /* Focus ring / keyboard state */
+  --focus-ring-wash:   oklch(0.760 0.130 var(--hue-accent) / 0.12); /* replaces blue rgba focus glows */
+  /* Drag-over / drop state */
+  --drag-accent-wash:  oklch(0.300 0.040 var(--hue-accent) / 0.85);
+  --drag-accent-border: oklch(0.760 0.130 var(--hue-accent) / 0.30);
+  /* Glow shadows for semantic states */
+  --connected-glow:    oklch(0.760 0.110 var(--hue-live) / 0.50);
+  --warning-glow:      oklch(0.780 0.130 var(--hue-warn) / 0.40);
+  --error-glow:        oklch(0.640 0.150 var(--hue-error) / 0.40);
+  /* Terminal selection highlight — CSS mirror of THEMES[id].terminalTheme.selectionBackground.
+     SYNC RULE: when changing selection color, update BOTH this token AND themes.ts.
+     LAMPLIGHT: copper accent-wash at ~65% alpha (== old rgba(60,41,24,0.65)) */
+  --terminal-selection: oklch(0.300 0.040 64 / 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK THEME OVERRIDE — :root[data-theme="dark"]
+   Cool-slate field, retained desaturated copper accent.
+   "Cold instrument bay — copper still glints."
+   Only tokens whose values differ from LAMPLIGHT are declared here.
+   Typography, radii, motion, layout dims, font families: unchanged.
+   Back-compat aliases (--bg-primary etc.) auto-follow via var() chains.
+
+   WCAG AA verified (body text ≥4.5:1 vs --bg-panel L=0.205):
+     text-primary   oklch(0.945 0.006 250) → 15.25:1 (AAA)
+     text-secondary oklch(0.770 0.012 250) →  8.65:1 (AAA)
+     text-muted     oklch(0.620 0.014 250) →  4.92:1 (AA body, ≥4.5 required)
+     error          oklch(0.660 0.155  32) →  5.38:1 (AA)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="dark"] {
+  /* ─── Hue anchors: neutrals go cool slate; accent/live/warn/error hues unchanged ─── */
+  --hue-neutral: 250;     /* was 62 warm → cool slate */
+  /* --hue-accent: 64  (copper kept) */
+  /* --hue-live:   165 (jade kept)   */
+  /* --hue-warn:    80 (kept)        */
+  /* --hue-error:   32 (kept)        */
+
+  /* ─── Backgrounds — deeper + cooler than LAMPLIGHT, lower chroma ─── */
+  --bg-abyss:    oklch(0.135 0.010 250);          /* #0c0e12 terminal canvas, deepest cool */
+  --bg-base:     oklch(0.170 0.011 250);          /* #131620 app/content pane */
+  --bg-panel:    oklch(0.205 0.012 250);          /* #1a1e29 sidebar/status/tabs */
+  --bg-raised:   oklch(0.250 0.013 250);          /* #242936 inputs/row hover */
+  --bg-raised-2: oklch(0.300 0.014 250);          /* #2f3543 pressed/active/selected */
+  --bg-dialog:   oklch(0.225 0.013 250);          /* #1f2531 modal surface */
+  --bg-overlay:  oklch(0.135 0.010 250 / 0.62);
+
+  /* ─── Hairlines — cool, opaque ─── */
+  --hairline:        oklch(0.330 0.014 250);
+  --hairline-strong: oklch(0.430 0.016 250);
+  --border-subtle:   oklch(0.295 0.013 250);
+
+  /* ─── Text — cool off-white → cool graphite, NEVER #fff ─── */
+  --text-primary:   oklch(0.945 0.006 250);       /* 15.25:1 vs bg-panel (AAA) */
+  --text-secondary: oklch(0.770 0.012 250);       /*  8.65:1 vs bg-panel (AAA) */
+  --text-muted:     oklch(0.620 0.014 250);       /*  4.92:1 vs bg-panel (AA body) */
+  --text-faint:     oklch(0.500 0.014 250);       /* decorative only, not body */
+
+  /* ─── Accent — copper kept, chroma trimmed ~10% (lit metal in a cold room) ─── */
+  --accent:        oklch(0.770 0.118 64);
+  --accent-strong: oklch(0.715 0.135 58);
+  --accent-on:     oklch(0.200 0.018 250);        /* cool near-black text ON accent fill */
+  --accent-wash:   oklch(0.300 0.045 64);
+  --focus-ring:    oklch(0.810 0.120 66);
+  --focus-ring-wash: oklch(0.770 0.118 64 / 0.14);
+  --drag-accent-wash:   oklch(0.300 0.045 64 / 0.85);
+  --drag-accent-border: oklch(0.770 0.118 64 / 0.30);
+
+  /* ─── Connected/live — jade kept vivid so LIVE pops on cool field ─── */
+  --connected:      oklch(0.775 0.115 165);       /* 8.8:1 vs bg-panel */
+  --connected-wash: oklch(0.300 0.045 165);
+  --connected-glow: oklch(0.775 0.115 165 / 0.50);
+
+  /* ─── Warning — ochre ─── */
+  --warning:      oklch(0.790 0.130 80);
+  --warning-wash: oklch(0.300 0.060 80);
+  --warning-glow: oklch(0.790 0.130 80 / 0.40);
+
+  /* ─── Error — warm brick stays warm even on cool field, signals danger ─── */
+  --error:      oklch(0.660 0.155 32);            /* 5.38:1 vs bg-panel (AA) */
+  --error-wash: oklch(0.300 0.065 32);
+  --error-glow: oklch(0.660 0.155 32 / 0.40);
+
+  /* ─── Shadows — deeper/cooler ─── */
+  --shadow-sm:  0 1px  2px oklch(0.100 0.012 250 / 0.45);
+  --shadow-md:  0 4px 12px oklch(0.100 0.012 250 / 0.55);
+  --shadow-lg:  0 8px 24px oklch(0.100 0.012 250 / 0.60);
+  --shadow-pop: 0 16px 40px oklch(0.100 0.012 250 / 0.65);
+
+  /* ─── Terminal selection — copper accent-wash, dark-tuned ─── */
+  /* SYNC RULE: matches THEMES.dark.terminalTheme.selectionBackground in src/lib/themes.ts */
+  --terminal-selection: oklch(0.300 0.045 64 / 0.65);
 }
 
 /* Honor reduced motion: kill transforms + the connecting pulse, keep opacity */
@@ -421,7 +516,7 @@ body {
 
 .sidebar-profile-btn-add:hover {
   color: var(--accent);
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--focus-ring-wash);
 }
 
 .sidebar-profile-btn-delete:hover {
@@ -504,7 +599,7 @@ body {
 }
 
 .sidebar-error:hover {
-  background-color: rgba(248, 81, 73, 0.2);
+  background-color: var(--error-wash);
 }
 
 /* ─── Sidebar Header Actions & Banner ──────────────── */
@@ -560,13 +655,13 @@ body {
 }
 
 .sidebar-action-btn-primary {
-  background-color: rgba(88, 166, 255, 0.1) !important;
+  background-color: var(--focus-ring-wash) !important;
   color: var(--accent) !important;
-  border-color: rgba(88, 166, 255, 0.25) !important;
+  border-color: var(--drag-accent-border) !important;
 }
 
 .sidebar-action-btn-primary:hover {
-  background-color: rgba(88, 166, 255, 0.18) !important;
+  background-color: var(--drag-accent-wash) !important;
   border-color: var(--accent) !important;
 }
 
@@ -747,11 +842,11 @@ body {
 }
 
 .sidebar-profile-card-connected {
-  background-color: rgba(63, 185, 80, 0.04);
+  background-color: var(--connected-wash);
 }
 
 .sidebar-profile-card-connected:hover {
-  background-color: rgba(63, 185, 80, 0.07);
+  background-color: var(--connected-wash);
 }
 
 /* ─── Drag Handle ────────────────────────────────── */
@@ -821,18 +916,18 @@ body {
 
 .sidebar-status-dot-connected {
   background-color: var(--success);
-  box-shadow: 0 0 8px rgba(63, 185, 80, 0.5), 0 0 3px rgba(63, 185, 80, 0.3);
+  box-shadow: 0 0 8px var(--connected-glow), 0 0 3px var(--connected-glow);
 }
 
 .sidebar-status-dot-connecting {
   background-color: var(--warning);
-  box-shadow: 0 0 8px rgba(210, 153, 34, 0.4);
+  box-shadow: 0 0 8px var(--warning-glow);
   animation: status-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes status-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(210, 153, 34, 0.4); }
-  50% { opacity: 0.5; box-shadow: 0 0 4px rgba(210, 153, 34, 0.2); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--warning-glow); }
+  50% { opacity: 0.5; box-shadow: 0 0 4px var(--warning-glow); }
 }
 
 .sidebar-status-dot-idle {
@@ -1002,17 +1097,17 @@ body {
 
 .indicator-success {
   background-color: var(--success);
-  box-shadow: 0 0 8px rgba(63, 185, 80, 0.5), 0 0 3px rgba(63, 185, 80, 0.3);
+  box-shadow: 0 0 8px var(--connected-glow), 0 0 3px var(--connected-glow);
 }
 
 .indicator-warning {
   background-color: var(--warning);
-  box-shadow: 0 0 6px rgba(210, 153, 34, 0.4);
+  box-shadow: 0 0 6px var(--warning-glow);
 }
 
 .indicator-error {
   background-color: var(--danger);
-  box-shadow: 0 0 6px rgba(248, 81, 73, 0.4);
+  box-shadow: 0 0 6px var(--error-glow);
 }
 
 .indicator-muted {
@@ -1325,7 +1420,7 @@ body {
   height: 6px;
   border-radius: 50%;
   background-color: var(--success);
-  box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
+  box-shadow: 0 0 6px var(--connected-glow);
   flex-shrink: 0;
 }
 
@@ -2387,7 +2482,7 @@ dialog::backdrop {
   align-items: flex-start;
   gap: 10px;
   background-color: var(--warning-subtle);
-  border: 1px solid rgba(210, 153, 34, 0.3);
+  border: 1px solid var(--warning-wash);
   border-radius: var(--radius-md);
   padding: 12px 14px;
   color: var(--text-primary);
@@ -2446,7 +2541,7 @@ dialog::backdrop {
 }
 
 .hk-modal-warning {
-  border-color: rgba(210, 153, 34, 0.3);
+  border-color: var(--warning-wash);
 }
 
 /* ─── Header ─── */
@@ -2543,7 +2638,7 @@ dialog::backdrop {
   margin: 16px 24px 0;
   padding: 12px 14px;
   background-color: var(--warning-subtle);
-  border: 1px solid rgba(210, 153, 34, 0.25);
+  border: 1px solid var(--warning-wash);
   border-radius: var(--radius-md);
 }
 
@@ -2698,7 +2793,7 @@ dialog::backdrop {
 .hk-fp-copy:hover {
   color: var(--accent);
   background-color: var(--accent-subtle);
-  border-color: rgba(56, 139, 253, 0.3);
+  border-color: var(--drag-accent-border);
 }
 
 .hk-fp-copied {
@@ -3347,7 +3442,7 @@ dialog::backdrop {
 .cd-add-user-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
-  background-color: rgba(56, 139, 253, 0.04);
+  background-color: var(--focus-ring-wash);
 }
 
 /* ─── Sidebar User Picker (multi-user connect) ───── */
@@ -3708,7 +3803,7 @@ dialog::backdrop {
 .sftp-split-handle:hover {
   background-color: var(--accent);
   width: 4px;
-  box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
+  box-shadow: 0 0 8px var(--connected-glow);
 }
 
 /* ─── SFTP Pane ──────────────────────────────────── */
@@ -3798,9 +3893,9 @@ dialog::backdrop {
 }
 
 .sftp-action-btn-active:hover {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--focus-ring-wash);
   color: var(--accent);
-  border-color: rgba(88, 166, 255, 0.25);
+  border-color: var(--drag-accent-border);
 }
 
 /* ─── PathBar (nav buttons + always-editable input) ───── */
@@ -3958,11 +4053,11 @@ dialog::backdrop {
 
 .sftp-row-selected {
   background-color: var(--accent-subtle) !important;
-  border-bottom-color: rgba(56, 139, 253, 0.1) !important;
+  border-bottom-color: var(--drag-accent-border) !important;
 }
 
 .sftp-row-selected:hover {
-  background-color: rgba(56, 139, 253, 0.2) !important;
+  background-color: var(--accent-wash) !important;
 }
 
 .sftp-row-selected .sftp-file-name {
@@ -4069,7 +4164,7 @@ dialog::backdrop {
 
 .sftp-search-input-wrap:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.1);
+  box-shadow: 0 0 0 2px var(--focus-ring-wash);
 }
 
 .sftp-search-icon {
@@ -4225,7 +4320,7 @@ dialog::backdrop {
 
 .sftp-state-error {
   color: var(--danger);
-  background-color: rgba(248, 81, 73, 0.03);
+  background-color: var(--error-wash);
   border-radius: var(--radius-md);
   margin: 8px;
   padding: 16px;
@@ -4546,7 +4641,7 @@ dialog::backdrop {
 }
 
 .transfer-failed {
-  background-color: rgba(248, 81, 73, 0.04);
+  background-color: var(--error-wash);
 }
 
 .transfer-failed .transfer-info::before {
@@ -4973,7 +5068,7 @@ dialog::backdrop {
 .file-viewer-search-btn:hover {
   color: var(--accent);
   background-color: var(--accent-subtle);
-  border-color: rgba(56, 139, 253, 0.3);
+  border-color: var(--drag-accent-border);
 }
 
 .file-viewer-close {
@@ -5150,14 +5245,14 @@ dialog::backdrop {
 /* ─── Search Matches ─────────────────────────────── */
 
 .file-viewer-match {
-  background-color: rgba(210, 153, 34, 0.35);
+  background-color: var(--warning-wash);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
 }
 
 .file-viewer-match-active {
-  background-color: rgba(210, 153, 34, 0.7);
+  background-color: var(--warning);
   outline: 1px solid var(--warning);
   outline-offset: 0;
 }
@@ -5173,7 +5268,7 @@ dialog::backdrop {
   font-size: 12px;
   color: var(--warning);
   background-color: var(--warning-subtle);
-  border-bottom: 1px solid rgba(210, 153, 34, 0.25);
+  border-bottom: 1px solid var(--warning-wash);
   flex-shrink: 0;
   text-align: center;
 }
@@ -5411,7 +5506,7 @@ dialog::backdrop {
   background-color: var(--bg-secondary);
   border: 1px solid var(--danger);
   border-radius: 12px;
-  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.2), var(--shadow-xl);
+  box-shadow: 0 0 0 1px var(--error-glow), var(--shadow-xl);
   animation: vault-fade-in 200ms ease;
 }
 
@@ -5478,10 +5573,10 @@ dialog::backdrop {
 
 /* Keyboard-focused row (distinct from mouse-selected) */
 .sftp-row-focused {
-  outline: 1px solid rgba(88, 166, 255, 0.5);
+  outline: 1px solid var(--drag-accent-border);
   outline-offset: -1px;
   border-radius: var(--radius-sm);
-  background-color: rgba(56, 139, 253, 0.06);
+  background-color: var(--focus-ring-wash);
 }
 
 
@@ -5496,8 +5591,8 @@ dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(56, 139, 253, 0.06);
-  border: 2px dashed rgba(88, 166, 255, 0.5);
+  background-color: var(--focus-ring-wash);
+  border: 2px dashed var(--drag-accent-border);
   border-radius: var(--radius-lg);
   pointer-events: none;
   animation: sftp-drop-fade-in 150ms ease-out;
@@ -5678,7 +5773,7 @@ dialog::backdrop {
   background-color: var(--bg-secondary);
   border: 1px solid var(--danger);
   border-radius: 16px;
-  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.2), var(--shadow-xl);
+  box-shadow: 0 0 0 1px var(--error-glow), var(--shadow-xl);
   animation: vault-fade-in 300ms ease;
 }
 
