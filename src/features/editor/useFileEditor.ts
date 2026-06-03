@@ -2,15 +2,18 @@
 //
 // Handles:
 //   - Remote file load: sftp_read_file (rejects binary/too-large → error state)
-//   - Local file load:  plugin-fs readTextFile
+//   - Local file load:  local_read_text_file (Rust command)
 //   - Remote file save: sftp_write_file
-//   - Local file save:  plugin-fs writeTextFile
+//   - Local file save:  local_write_text_file (Rust command)
+//
+// Local file I/O goes through Rust commands (NOT @tauri-apps/plugin-fs) because
+// the JS fs plugin is restricted to the capability file's fs scope, which blocks
+// arbitrary paths like the user's home root. Rust is not subject to that scope.
 //
 // All I/O goes through the editorStore — components just dispatch store actions
 // and read stable primitives. This hook is the only place that touches Tauri.
 
 import { useCallback } from "react";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { useEditorStore } from "../../stores/editorStore";
 import type { DocKey, DocSource } from "../../stores/editorStore";
 import type { SessionId, FileContent } from "../../lib/types";
@@ -54,8 +57,8 @@ export function useFileEditor(): UseFileEditorReturn {
           setContent(key, result.content);
           markSaved(key, result.content);
         } else {
-          // Local file via plugin-fs
-          const content = await readTextFile(path);
+          // Local file via Rust command (not subject to the JS fs plugin scope)
+          const content = await tauriInvoke<string>("local_read_text_file", { path });
           setContent(key, content);
           markSaved(key, content);
         }
@@ -79,7 +82,7 @@ export function useFileEditor(): UseFileEditorReturn {
             content,
           });
         } else {
-          await writeTextFile(path, content);
+          await tauriInvoke<void>("local_write_text_file", { path, content });
         }
         markSaved(key, content);
       } catch (err) {

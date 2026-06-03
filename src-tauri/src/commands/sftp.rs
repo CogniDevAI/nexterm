@@ -1135,6 +1135,29 @@ pub async fn open_local_file_with(path: String, app_path: String) -> Result<(), 
     Ok(())
 }
 
+// ─── Local Text File I/O (in-app editor) ────────────────
+//
+// These go through Rust (not the @tauri-apps/plugin-fs JS plugin) because the
+// JS plugin is restricted to the capability file's fs scope, which blocks
+// arbitrary paths (e.g. the user's home root). Rust commands are not subject to
+// that scope, and the local directory listing already uses a Rust command, so
+// this keeps local file access consistent.
+
+/// Read a local text file into a String for the in-app editor.
+///
+/// Uses `read_to_string`, which errors on non-UTF-8 content — that doubles as a
+/// clean "binary / unreadable" guard, surfaced to the caller as an error.
+#[tauri::command]
+pub async fn local_read_text_file(path: String) -> Result<String, AppError> {
+    tokio::fs::read_to_string(&path).await.map_err(AppError::Io)
+}
+
+/// Write a local text file for the in-app editor, creating or truncating it.
+#[tauri::command]
+pub async fn local_write_text_file(path: String, content: String) -> Result<(), AppError> {
+    tokio::fs::write(&path, content).await.map_err(AppError::Io)
+}
+
 // ─── Conflict Detection Commands ─────────────────────────
 
 /// Check whether a remote path exists, distinguishing SSH_FX_NO_SUCH_FILE from
@@ -1270,5 +1293,37 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("Not connected"), "Unexpected error: {msg}");
+    }
+
+    // ── local_read_text_file / local_write_text_file ──────────────────────────
+
+    #[tokio::test]
+    async fn local_write_then_read_roundtrips() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("nexterm-editor-test-{}.txt", Uuid::new_v4()));
+        let path_str = path.to_string_lossy().to_string();
+        let content = "line one\nline two\n";
+
+        super::local_write_text_file(path_str.clone(), content.to_string())
+            .await
+            .expect("write should succeed");
+
+        let read_back = super::local_read_text_file(path_str.clone())
+            .await
+            .expect("read should succeed");
+        assert_eq!(read_back, content);
+
+        // Cleanup
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn local_read_nonexistent_path_errors() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("nexterm-editor-missing-{}.txt", Uuid::new_v4()));
+        let path_str = path.to_string_lossy().to_string();
+
+        let result = super::local_read_text_file(path_str).await;
+        assert!(result.is_err());
     }
 }
