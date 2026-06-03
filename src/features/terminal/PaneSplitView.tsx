@@ -50,6 +50,35 @@ export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProp
     [sessionId, assignTerminal, setActiveTerminal, onTerminalOpened],
   );
 
+  // Alt+Arrow keyboard navigation between panes.
+  // Alt modifier avoids conflicting with terminal arrow keys (used for line navigation).
+  const handlePaneKeyDown = useCallback(
+    (e: React.KeyboardEvent, currentIndex: number) => {
+      if (!e.altKey) return;
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+
+      const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+      if (!currentLayout) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const targetIdx =
+        e.key === "ArrowRight"
+          ? Math.min(currentIndex + 1, currentLayout.slots.length - 1)
+          : Math.max(currentIndex - 1, 0);
+
+      const targetSlot = currentLayout.slots[targetIdx];
+      if (!targetSlot) return;
+
+      focusSlot(sessionId, targetSlot.id);
+      if (targetSlot.terminalId) {
+        setActiveTerminal(sessionId, targetSlot.terminalId);
+      }
+    },
+    [sessionId, focusSlot, setActiveTerminal],
+  );
+
   const handleDragEnd = useCallback(
     (leftSlotId: string, rightSlotId: string, deltaFraction: number) => {
       if (!layout) return;
@@ -124,6 +153,7 @@ export function PaneSplitView({ sessionId, onTerminalOpened }: PaneSplitViewProp
               tabIndex={0}
               onClick={() => handlePaneClick(slot.id, slot.terminalId)}
               onFocus={() => handlePaneClick(slot.id, slot.terminalId)}
+              onKeyDown={(e) => handlePaneKeyDown(e, i)}
             >
               <TerminalView
                 sessionId={sessionId}
