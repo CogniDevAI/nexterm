@@ -185,6 +185,31 @@ impl ExecAccumulator {
     }
 }
 
+// ─── Signal helpers ─────────────────────────────────────
+
+/// Map a russh `Sig` to its bare SSH signal name (e.g. `Sig::KILL` → `"KILL"`).
+///
+/// `Sig::name()` is private in russh 0.48, so we maintain an explicit match.
+/// `Sig::Custom(s)` yields `s` as-is — callers that store e.g. `"SIGFOO"` get
+/// back `"SIGFOO"` with no extra prefix or wrapping quotes.
+pub fn sig_name(sig: &russh::Sig) -> String {
+    match sig {
+        russh::Sig::ABRT => "ABRT".to_string(),
+        russh::Sig::ALRM => "ALRM".to_string(),
+        russh::Sig::FPE => "FPE".to_string(),
+        russh::Sig::HUP => "HUP".to_string(),
+        russh::Sig::ILL => "ILL".to_string(),
+        russh::Sig::INT => "INT".to_string(),
+        russh::Sig::KILL => "KILL".to_string(),
+        russh::Sig::PIPE => "PIPE".to_string(),
+        russh::Sig::QUIT => "QUIT".to_string(),
+        russh::Sig::SEGV => "SEGV".to_string(),
+        russh::Sig::TERM => "TERM".to_string(),
+        russh::Sig::USR1 => "USR1".to_string(),
+        russh::Sig::Custom(s) => s.clone(),
+    }
+}
+
 // ─── run_on_channel ─────────────────────────────────────
 
 /// Core exec primitive.
@@ -196,7 +221,7 @@ impl ExecAccumulator {
 /// # Cancellation
 ///
 /// Pass a `CancellationToken` to allow the caller to abort the exec. On
-/// cancellation the channel is closed and `AppError::ExecCancelled` is returned.
+/// cancellation the channel is closed and [`AppError::ExecCancelled`] is returned.
 ///
 /// # Timeout
 ///
@@ -232,7 +257,7 @@ pub async fn run_on_channel(
             if let Some(ref token) = cancel_token {
                 tokio::select! {
                     _ = token.cancelled() => {
-                        return Err(AppError::Other("exec cancelled".to_string()));
+                        return Err(AppError::ExecCancelled);
                     }
                     msg = channel.wait() => {
                         match msg {
@@ -252,7 +277,7 @@ pub async fn run_on_channel(
                             }
                             Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
                                 acc.process(AccumulatorEvent::ExitSignal(
-                                    format!("{signal_name:?}"),
+                                    sig_name(&signal_name),
                                 ));
                             }
                             Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
@@ -279,7 +304,7 @@ pub async fn run_on_channel(
                         acc.process(AccumulatorEvent::ExitCode(exit_status));
                     }
                     Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
-                        acc.process(AccumulatorEvent::ExitSignal(format!("{signal_name:?}")));
+                        acc.process(AccumulatorEvent::ExitSignal(sig_name(&signal_name)));
                     }
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
                         acc.process(AccumulatorEvent::Done);
@@ -439,6 +464,26 @@ mod tests {
         let out = acc.finish();
         assert_eq!(out.stdout, "late data");
         assert_eq!(out.exit_code, Some(0));
+    }
+
+    // ── sig_name tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn sig_name_standard_gives_bare_name() {
+        assert_eq!(sig_name(&russh::Sig::KILL), "KILL");
+        assert_eq!(sig_name(&russh::Sig::TERM), "TERM");
+        assert_eq!(sig_name(&russh::Sig::SEGV), "SEGV");
+        assert_eq!(sig_name(&russh::Sig::INT), "INT");
+        assert_eq!(sig_name(&russh::Sig::HUP), "HUP");
+    }
+
+    #[test]
+    fn sig_name_custom_gives_raw_string() {
+        // Custom("SIGFOO") → "SIGFOO" (no prefix, no quotes)
+        assert_eq!(
+            sig_name(&russh::Sig::Custom("SIGFOO".to_string())),
+            "SIGFOO"
+        );
     }
 
     // ── finish_ref helper ──────────────────────────────────────────────────────
