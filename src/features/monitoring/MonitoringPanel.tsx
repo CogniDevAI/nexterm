@@ -37,7 +37,8 @@ export function MonitoringPanel({ sessionId }: MonitoringPanelProps) {
   // Start/stop sampler on mount/unmount.
   useMonitoring(sessionId);
 
-  const samples = useMonitoringStore((s) => s.samples.get(sessionId) ?? []);
+  const samplesOrUndef = useMonitoringStore((s) => s.samples.get(sessionId));
+  const samples = samplesOrUndef ?? [];
   const isSupported = useMonitoringStore((s) => s.isSupported.get(sessionId));
 
   const latest = samples.length > 0 ? samples[samples.length - 1] : null;
