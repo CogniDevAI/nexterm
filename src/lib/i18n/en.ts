@@ -144,6 +144,10 @@ export const en = {
   "sidebar.group.certification": "CERTIFICATION",
   "sidebar.group.staging": "STAGING",
   "sidebar.group.other": "PROFILES",
+  "sidebar.group.ungrouped": "PROFILES",
+  // Connection dialog — folder field
+  "connection.folder": "Folder",
+  "connection.folderPlaceholder": "e.g. Production",
   // Sidebar credentials label
   "sidebar.credentials": "{n} credentials",
   "sidebar.overflow": "More actions",

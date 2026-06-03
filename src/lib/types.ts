@@ -31,6 +31,10 @@ export interface ConnectionProfile {
   users: UserCredential[];
   startupDirectory?: string;
   startupCommands?: string[];
+  /** User-assigned folder for sidebar grouping. When set the sidebar shows
+   *  this profile under the folder name; when absent, falls back to
+   *  name-heuristic grouping (deriveGroup). */
+  folder?: string;
   tunnels: TunnelConfig[];
   displayOrder?: number;
   createdAt: string; // ISO 8601
