@@ -653,7 +653,10 @@ mod tests {
     #[test]
     fn tunnel_type_dynamic_serializes_to_camel_case() {
         let json = serde_json::to_string(&TunnelType::Dynamic).unwrap();
-        assert_eq!(json, r#""dynamic""#, "Dynamic variant must serialize as \"dynamic\"");
+        assert_eq!(
+            json, r#""dynamic""#,
+            "Dynamic variant must serialize as \"dynamic\""
+        );
     }
 
     #[test]

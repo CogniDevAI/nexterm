@@ -32,7 +32,9 @@ impl fmt::Display for Socks5Error {
         match self {
             Self::UnexpectedEof => write!(f, "unexpected EOF during SOCKS5 handshake"),
             Self::InvalidVersion(v) => write!(f, "SOCKS5 invalid version byte: {v:#04x}"),
-            Self::NoAcceptableMethod => write!(f, "client offered no acceptable SOCKS5 auth method"),
+            Self::NoAcceptableMethod => {
+                write!(f, "client offered no acceptable SOCKS5 auth method")
+            }
             Self::UnsupportedCommand(c) => write!(f, "unsupported SOCKS5 CMD: {c:#04x}"),
             Self::UnsupportedAddressType(a) => write!(f, "unsupported SOCKS5 ATYP: {a:#04x}"),
             Self::Io(e) => write!(f, "I/O error during SOCKS5 handshake: {e}"),
@@ -104,11 +106,17 @@ where
 
     if methods.contains(&0x00) {
         // NO AUTH accepted
-        writer.write_all(&[0x05, 0x00]).await.map_err(Socks5Error::Io)?;
+        writer
+            .write_all(&[0x05, 0x00])
+            .await
+            .map_err(Socks5Error::Io)?;
         Ok(())
     } else {
         // No acceptable method — send 0xFF then report error
-        writer.write_all(&[0x05, 0xFF]).await.map_err(Socks5Error::Io)?;
+        writer
+            .write_all(&[0x05, 0xFF])
+            .await
+            .map_err(Socks5Error::Io)?;
         Err(Socks5Error::NoAcceptableMethod)
     }
 }
@@ -160,10 +168,12 @@ where
             let len = len_buf[0] as usize;
             let mut name = vec![0u8; len];
             reader.read_exact(&mut name).await?;
-            String::from_utf8(name).map_err(|_| Socks5Error::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "domain name is not valid UTF-8",
-            )))?
+            String::from_utf8(name).map_err(|_| {
+                Socks5Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "domain name is not valid UTF-8",
+                ))
+            })?
         }
         0x04 => {
             // IPv6: 16 bytes
@@ -230,8 +240,15 @@ mod tests {
         let mut reader = cursor(&[0x05, 0x01, 0x00]);
         let mut writer = Vec::<u8>::new();
         let result = negotiate_method(&mut reader, &mut writer).await;
-        assert!(result.is_ok(), "expected Ok when NO-AUTH offered: {result:?}");
-        assert_eq!(writer, vec![0x05, 0x00], "server should reply [05 00] accepting NO-AUTH");
+        assert!(
+            result.is_ok(),
+            "expected Ok when NO-AUTH offered: {result:?}"
+        );
+        assert_eq!(
+            writer,
+            vec![0x05, 0x00],
+            "server should reply [05 00] accepting NO-AUTH"
+        );
     }
 
     #[tokio::test]
@@ -254,7 +271,11 @@ mod tests {
             matches!(result, Err(Socks5Error::NoAcceptableMethod)),
             "expected NoAcceptableMethod, got: {result:?}"
         );
-        assert_eq!(writer, vec![0x05, 0xFF], "server should reply [05 FF] rejecting all methods");
+        assert_eq!(
+            writer,
+            vec![0x05, 0xFF],
+            "server should reply [05 FF] rejecting all methods"
+        );
     }
 
     #[tokio::test]
@@ -431,7 +452,9 @@ mod tests {
     #[tokio::test]
     async fn send_error_reply_writes_correct_rep_code() {
         let mut writer = Vec::<u8>::new();
-        send_error_reply(&mut writer, rep::COMMAND_NOT_SUPPORTED).await.unwrap();
+        send_error_reply(&mut writer, rep::COMMAND_NOT_SUPPORTED)
+            .await
+            .unwrap();
         assert_eq!(writer[0], 0x05, "VER must be 0x05");
         assert_eq!(writer[1], rep::COMMAND_NOT_SUPPORTED, "REP must be 0x07");
         assert_eq!(writer.len(), 10, "reply must be 10 bytes");
@@ -441,7 +464,9 @@ mod tests {
     async fn send_error_reply_general_failure() {
         // Triangulation: different REP code
         let mut writer = Vec::<u8>::new();
-        send_error_reply(&mut writer, rep::GENERAL_FAILURE).await.unwrap();
+        send_error_reply(&mut writer, rep::GENERAL_FAILURE)
+            .await
+            .unwrap();
         assert_eq!(writer[1], rep::GENERAL_FAILURE, "REP must be 0x01");
     }
 

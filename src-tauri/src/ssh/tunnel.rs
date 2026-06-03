@@ -604,9 +604,7 @@ pub async fn start_dynamic_forward(
         }
     })?;
 
-    tracing::info!(
-        "Dynamic (SOCKS5) tunnel {tunnel_id}: listening on {bind_addr}"
-    );
+    tracing::info!("Dynamic (SOCKS5) tunnel {tunnel_id}: listening on {bind_addr}");
 
     let _ = on_event.send(TunnelEvent::StateChanged {
         tunnel_id,
