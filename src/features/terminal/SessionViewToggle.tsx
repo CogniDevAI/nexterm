@@ -35,6 +35,14 @@ export function SessionViewToggle({ workspaceKey, mainView }: SessionViewToggleP
         >
           {t("view.files")}
         </button>
+        <button
+          type="button"
+          className={`session-view-toggle-btn${mainView === "editor" ? " session-view-toggle-btn-active" : ""}`}
+          aria-pressed={mainView === "editor"}
+          onClick={() => setMainView(workspaceKey, "editor")}
+        >
+          {t("view.editor")}
+        </button>
       </div>
     </div>
   );

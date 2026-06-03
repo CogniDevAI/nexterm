@@ -203,6 +203,17 @@ export const en = {
   // View toggle
   "view.terminal": "Terminal",
   "view.files": "Files",
+  "view.editor": "Editor",
+
+  // In-app file editor
+  "editor.save": "Save",
+  "editor.saved": "Saved",
+  "editor.saving": "Saving...",
+  "editor.unsaved": "Unsaved changes",
+  "editor.empty": "Open a file from Files to edit it",
+  "editor.binaryHint": "Binary files cannot be edited in the app. Use \"Open with System App\" instead.",
+  "editor.close": "Close editor",
+  "editor.tabClose": "Close tab",
 
   // Terminal
   "terminal.newTab": "New terminal",

@@ -451,6 +451,38 @@ pub async fn read_file(
     })
 }
 
+// ─── Write File (for in-app editor) ─────────────────────
+
+/// Write `content` to a remote file, creating or truncating it.
+///
+/// Opens the file with WRITE | CREATE | TRUNCATE flags so existing content
+/// is replaced atomically from the server's perspective. Writes the entire
+/// content in one go — the editor enforces the 15 MB cap on load, so
+/// round-tripped content is always within that bound.
+pub async fn write_file(
+    sftp: &SftpSession,
+    remote_path: &str,
+    content: &str,
+) -> Result<(), AppError> {
+    let mut file = sftp
+        .open_with_flags(
+            remote_path,
+            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+        )
+        .await
+        .map_err(|e| AppError::Sftp(format!("Failed to open '{remote_path}' for writing: {e}")))?;
+
+    file.write_all(content.as_bytes())
+        .await
+        .map_err(|e| AppError::Sftp(format!("Failed to write '{remote_path}': {e}")))?;
+
+    file.flush()
+        .await
+        .map_err(|e| AppError::Sftp(format!("Failed to flush '{remote_path}': {e}")))?;
+
+    Ok(())
+}
+
 // ─── Recursive File Search (BFS) ────────────────────────
 
 /// Search for files/directories by name using breadth-first traversal.

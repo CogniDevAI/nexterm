@@ -6,7 +6,7 @@ import type { SearchMode } from "../features/sftp/FilePane";
 import type { TerminalId } from "../lib/types";
 
 export type PanelSection = "sftp" | "tunnel" | "history" | "monitoring" | "docker" | "proxmox" | null;
-export type MainView = "terminal" | "files";
+export type MainView = "terminal" | "files" | "editor";
 
 export interface WorkspacePaneSnapshot {
   path: string;

@@ -164,6 +164,7 @@ pub fn run() {
             commands::sftp::sftp_download,
             commands::sftp::sftp_download_folder,
             commands::sftp::sftp_read_file,
+            commands::sftp::sftp_write_file,
             commands::sftp::sftp_search,
             commands::sftp::sftp_cancel_transfer,
             commands::sftp::choose_application,

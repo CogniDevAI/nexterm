@@ -205,6 +205,17 @@ export const es: Record<TranslationKey, string> = {
   // View toggle
   "view.terminal": "Terminal",
   "view.files": "Archivos",
+  "view.editor": "Editor",
+
+  // In-app file editor
+  "editor.save": "Guardar",
+  "editor.saved": "Guardado",
+  "editor.saving": "Guardando...",
+  "editor.unsaved": "Cambios sin guardar",
+  "editor.empty": "Abrí un archivo desde Archivos para editarlo",
+  "editor.binaryHint": "Los archivos binarios no se pueden editar en la app. Usá \"Abrir con App del sistema\" en su lugar.",
+  "editor.close": "Cerrar editor",
+  "editor.tabClose": "Cerrar pestaña",
 
   // Terminal
   "terminal.newTab": "Nueva terminal",

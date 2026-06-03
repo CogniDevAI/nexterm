@@ -40,6 +40,7 @@ import {
   buildRemoteEditId,
   useRemoteEditStore,
 } from "../../stores/remoteEditStore";
+import { useEditorStore } from "../../stores/editorStore";
 
 async function selectApplicationPath(title: string): Promise<string | null> {
   const isMac = navigator.userAgent.includes("Mac") || navigator.platform.includes("Mac");
@@ -63,9 +64,11 @@ async function selectApplicationPath(title: string): Promise<string | null> {
 
 interface SftpBrowserProps {
   sessionId: SessionId;
+  /** Passed from App.tsx so we can switch to the editor view on file open. */
+  workspaceKey?: string;
 }
 
-export function SftpBrowser({ sessionId }: SftpBrowserProps) {
+export function SftpBrowser({ sessionId, workspaceKey: workspaceKeyProp }: SftpBrowserProps) {
   const { t } = useI18n();
   const session = useSessionStore((state) => state.sessions.get(sessionId));
   const profiles = useProfileStore((state) => state.profiles);
@@ -76,9 +79,11 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     workspaceKey ? state.workspaces[workspaceKey] : undefined,
   );
   const setSftpSnapshot = useWorkspaceStore((state) => state.setSftpSnapshot);
+  const setMainView = useWorkspaceStore((state) => state.setMainView);
   const upsertRemoteEditSession = useRemoteEditStore(
     (state) => state.upsertSession,
   );
+  const openEditorDoc = useEditorStore((state) => state.openDoc);
   const startupDirectory = session
     ? profiles.find((profile) => profile.id === session.profileId)?.startupDirectory
     : undefined;
@@ -471,7 +476,25 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           if (entry.fileType !== "file" && !(entry.fileType === "symlink" && entry.linkTarget === "file")) return;
           const extFileName = entry.name;
 
-          // All remote files: download to temp + open with OS default app
+          // For remote files: route to in-app editor for text files.
+          // Binary files and very large files (>15 MB) fall back to external-open.
+          // We open in the editor optimistically — if the Rust side detects binary,
+          // the editor will show an error state with a "use external app" hint.
+          const MAX_EXTERNAL_SIZE = 15 * 1024 * 1024; // 15 MB (same as Rust cap)
+          const effectiveKey = workspaceKey ?? workspaceKeyProp;
+          if (entry.size <= MAX_EXTERNAL_SIZE && effectiveKey) {
+            // Route to in-app editor
+            openEditorDoc({
+              sessionId,
+              source: "remote",
+              path: entry.path,
+              name: entry.name,
+            });
+            setMainView(effectiveKey, "editor");
+            break;
+          }
+
+          // Fallback for too-large files: download to temp + open with OS default app
           setExternalDownload({
             fileName: extFileName,
             bytesTransferred: 0,
@@ -781,7 +804,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
       }
     },
     [sftp, contextMenu, closeContextMenu, sessionId, t, upsertRemoteEditSession,
-     checkUploadConflict, checkDownloadConflict, resolveConflict],
+     checkUploadConflict, checkDownloadConflict, resolveConflict,
+     workspaceKey, workspaceKeyProp, openEditorDoc, setMainView],
   );
 
   // ─── Local File Actions ───────────────────────────────
@@ -795,17 +819,29 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
         case "open": {
           if (!action.entry) return;
           const entry = action.entry;
-          // Local files: open with OS default application
+          // Local files: route to in-app editor (fallback to OS app for large files)
           if (entry.fileType === "file" || (entry.fileType === "symlink" && entry.linkTarget === "file")) {
-            try {
-              await tauriInvoke<void>("open_local_file", { path: entry.path });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              setTooLargeMessage(message);
-              tooLargeTimerRef.current = setTimeout(() => {
-                setTooLargeMessage(null);
-                tooLargeTimerRef.current = null;
-              }, 4000);
+            const MAX_EDITOR_SIZE = 15 * 1024 * 1024; // 15 MB
+            const effectiveKey = workspaceKey ?? workspaceKeyProp;
+            if (entry.size <= MAX_EDITOR_SIZE && effectiveKey) {
+              openEditorDoc({
+                sessionId,
+                source: "local",
+                path: entry.path,
+                name: entry.name,
+              });
+              setMainView(effectiveKey, "editor");
+            } else {
+              try {
+                await tauriInvoke<void>("open_local_file", { path: entry.path });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                setTooLargeMessage(message);
+                tooLargeTimerRef.current = setTimeout(() => {
+                  setTooLargeMessage(null);
+                  tooLargeTimerRef.current = null;
+                }, 4000);
+              }
             }
           }
           break;
@@ -870,7 +906,8 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           break;
       }
     },
-    [sftp, closeContextMenu, handleFileAction, t, checkUploadConflict, resolveConflict],
+    [sftp, closeContextMenu, handleFileAction, t, checkUploadConflict, resolveConflict,
+     sessionId, workspaceKey, workspaceKeyProp, openEditorDoc, setMainView],
   );
 
   // ─── Dialog Actions ───────────────────────────────────

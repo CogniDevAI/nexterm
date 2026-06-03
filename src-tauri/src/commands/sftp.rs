@@ -342,6 +342,62 @@ pub async fn sftp_read_file(
     sftp::read_file(&sftp_session, &remote_path, None, max_lines).await
 }
 
+// ─── File Write (in-app editor save) ───────────────────
+
+/// Inner (testable) implementation for sftp_write_file.
+/// Shared by the Tauri command and unit tests.
+pub(crate) async fn sftp_write_file_inner(
+    state: &AppState,
+    session_id: SessionId,
+    remote_path: String,
+    content: String,
+) -> Result<(), AppError> {
+    let mut sessions = state.sessions.lock().await;
+    let handle = sessions
+        .get_mut(&session_id)
+        .ok_or(AppError::SessionNotFound(session_id))?;
+
+    if handle.state != crate::state::SessionState::Connected {
+        return Err(AppError::NotConnected);
+    }
+
+    if handle.sftp.is_none() {
+        let ssh = handle.ssh_handle.as_ref().ok_or(AppError::NotConnected)?;
+        let sftp_handle = sftp::open_sftp(ssh).await?;
+        handle.sftp = Some(sftp_handle);
+    }
+
+    let sftp_session = handle
+        .sftp
+        .as_ref()
+        .expect("SFTP just ensured above")
+        .session
+        .clone();
+
+    // Drop the sessions lock before SFTP I/O.
+    drop(sessions);
+
+    sftp::write_file(&sftp_session, &remote_path, &content).await
+}
+
+/// Write content to a remote file, creating or truncating it.
+///
+/// Used by the in-app file editor to save changes back to the server.
+/// Content is expected to be valid UTF-8 text (the editor rejects binary
+/// files at load time, so only text can be round-tripped through it).
+///
+/// Lock strategy: same as other sftp commands — ensure_sftp clones the
+/// Arc<SftpSession>, drops the global lock, then runs SFTP I/O.
+#[tauri::command]
+pub async fn sftp_write_file(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+    remote_path: String,
+    content: String,
+) -> Result<(), AppError> {
+    sftp_write_file_inner(&state, session_id, remote_path, content).await
+}
+
 // ─── Recursive File Search ──────────────────────────────
 
 /// Search for files by name across subdirectories on the remote server.
@@ -1135,4 +1191,84 @@ pub async fn sftp_check_conflicts(
         std::path::Path::new(&local_path),
     )
     .await
+}
+
+// ─── Tests ────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use tokio::sync::Mutex;
+    use uuid::Uuid;
+
+    use crate::state::{AppState, SessionHandle, SessionState};
+
+    fn make_empty_state() -> AppState {
+        AppState {
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            ..Default::default()
+        }
+    }
+
+    fn make_disconnected_session(session_id: Uuid) -> SessionHandle {
+        SessionHandle {
+            id: session_id,
+            profile: Default::default(),
+            user_id: Uuid::nil(),
+            username: "testuser".to_string(),
+            state: SessionState::Disconnected,
+            ssh_handle: None,
+            bastion_handle: None,
+            terminals: HashMap::new(),
+            sftp: None,
+            tunnels: HashMap::new(),
+            keepalive_task: None,
+            monitoring_task: None,
+            cancel_token: tokio_util::sync::CancellationToken::new(),
+            remote_forward_registry: None,
+        }
+    }
+
+    // ── sftp_write_file_inner error paths ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn write_file_session_not_found() {
+        let state = make_empty_state();
+        let result = super::sftp_write_file_inner(
+            &state,
+            Uuid::new_v4(),
+            "/tmp/test.txt".to_string(),
+            "hello".to_string(),
+        )
+        .await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Session not found"), "Unexpected error: {msg}");
+    }
+
+    #[tokio::test]
+    async fn write_file_not_connected() {
+        let session_id = Uuid::new_v4();
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        {
+            let mut guard = sessions.lock().await;
+            guard.insert(session_id, make_disconnected_session(session_id));
+        }
+        let state = AppState {
+            sessions,
+            ..Default::default()
+        };
+        let result = super::sftp_write_file_inner(
+            &state,
+            session_id,
+            "/tmp/test.txt".to_string(),
+            "hello".to_string(),
+        )
+        .await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Not connected"), "Unexpected error: {msg}");
+    }
 }

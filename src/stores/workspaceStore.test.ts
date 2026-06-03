@@ -140,6 +140,14 @@ describe("workspaceStore — mainView", () => {
     useWorkspaceStore.getState().setMainView("missing-key", "files");
     expect(useWorkspaceStore.getState().workspaces).toEqual(before);
   });
+
+  it("setMainView updates mainView to 'editor'", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setMainView(key, "editor");
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
+    expect(updated.mainView).toBe("editor");
+  });
 });
 
 describe("workspaceStore — panelWidth", () => {

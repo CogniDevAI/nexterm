@@ -25,6 +25,7 @@ import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
 import { TerminalTabs } from "./features/terminal/TerminalTabs";
 import { SessionViewToggle } from "./features/terminal/SessionViewToggle";
 import { RemoteEditCoordinator } from "./features/sftp/RemoteEditCoordinator";
+import { FileEditor } from "./features/editor/FileEditor";
 import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
 import { useProfileStore } from "./stores/profileStore";
@@ -434,10 +435,10 @@ function App() {
                   workspaceKey={activeWorkspaceKey ?? ""}
                   mainView={mainView}
                 />
-                {/* Terminal area — always mounted, hidden via CSS when files view is active */}
+                {/* Terminal area — always mounted, hidden via CSS when files/editor view is active */}
                 <div
                   className="session-terminal-area"
-                  style={mainView === "files" ? { display: "none" } : undefined}
+                  style={mainView !== "terminal" ? { display: "none" } : undefined}
                 >
                   <TerminalTabs
                     sessionId={activeSession.id}
@@ -447,7 +448,16 @@ function App() {
                 {/* Files view — mounts SftpBrowser in the full main area */}
                 {mainView === "files" && (
                   <div className="session-files-area">
-                    <SftpBrowser sessionId={activeSession.id} />
+                    <SftpBrowser
+                      sessionId={activeSession.id}
+                      workspaceKey={activeWorkspaceKey ?? ""}
+                    />
+                  </div>
+                )}
+                {/* Editor view — in-app file editor */}
+                {mainView === "editor" && (
+                  <div className="session-editor-area">
+                    <FileEditor sessionId={activeSession.id} />
                   </div>
                 )}
               </div>

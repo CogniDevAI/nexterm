@@ -1806,6 +1806,290 @@ body {
   color: var(--accent-strong);
 }
 
+/* ── Editor area — full-width FileEditor in the main content area ── */
+.session-editor-area {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ═══════════════════════════════════════════════════
+   In-app File Editor
+   ═══════════════════════════════════════════════════ */
+
+.file-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background-color: var(--bg-base);
+  overflow: hidden;
+}
+
+/* ── Tab strip ── */
+.editor-tabs {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  height: var(--tabbar-height, 34px);
+  flex-shrink: 0;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.editor-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 12px;
+  flex-shrink: 0;
+  border: none;
+  border-right: 1px solid var(--hairline);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-meta);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.editor-tab:hover {
+  background-color: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.editor-tab-active {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--accent);
+}
+
+.editor-tab-dirty .editor-tab-name {
+  font-style: italic;
+}
+
+.editor-tab-dot {
+  color: var(--accent);
+  font-size: 0.5rem;
+  line-height: 1;
+}
+
+.editor-tab-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-tab-source {
+  font-size: var(--fs-caption);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-faint);
+  padding: 1px 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+}
+
+.editor-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.editor-tab-close:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised-2);
+}
+
+/* ── Header bar ── */
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 36px;
+  flex-shrink: 0;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.editor-header-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.editor-source-badge {
+  font-size: var(--fs-caption);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.editor-source-badge-remote {
+  background-color: var(--accent-wash);
+  color: var(--accent);
+}
+
+.editor-source-badge-local {
+  background-color: var(--connected-wash);
+  color: var(--connected);
+}
+
+.editor-dirty-label {
+  font-size: var(--fs-caption);
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.editor-saving-label {
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Body ── */
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-content-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* ── Gutter ── */
+.editor-gutter {
+  flex-shrink: 0;
+  width: 52px;
+  overflow: hidden;
+  user-select: none;
+  background-color: var(--bg-panel);
+  border-right: 1px solid var(--hairline);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);   /* 13px — matches textarea */
+  line-height: 1.5;            /* matches textarea line-height */
+  text-align: right;
+  padding-right: 6px;
+  padding-top: 8px;
+  box-sizing: border-box;
+}
+
+.editor-gutter-line {
+  display: block;
+  line-height: 1.5;
+  font-size: var(--fs-body);
+}
+
+/* ── Textarea ── */
+.editor-textarea {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background-color: var(--bg-abyss);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);   /* 13px */
+  line-height: 1.5;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  tab-size: 2;
+  caret-color: var(--accent);
+}
+
+.editor-textarea:focus {
+  outline: none;
+}
+
+/* ── Status overlays ── */
+.editor-status-overlay,
+.editor-error-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background-color: var(--bg-base);
+}
+
+.editor-status-text {
+  font-size: var(--fs-body);
+  color: var(--text-muted);
+}
+
+.editor-error-message {
+  font-size: var(--fs-body);
+  color: var(--error);
+  text-align: center;
+  max-width: 480px;
+  font-family: var(--font-mono);
+}
+
+.editor-error-hint {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 380px;
+}
+
+/* ── Empty state ── */
+.editor-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+}
+
+.editor-empty p {
+  font-size: var(--fs-body);
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 320px;
+}
+
 /* ═══════════════════════════════════════════════════
    Side Panel — collapsible right panel
    ═══════════════════════════════════════════════════ */
