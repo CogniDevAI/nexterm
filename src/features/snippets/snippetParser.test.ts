@@ -169,3 +169,22 @@ describe("resolveTemplate — escaped literal passthrough", () => {
     expect(resolveTemplate("\\{{escaped}}", {})).toBe("{{escaped}}");
   });
 });
+
+// ── MINOR-1 regression: unclosed escape \\{{ ─────────────────
+// Before fix: tokenize("\\{{var") yielded literal "\\{{var" (backslash
+// included). Correct behavior: consume the escape backslash regardless of
+// whether a closing }} follows — output should be "{{var" (no backslash).
+
+describe("tokenize — unclosed escape \\{{ (no closing }})", () => {
+  it("consumes the escape backslash even when there is no closing }}", () => {
+    const tokens = tokenize("\\{{var");
+    expect(tokens).toEqual<Token[]>([{ kind: "literal", value: "{{var" }]);
+  });
+
+  it("unclosed escape with trailing text strips the backslash", () => {
+    const tokens = tokenize("prefix \\{{unclosed suffix");
+    expect(tokens).toEqual<Token[]>([
+      { kind: "literal", value: "prefix {{unclosed suffix" },
+    ]);
+  });
+});

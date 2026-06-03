@@ -19,7 +19,6 @@ import { useSnippetStore } from "./stores/snippetStore";
 import type { Snippet } from "./stores/snippetStore";
 import { injectSnippet } from "./features/snippets/useSnippetInject";
 import { resolveSessionVars, DYNAMIC_VAR_NAMES } from "./features/snippets/resolveSessionVars";
-import { resolveTemplate } from "./features/snippets/snippetParser";
 import { VaultScreen } from "./features/vault/VaultScreen";
 import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
@@ -305,6 +304,7 @@ function App() {
   const [snippetVarState, setSnippetVarState] = useState<{
     snippet: Snippet;
     variables: Token[];
+    prefilledValues?: Record<string, string>;
   } | null>(null);
   const { snippets } = useSnippetStore((s) => ({ snippets: s.snippets }));
 
@@ -348,30 +348,19 @@ function App() {
       const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
       const sessionVars = resolveSessionVars(activeSession ?? null);
 
-      // Filter out dynamic vars that are already resolved from the session
+      // Separate user-promptable vars from dynamic built-in vars (HOST, USERNAME, etc.).
+      // Only user vars are passed as `variables` so the modal renders inputs for them.
+      // Dynamic vars are passed as `prefilledValues` so the live preview shows their
+      // resolved values without producing additional input fields.
       const userVars = variables.filter(
         (tok) => tok.kind === "variable" && !DYNAMIC_SET.has(tok.name),
       );
 
-      if (userVars.length === 0) {
-        // No user-defined vars — inject directly using session-resolved values
-        const terminalId = activeSession?.activeTerminalId ?? null;
-        try {
-          const resolved = resolveTemplate(snippet.template, sessionVars);
-          void injectSnippet(
-            activeSessionId ?? "",
-            terminalId,
-            resolved,
-            "execute",
-          );
-        } catch {
-          // Missing required var — open variable modal as fallback
-          setSnippetVarState({ snippet, variables });
-        }
-      } else {
-        // Has user-defined vars — open variable modal
-        setSnippetVarState({ snippet, variables });
-      }
+      // ALL paths — including zero user-variable snippets — go through the
+      // SnippetVariableModal. This ensures the user always sees the resolved
+      // command and explicitly chooses Insert or Execute before anything runs
+      // on the remote host. Silent auto-execute has been removed intentionally.
+      setSnippetVarState({ snippet, variables: userVars, prefilledValues: sessionVars });
     },
     [activeSessionId, sessions, DYNAMIC_SET],
   );
@@ -523,6 +512,7 @@ function App() {
         template={snippetVarState?.snippet.template ?? ""}
         variables={snippetVarState?.variables ?? []}
         snippetName={snippetVarState?.snippet.name}
+        prefilledValues={snippetVarState?.prefilledValues}
         onInject={handleSnippetInject}
         onClose={() => setSnippetVarState(null)}
       />

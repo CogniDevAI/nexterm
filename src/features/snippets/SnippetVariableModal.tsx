@@ -28,6 +28,12 @@ interface SnippetVariableModalProps {
   onClose: () => void;
   /** Optional snippet name for the header subtitle */
   snippetName?: string;
+  /**
+   * Pre-resolved values for dynamic/built-in vars (HOST, USERNAME, etc.).
+   * These are merged into the preview resolution so the preview shows live
+   * session values, but they do NOT produce input fields.
+   */
+  prefilledValues?: Record<string, string>;
 }
 
 /** Build initial values map from variable defaults */
@@ -46,8 +52,10 @@ function resolveForPreview(
   template: string,
   values: Record<string, string>,
   variables: Token[],
+  prefilledValues?: Record<string, string>,
 ): string {
-  const previewValues: Record<string, string> = { ...values };
+  // Merge: prefilled (dynamic) vars first, then user-typed values on top
+  const previewValues: Record<string, string> = { ...prefilledValues, ...values };
   for (const tok of variables) {
     if (tok.kind === "variable" && tok.type === "password" && values[tok.name]) {
       previewValues[tok.name] = "***";
@@ -70,6 +78,7 @@ export function SnippetVariableModal({
   onInject,
   onClose,
   snippetName,
+  prefilledValues,
 }: SnippetVariableModalProps) {
   const { t } = useI18n();
   const vars = userVarTokens(variables);
@@ -78,15 +87,29 @@ export function SnippetVariableModal({
     buildInitialValues(variables),
   );
 
-  // Reset values when the modal opens with new variables
+  // Reset values when the modal opens with new variables.
+  // Also clear password-type values when the modal closes (memory hygiene —
+  // prevents typed secrets from lingering in React state while the dialog is
+  // hidden; they never reach localStorage but clearing on close is defensive).
   useEffect(() => {
     if (open) {
       setValues(buildInitialValues(variables));
+    } else {
+      // Clear any password values on close transition
+      setValues((prev) => {
+        const cleared = { ...prev };
+        for (const tok of variables) {
+          if (tok.kind === "variable" && tok.type === "password") {
+            cleared[tok.name] = "";
+          }
+        }
+        return cleared;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, template]);
 
-  const preview = resolveForPreview(template, values, variables);
+  const preview = resolveForPreview(template, values, variables, prefilledValues);
 
   const handleChange = useCallback((name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }));
@@ -95,7 +118,9 @@ export function SnippetVariableModal({
   const handleInject = useCallback(
     (mode: InjectionMode) => {
       try {
-        const resolvedCommand = resolveTemplate(template, values);
+        // Merge prefilled (dynamic) vars with user-typed values; user values take precedence
+        const allValues = { ...prefilledValues, ...values };
+        const resolvedCommand = resolveTemplate(template, allValues);
         onInject({ resolvedCommand, mode });
         // SECURITY: Clear password values immediately after injection
         const cleared = { ...values };
@@ -109,7 +134,7 @@ export function SnippetVariableModal({
         // Missing variable — do not inject, let user fill in the field
       }
     },
-    [template, values, vars, onInject],
+    [template, values, vars, onInject, prefilledValues],
   );
 
   return (

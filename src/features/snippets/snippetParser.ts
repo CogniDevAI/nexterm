@@ -51,22 +51,29 @@ export function tokenize(template: string): Token[] {
   while (i < template.length) {
     // Escaped opening: \{{
     if (template[i] === "\\" && template.slice(i, i + 3) === "\\{{") {
-      // Find matching }}
+      // Flush literal before this escape sequence
+      if (i > lastIndex) {
+        tokens.push({ kind: "literal", value: template.slice(lastIndex, i) });
+      }
+      // Find matching }} — present or absent, the backslash is always consumed.
       const closeIdx = template.indexOf("}}", i + 3);
       if (closeIdx !== -1) {
-        // Flush literal before this
-        if (i > lastIndex) {
-          tokens.push({ kind: "literal", value: template.slice(lastIndex, i) });
-        }
         // Emit the escaped content as a literal (including {{ ... }})
         tokens.push({
           kind: "literal",
           value: "{{" + template.slice(i + 3, closeIdx + 2),
         });
         i = closeIdx + 2;
-        lastIndex = i;
-        continue;
+      } else {
+        // Unclosed: emit {{ + remainder as a literal (backslash consumed)
+        tokens.push({
+          kind: "literal",
+          value: "{{" + template.slice(i + 3),
+        });
+        i = template.length; // skip to end
       }
+      lastIndex = i;
+      continue;
     }
 
     // Variable opening: {{
