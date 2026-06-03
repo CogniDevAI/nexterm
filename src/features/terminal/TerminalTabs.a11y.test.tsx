@@ -113,7 +113,6 @@ function resetStore() {
   useSessionStore.setState({
     sessions: new Map(),
     activeSessionId: null,
-    activeFeature: "terminal",
   });
 }
 

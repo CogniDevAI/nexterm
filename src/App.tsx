@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type { Token } from "./features/snippets/snippetParser";
 import { AppLayout } from "./components/layout/AppLayout";
-import { TabBar } from "./components/layout/TabBar";
+import { SidePanel } from "./components/panel/SidePanel";
 import { ConnectionDialog } from "./features/connection/ConnectionDialog";
 import { HostKeyDialog } from "./features/connection/HostKeyDialog";
 import { MfaChallengeDialog } from "./features/connection/MfaChallengeDialog";
@@ -23,9 +23,7 @@ import { VaultScreen } from "./features/vault/VaultScreen";
 import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
 import { TerminalTabs } from "./features/terminal/TerminalTabs";
-import { SftpBrowser } from "./features/sftp/SftpBrowser";
 import { RemoteEditCoordinator } from "./features/sftp/RemoteEditCoordinator";
-import { TunnelManager } from "./features/tunnel/TunnelManager";
 import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
 import { useProfileStore } from "./stores/profileStore";
@@ -214,7 +212,7 @@ function WelcomeLaunchpad({
 }
 
 function App() {
-  const { sessions, activeSessionId, activeFeature, startupPreview, clearStartupPreview } =
+  const { sessions, activeSessionId, startupPreview, clearStartupPreview } =
     useSessionStore();
   const { profiles } = useProfileStore();
 
@@ -414,20 +412,16 @@ function App() {
         {/* Content area */}
         {activeSession ? (
           <div className="session-view">
-            <TabBar />
             <div className="session-content">
-              {activeFeature === "terminal" && (
+              {/* Terminal is always mounted — never unmounted when panel opens */}
+              <div className="session-terminal-area">
                 <TerminalTabs
                   sessionId={activeSession.id}
                   onOpenSnippets={() => setSnippetPickerOpen(true)}
                 />
-              )}
-              {activeFeature === "sftp" && (
-                <SftpBrowser sessionId={activeSession.id} />
-              )}
-              {activeFeature === "tunnel" && (
-                <TunnelManager sessionId={activeSession.id} />
-              )}
+              </div>
+              {/* Side panel docked to the right — SFTP/Tunnels without unmounting terminal */}
+              <SidePanel />
             </div>
           </div>
         ) : (

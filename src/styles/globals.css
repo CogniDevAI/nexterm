@@ -1293,6 +1293,151 @@ body {
 .session-content {
   flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: row;
+}
+
+/* ── Terminal area — always mounted, takes remaining space ── */
+.session-terminal-area {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════
+   Side Panel — collapsible right panel
+   ═══════════════════════════════════════════════════ */
+
+/* Outer wrapper — flex row: icon rail + collapsible content */
+.side-panel-wrapper {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  height: 100%;
+  border-left: 1px solid var(--hairline);
+}
+
+/* ── Icon rail ── */
+.side-panel-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  width: 36px;
+  flex-shrink: 0;
+  background-color: var(--bg-panel);
+}
+
+.side-panel-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.side-panel-rail-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+.side-panel-rail-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.side-panel-rail-btn-active {
+  color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+.side-panel-rail-btn-active:hover {
+  color: var(--accent-strong);
+  background-color: var(--accent-wash);
+}
+
+/* ── Collapsible content pane ── */
+/* Width transition 200ms — longer than RESIZE_DEBOUNCE_MS (100ms) so
+   the FitAddon fires after transition ends */
+.side-panel-content {
+  width: 0;
+  overflow: hidden;
+  transition: width 200ms var(--ease-out);
+  flex-shrink: 0;
+}
+
+.side-panel-content-open {
+  width: 420px;
+}
+
+/* ── Panel section container ── */
+.side-panel-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 420px;
+  overflow: hidden;
+  background-color: var(--bg-base);
+}
+
+/* ── Panel header ── */
+.side-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 14px;
+  height: var(--tabbar-height);
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+
+.side-panel-title {
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+.side-panel-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.side-panel-close-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+.side-panel-close-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* ── Panel body (scrollable) ── */
+.side-panel-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ═══════════════════════════════════════════════════

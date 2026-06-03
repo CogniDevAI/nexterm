@@ -4,7 +4,6 @@
 
 import { create } from "zustand";
 import type {
-  ActiveFeature,
   SessionId,
   SessionState,
   TerminalId,
@@ -47,13 +46,11 @@ export interface SessionEntry {
 interface SessionStoreState {
   sessions: Map<string, SessionEntry>;
   activeSessionId: string | null;
-  activeFeature: ActiveFeature;
   startupPreview: StartupPreview | null;
 
   addSession: (session: SessionEntry) => void;
   removeSession: (sessionId: string) => void;
   setActiveSession: (sessionId: string | null) => void;
-  setActiveFeature: (feature: ActiveFeature) => void;
   updateSessionState: (sessionId: string, state: SessionState) => void;
   setStartupPreview: (preview: StartupPreview) => void;
   clearStartupPreview: () => void;
@@ -68,22 +65,20 @@ interface SessionStoreState {
 export const useSessionStore = create<SessionStoreState>((set) => ({
   sessions: new Map(),
   activeSessionId: null,
-  activeFeature: "terminal",
   startupPreview: null,
 
   addSession: (session) =>
     set((state) => {
       const next = new Map(state.sessions);
       next.set(session.id, session);
-      const workspaceStore = useWorkspaceStore.getState();
-      const workspace = workspaceStore.getOrCreateWorkspace(
+      // Ensure the workspace snapshot exists so panel/terminal state is ready.
+      useWorkspaceStore.getState().getOrCreateWorkspace(
         session.profileId,
         session.userId,
       );
       return {
         sessions: next,
         activeSessionId: session.id,
-        activeFeature: workspace.activeFeature,
       };
     }),
 
@@ -96,24 +91,12 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
           ? (next.keys().next().value ?? null)
           : state.activeSessionId;
 
-      const nextActiveSession = activeSessionId
-        ? next.get(activeSessionId)
-        : undefined;
-      const activeFeature = nextActiveSession
-        ? useWorkspaceStore
-            .getState()
-            .getOrCreateWorkspace(
-              nextActiveSession.profileId,
-              nextActiveSession.userId,
-            ).activeFeature
-        : state.activeFeature;
-
       const startupPreview =
         state.startupPreview?.sessionId === sessionId
           ? null
           : state.startupPreview;
 
-      return { sessions: next, activeSessionId, activeFeature, startupPreview };
+      return { sessions: next, activeSessionId, startupPreview };
     }),
 
   setActiveSession: (sessionId) =>
@@ -147,22 +130,7 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
       return {
         sessions: next,
         activeSessionId: sessionId,
-        activeFeature: workspace.activeFeature,
       };
-    }),
-
-  setActiveFeature: (feature) =>
-    set((state) => {
-      const activeSession = state.activeSessionId
-        ? state.sessions.get(state.activeSessionId)
-        : undefined;
-      if (activeSession) {
-        useWorkspaceStore.getState().setActiveFeature(
-          buildWorkspaceKey(activeSession.profileId, activeSession.userId),
-          feature,
-        );
-      }
-      return { activeFeature: feature };
     }),
 
   updateSessionState: (sessionId, newState) =>

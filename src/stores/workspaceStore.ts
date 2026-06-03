@@ -3,7 +3,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SearchMode } from "../features/sftp/FilePane";
-import type { ActiveFeature, TerminalId } from "../lib/types";
+import type { TerminalId } from "../lib/types";
+
+export type PanelSection = "sftp" | "tunnel" | null;
 
 export interface WorkspacePaneSnapshot {
   path: string;
@@ -23,16 +25,16 @@ export interface WorkspaceSnapshot {
   key: string;
   profileId: string;
   userId: string;
-  activeFeature: ActiveFeature;
   activeTerminalId: TerminalId | null;
   sftp: WorkspaceSftpSnapshot;
+  panelSection: PanelSection;
+  panelOpen: boolean;
   updatedAt: number;
 }
 
 interface WorkspaceStoreState {
   workspaces: Record<string, WorkspaceSnapshot>;
   getOrCreateWorkspace: (profileId: string, userId: string) => WorkspaceSnapshot;
-  setActiveFeature: (workspaceKey: string, feature: ActiveFeature) => void;
   setActiveTerminalId: (
     workspaceKey: string,
     terminalId: TerminalId | null,
@@ -41,6 +43,8 @@ interface WorkspaceStoreState {
     workspaceKey: string,
     snapshot: Partial<WorkspaceSftpSnapshot>,
   ) => void;
+  setPanelSection: (workspaceKey: string, section: PanelSection) => void;
+  setPanelOpen: (workspaceKey: string, open: boolean) => void;
 }
 
 const DEFAULT_PANE_SNAPSHOT: WorkspacePaneSnapshot = {
@@ -65,7 +69,6 @@ function createWorkspaceSnapshot(
     key: buildWorkspaceKey(profileId, userId),
     profileId,
     userId,
-    activeFeature: "terminal",
     activeTerminalId: null,
     sftp: {
       local: { ...DEFAULT_PANE_SNAPSHOT },
@@ -74,6 +77,8 @@ function createWorkspaceSnapshot(
       searchMode: DEFAULT_SFTP_SNAPSHOT.searchMode,
       searchQuery: DEFAULT_SFTP_SNAPSHOT.searchQuery,
     },
+    panelSection: null,
+    panelOpen: false,
     updatedAt: Date.now(),
   };
 }
@@ -114,22 +119,6 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
         return created;
       },
 
-      setActiveFeature: (workspaceKey, feature) =>
-        set((state) => {
-          const current = state.workspaces[workspaceKey];
-          if (!current) return state;
-          return {
-            workspaces: {
-              ...state.workspaces,
-              [workspaceKey]: {
-                ...current,
-                activeFeature: feature,
-                updatedAt: Date.now(),
-              },
-            },
-          };
-        }),
-
       setActiveTerminalId: (workspaceKey, terminalId) =>
         set((state) => {
           const current = state.workspaces[workspaceKey];
@@ -165,6 +154,38 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
                     ? clonePaneSnapshot(snapshot.remote)
                     : current.sftp.remote,
                 },
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      setPanelSection: (workspaceKey, section) =>
+        set((state) => {
+          const current = state.workspaces[workspaceKey];
+          if (!current) return state;
+          return {
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: {
+                ...current,
+                panelSection: section,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      setPanelOpen: (workspaceKey, open) =>
+        set((state) => {
+          const current = state.workspaces[workspaceKey];
+          if (!current) return state;
+          return {
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: {
+                ...current,
+                panelOpen: open,
                 updatedAt: Date.now(),
               },
             },
