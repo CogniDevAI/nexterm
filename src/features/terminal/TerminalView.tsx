@@ -120,12 +120,14 @@ export function TerminalView({
   // the terminal DOM into the fresh container so it renders again.
   useEffect(() => {
     if (!terminalId || attachedRef.current || !containerRef.current) return;
-    const didReattach = reattachTerminal(terminalId, containerRef.current);
-    if (didReattach) {
-      attachedRef.current = true;
-      // Re-register find-bar opener and search results callback after reattach
-      registerOpener(terminalId);
-    }
+    const container = containerRef.current;
+    void reattachTerminal(terminalId, container).then((didReattach) => {
+      if (didReattach) {
+        attachedRef.current = true;
+        // Re-register find-bar opener and search results callback after reattach
+        registerOpener(terminalId);
+      }
+    });
   }, [terminalId, reattachTerminal, registerOpener]);
 
   // Unregister opener and search results callback on unmount

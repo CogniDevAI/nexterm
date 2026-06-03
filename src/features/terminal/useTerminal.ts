@@ -238,6 +238,18 @@ export function useTerminal() {
       const searchAddon = new SearchAddon();
       term.loadAddon(searchAddon);
 
+      // Wait until the container has been laid out (split panes can mount at 0×0).
+      // Without this guard, WebGL initialises at 0×0 and renders a black canvas
+      // that the later ResizeObserver re-fit cannot always recover.
+      let _waitAttempts = 0;
+      while (
+        (container.offsetWidth === 0 || container.offsetHeight === 0) &&
+        _waitAttempts < 10
+      ) {
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        _waitAttempts++;
+      }
+
       // Attach to DOM
       term.open(container);
       fitAddon.fit();
@@ -479,7 +491,7 @@ export function useTerminal() {
    *  DOM subtree into the new container and reconnects the ResizeObserver so
    *  the terminal renders correctly without re-creating the PTY session. */
   const reattachTerminal = useCallback(
-    (terminalId: TerminalId, newContainer: HTMLDivElement) => {
+    async (terminalId: TerminalId, newContainer: HTMLDivElement) => {
       const instance = terminalInstances.get(terminalId);
       if (!instance || instance.disposed) return false;
 
@@ -492,6 +504,16 @@ export function useTerminal() {
       // Move xterm.js DOM into the new container
       newContainer.appendChild(termElement);
       instance.container = newContainer;
+
+      // Wait for layout before fitting (mirrors the guard in openTerminal).
+      let _waitAttempts = 0;
+      while (
+        (newContainer.offsetWidth === 0 || newContainer.offsetHeight === 0) &&
+        _waitAttempts < 10
+      ) {
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        _waitAttempts++;
+      }
 
       // Re-fit to the (potentially different-sized) new container
       instance.fitAddon.fit();
