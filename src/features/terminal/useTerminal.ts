@@ -10,6 +10,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import type { ISearchOptions } from "@xterm/addon-search";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Channel } from "@tauri-apps/api/core";
 import { tauriInvoke } from "../../lib/tauri";
 import {
@@ -375,6 +376,23 @@ export function useTerminal() {
 
       // Attach mouseup AFTER term.open() so term.element exists
       term.element?.addEventListener("mouseup", handleMouseUp);
+
+      // Load WebGL renderer for GPU-accelerated rendering.
+      // Must come AFTER term.open() — WebglAddon requires a rendered canvas.
+      // Falls back silently to xterm's default DOM renderer when WebGL2 is
+      // unavailable (headless/jsdom, blocked GPU, context lost immediately).
+      try {
+        const webglAddon = new WebglAddon();
+        // If the GPU context is lost at runtime, dispose the addon so xterm
+        // reverts to its DOM renderer automatically.
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        term.loadAddon(webglAddon);
+        // WebglAddon implements IDisposable directly — include in lifecycle cleanup.
+        disposables.push(webglAddon);
+      } catch {
+        // WebGL2 unavailable (e.g. headless/jsdom, blocked GPU) — xterm keeps
+        // its default DOM renderer. No action needed.
+      }
 
       const instance: TerminalInstance = {
         terminal: term,
