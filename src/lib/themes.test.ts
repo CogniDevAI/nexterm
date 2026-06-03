@@ -14,10 +14,14 @@ describe("themes — core exports", () => {
     expect(DEFAULT_THEME_ID).toBe("lamplight");
   });
 
-  it("THEME_IDS has exactly 2 members", () => {
-    expect(THEME_IDS).toHaveLength(2);
+  it("THEME_IDS has exactly 6 members", () => {
+    expect(THEME_IDS).toHaveLength(6);
     expect(THEME_IDS).toContain("lamplight");
     expect(THEME_IDS).toContain("dark");
+    expect(THEME_IDS).toContain("solarized-dark");
+    expect(THEME_IDS).toContain("gruvbox-dark");
+    expect(THEME_IDS).toContain("catppuccin-mocha");
+    expect(THEME_IDS).toContain("nord");
   });
 
   it("THEMES keys match THEME_IDS", () => {
@@ -32,6 +36,22 @@ describe("isThemeId", () => {
 
   it("accepts dark", () => {
     expect(isThemeId("dark")).toBe(true);
+  });
+
+  it("accepts solarized-dark", () => {
+    expect(isThemeId("solarized-dark")).toBe(true);
+  });
+
+  it("accepts gruvbox-dark", () => {
+    expect(isThemeId("gruvbox-dark")).toBe(true);
+  });
+
+  it("accepts catppuccin-mocha", () => {
+    expect(isThemeId("catppuccin-mocha")).toBe(true);
+  });
+
+  it("accepts nord", () => {
+    expect(isThemeId("nord")).toBe(true);
   });
 
   it("rejects light", () => {
@@ -64,7 +84,7 @@ describe("THEMES — terminalTheme completeness", () => {
 
   const CSS_COLOR_RE = /#[0-9a-fA-F]{3,8}|rgba?\(|oklch\(/;
 
-  for (const id of ["lamplight", "dark"] as const) {
+  for (const id of ["lamplight", "dark", "solarized-dark", "gruvbox-dark", "catppuccin-mocha", "nord"] as const) {
     describe(`THEMES.${id}.terminalTheme`, () => {
       it("has all required base keys (background, foreground, cursor, cursorAccent, selectionBackground)", () => {
         const theme = THEMES[id].terminalTheme;
@@ -102,6 +122,26 @@ describe("parseStoredThemeId", () => {
   it("parses Zustand persist envelope with lamplight", () => {
     const raw = JSON.stringify({ state: { themeId: "lamplight" }, version: 0 });
     expect(parseStoredThemeId(raw)).toBe("lamplight");
+  });
+
+  it("parses Zustand persist envelope with solarized-dark", () => {
+    const raw = JSON.stringify({ state: { themeId: "solarized-dark" }, version: 0 });
+    expect(parseStoredThemeId(raw)).toBe("solarized-dark");
+  });
+
+  it("parses Zustand persist envelope with gruvbox-dark", () => {
+    const raw = JSON.stringify({ state: { themeId: "gruvbox-dark" }, version: 0 });
+    expect(parseStoredThemeId(raw)).toBe("gruvbox-dark");
+  });
+
+  it("parses Zustand persist envelope with catppuccin-mocha", () => {
+    const raw = JSON.stringify({ state: { themeId: "catppuccin-mocha" }, version: 0 });
+    expect(parseStoredThemeId(raw)).toBe("catppuccin-mocha");
+  });
+
+  it("parses Zustand persist envelope with nord", () => {
+    const raw = JSON.stringify({ state: { themeId: "nord" }, version: 0 });
+    expect(parseStoredThemeId(raw)).toBe("nord");
   });
 
   it("returns lamplight for null", () => {
