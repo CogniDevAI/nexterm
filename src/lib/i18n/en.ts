@@ -343,6 +343,9 @@ export const en = {
   "transfer.cancel": "Cancel transfer",
   "transfer.remove": "Remove from list",
 
+  // Theme picker
+  "theme.picker": "Select theme",
+
   // Status bar
   "status.connection": "{count} connection",
   "status.connections": "{count} connections",

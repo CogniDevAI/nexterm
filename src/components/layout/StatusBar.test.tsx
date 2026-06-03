@@ -1,9 +1,9 @@
-// src/components/layout/StatusBar.test.tsx — TDD: theme toggle in StatusBar
+// src/components/layout/StatusBar.test.tsx — TDD: StatusBar with ThemePicker
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-// ── localStorage stub (vi.hoisted — must be in place before any persist store loads) ──
+// ── localStorage stub ──
 vi.hoisted(() => {
   const store = new Map<string, string>();
   Object.defineProperty(globalThis, "localStorage", {
@@ -19,12 +19,10 @@ vi.hoisted(() => {
   });
 });
 
-// ── Mock useTerminal so applyThemeToAllTerminals is a no-op ──
 vi.mock("../../features/terminal/useTerminal", () => ({
   applyThemeToAllTerminals: vi.fn(),
 }));
 
-// ── Minimal i18n mock — return key as label for simplicity ──
 vi.mock("../../lib/i18n", () => ({
   useI18n: () => ({
     t: (k: string, p?: Record<string, string | number>) => {
@@ -37,7 +35,6 @@ vi.mock("../../lib/i18n", () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-// ── Mock session + update stores (StatusBar reads them) ──
 vi.mock("../../stores/sessionStore", () => ({
   useSessionStore: () => ({
     sessions: new Map(),
@@ -56,50 +53,72 @@ beforeEach(() => {
   document.documentElement.removeAttribute("data-theme");
 });
 
-describe("StatusBar — theme toggle", () => {
-  it("renders the theme toggle button", () => {
+describe("StatusBar — ThemePicker integration", () => {
+  it("renders the theme picker trigger button", () => {
     render(<StatusBar />);
-    // The button should have a title or aria-label reflecting the current theme
-    const btn = screen.getByTitle(/Lamplight|lamplight|Dark|dark|theme/i);
+    // The trigger button uses the "theme.picker" i18n key as aria-label
+    const btn = screen.getByRole("button", { name: /theme\.picker/i });
     expect(btn).toBeDefined();
   });
 
-  it("theme toggle is present next to the language toggle", () => {
+  it("theme picker trigger shows current theme label", () => {
     render(<StatusBar />);
-    const themeBtn = screen.getByTitle(/Lamplight|lamplight|Dark|dark|theme/i);
+    const btn = screen.getByRole("button", { name: /theme\.picker/i });
+    expect(btn.textContent).toContain("Lamplight");
+  });
+
+  it("theme picker trigger is present next to the language toggle", () => {
+    render(<StatusBar />);
+    const themeBtn = screen.getByRole("button", { name: /theme\.picker/i });
     const langBtn = screen.getByTitle(/settings\.language/i);
-    // Both should exist in the DOM
     expect(themeBtn).toBeDefined();
     expect(langBtn).toBeDefined();
   });
 
-  it("clicking theme toggle switches from lamplight to dark", () => {
+  it("no binary theme toggle exists (oppositeThemeId logic removed)", () => {
     render(<StatusBar />);
-    const btn = screen.getByTitle(/Lamplight|lamplight|Dark|dark|theme/i);
+    // The old toggle had title = THEMES[themeId].label e.g. "Lamplight" or "Dark"
+    // Now there should be NO button with title exactly matching a theme label only
+    // (the picker trigger has aria-label "theme.picker", not the label as title)
+    const themeBtn = screen.getByRole("button", { name: /theme\.picker/i });
+    // Should NOT have a title attribute equal to the theme label (old pattern)
+    expect(themeBtn.getAttribute("title")).not.toBe("Lamplight");
+    expect(themeBtn.getAttribute("title")).not.toBe("Dark");
+  });
+
+  it("clicking trigger opens listbox with all 6 themes", () => {
+    render(<StatusBar />);
+    const btn = screen.getByRole("button", { name: /theme\.picker/i });
     fireEvent.click(btn);
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(6);
+  });
+
+  it("clicking Dark option in picker sets theme to dark", () => {
+    render(<StatusBar />);
+    fireEvent.click(screen.getByRole("button", { name: /theme\.picker/i }));
+    fireEvent.click(screen.getByText("Dark"));
     expect(useThemeStore.getState().themeId).toBe("dark");
   });
 
-  it("clicking theme toggle again switches back to lamplight", () => {
-    useThemeStore.setState({ themeId: "dark" });
+  it("clicking Nord option in picker sets theme to nord", () => {
     render(<StatusBar />);
-    // Re-render after state change to get updated button
-    const btn = screen.getByTitle(/Lamplight|lamplight|Dark|dark|theme/i);
-    fireEvent.click(btn);
-    expect(useThemeStore.getState().themeId).toBe("lamplight");
+    fireEvent.click(screen.getByRole("button", { name: /theme\.picker/i }));
+    fireEvent.click(screen.getByText("Nord"));
+    expect(useThemeStore.getState().themeId).toBe("nord");
   });
 
-  it("toggle label reflects current theme (Lamplight when active)", () => {
-    render(<StatusBar />);
-    const btn = screen.getByTitle(/Lamplight|lamplight|Dark|dark|theme/i);
-    // The button should display the current theme label
-    expect(btn.textContent).toMatch(/Lamplight|lamplight/i);
-  });
-
-  it("toggle label reflects dark theme when active", () => {
+  it("trigger label updates when theme changes to dark", () => {
     useThemeStore.setState({ themeId: "dark" });
     render(<StatusBar />);
-    const btn = screen.getByTitle(/Lamplight|lamplight|Dark|dark|theme/i);
-    expect(btn.textContent).toMatch(/Dark|dark/i);
+    const btn = screen.getByRole("button", { name: /theme\.picker/i });
+    expect(btn.textContent).toContain("Dark");
+  });
+
+  it("trigger label updates when theme changes to Catppuccin Mocha", () => {
+    useThemeStore.setState({ themeId: "catppuccin-mocha" });
+    render(<StatusBar />);
+    const btn = screen.getByRole("button", { name: /theme\.picker/i });
+    expect(btn.textContent).toContain("Catppuccin Mocha");
   });
 });

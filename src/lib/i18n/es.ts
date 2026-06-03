@@ -345,6 +345,9 @@ export const es: Record<TranslationKey, string> = {
   "transfer.cancel": "Cancelar transferencia",
   "transfer.remove": "Quitar de la lista",
 
+  // Theme picker
+  "theme.picker": "Seleccionar tema",
+
   // Status bar
   "status.connection": "{count} conexión",
   "status.connections": "{count} conexiones",

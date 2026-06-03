@@ -20,8 +20,14 @@
           if (raw) {
             var parsed = JSON.parse(raw);
             var v = parsed && parsed.state && parsed.state.themeId;
-            if (v === "dark") {
-              document.documentElement.dataset.theme = "dark";
+            if (
+              v === "dark" ||
+              v === "solarized-dark" ||
+              v === "gruvbox-dark" ||
+              v === "catppuccin-mocha" ||
+              v === "nord"
+            ) {
+              document.documentElement.dataset.theme = v;
               return;
             }
           }
