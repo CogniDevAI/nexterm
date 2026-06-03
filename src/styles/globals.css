@@ -1719,6 +1719,15 @@ body {
   flex-direction: row;
 }
 
+/* ── Main column — persistent toggle bar + terminal/files areas ── */
+.session-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
 /* ── Terminal area — always mounted, takes remaining space ── */
 .session-terminal-area {
   flex: 1;
@@ -1733,6 +1742,68 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ── Persistent view-toggle bar (Terminal | Files) ── */
+.session-view-toggle-bar {
+  display: flex;
+  align-items: center;
+  height: var(--tabbar-height, 34px);
+  padding: 0 10px;
+  flex-shrink: 0;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.session-view-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.session-view-toggle-btn {
+  display: flex;
+  align-items: center;
+  padding: 2px 12px;
+  height: 22px;
+  border: 1px solid var(--hairline);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.session-view-toggle-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right-width: 0;
+}
+
+.session-view-toggle-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.session-view-toggle-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+.session-view-toggle-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.session-view-toggle-btn-active {
+  background-color: var(--accent-wash);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.session-view-toggle-btn-active:hover {
+  background-color: var(--accent-wash);
+  color: var(--accent-strong);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1899,63 +1970,6 @@ body {
 
 .terminal-tabbar-scroll::-webkit-scrollbar {
   height: 0;
-}
-
-/* ── View toggle (Terminal | Files) — left of tab bar ── */
-.terminal-view-toggle {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 6px 4px 8px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--hairline);
-}
-
-.terminal-view-toggle-btn {
-  display: flex;
-  align-items: center;
-  padding: 2px 10px;
-  height: 22px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text-muted);
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-medium);
-  cursor: pointer;
-  transition: color var(--transition-fast), background-color var(--transition-fast);
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.terminal-view-toggle-btn:first-child {
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-  border-right-width: 0;
-}
-
-.terminal-view-toggle-btn:last-child {
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-
-.terminal-view-toggle-btn:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-raised);
-}
-
-.terminal-view-toggle-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
-}
-
-.terminal-view-toggle-btn-active {
-  background-color: var(--accent-wash);
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.terminal-view-toggle-btn-active:hover {
-  background-color: var(--accent-wash);
-  color: var(--accent-strong);
 }
 
 .terminal-tab {

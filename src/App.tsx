@@ -23,6 +23,7 @@ import { VaultScreen } from "./features/vault/VaultScreen";
 import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
 import { TerminalTabs } from "./features/terminal/TerminalTabs";
+import { SessionViewToggle } from "./features/terminal/SessionViewToggle";
 import { RemoteEditCoordinator } from "./features/sftp/RemoteEditCoordinator";
 import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
@@ -425,23 +426,31 @@ function App() {
         {activeSession ? (
           <div className="session-view">
             <div className="session-content">
-              {/* Terminal area — always mounted, hidden via CSS when files view is active */}
-              <div
-                className="session-terminal-area"
-                style={mainView === "files" ? { display: "none" } : undefined}
-              >
-                <TerminalTabs
-                  sessionId={activeSession.id}
-                  onOpenSnippets={() => setSnippetPickerOpen(true)}
+              {/* Main column — persistent toggle bar + terminal/files areas */}
+              <div className="session-main">
+                {/* View toggle lives OUTSIDE the display:none'd terminal area
+                    so it is ALWAYS visible and can switch back from Files. */}
+                <SessionViewToggle
                   workspaceKey={activeWorkspaceKey ?? ""}
+                  mainView={mainView}
                 />
-              </div>
-              {/* Files view — mounts SftpBrowser in the full main area */}
-              {mainView === "files" && (
-                <div className="session-files-area">
-                  <SftpBrowser sessionId={activeSession.id} />
+                {/* Terminal area — always mounted, hidden via CSS when files view is active */}
+                <div
+                  className="session-terminal-area"
+                  style={mainView === "files" ? { display: "none" } : undefined}
+                >
+                  <TerminalTabs
+                    sessionId={activeSession.id}
+                    onOpenSnippets={() => setSnippetPickerOpen(true)}
+                  />
                 </div>
-              )}
+                {/* Files view — mounts SftpBrowser in the full main area */}
+                {mainView === "files" && (
+                  <div className="session-files-area">
+                    <SftpBrowser sessionId={activeSession.id} />
+                  </div>
+                )}
+              </div>
               {/* Side panel docked to the right — Tunnels/History/Monitoring/Docker/Proxmox */}
               <SidePanel />
             </div>
