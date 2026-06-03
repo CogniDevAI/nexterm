@@ -5,7 +5,7 @@ import { persist } from "zustand/middleware";
 import type { SearchMode } from "../features/sftp/FilePane";
 import type { TerminalId } from "../lib/types";
 
-export type PanelSection = "sftp" | "tunnel" | null;
+export type PanelSection = "sftp" | "tunnel" | "history" | null;
 
 export interface WorkspacePaneSnapshot {
   path: string;

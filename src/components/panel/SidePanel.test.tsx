@@ -28,6 +28,7 @@ vi.mock("../../lib/i18n", () => ({
       const labels: Record<string, string> = {
         "panel.sftp": "Files",
         "panel.tunnels": "Tunnels",
+        "panel.history": "History",
         "panel.close": "Close panel",
         "panel.region": "Session panel",
         "panel.sections": "Panel sections",
@@ -74,6 +75,12 @@ vi.mock("../../features/tunnel/TunnelManager", () => ({
   ),
 }));
 
+vi.mock("../../features/history/HistoryPanel", () => ({
+  HistoryPanel: ({ sessionId }: { sessionId: string }) => (
+    <div data-testid="history-panel" data-session-id={sessionId} />
+  ),
+}));
+
 import { SidePanel } from "./SidePanel";
 import { useSessionStore } from "../../stores/sessionStore";
 
@@ -81,7 +88,7 @@ const mockedUseSessionStore = vi.mocked(useSessionStore);
 
 function makeStoreState(
   panelOpen = false,
-  panelSection: "sftp" | "tunnel" | null = null,
+  panelSection: "sftp" | "tunnel" | "history" | null = null,
 ) {
   return {
     workspaces: {
@@ -285,5 +292,76 @@ describe("SidePanel — close button when open", () => {
     render(<SidePanel />);
     fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
     expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", false);
+  });
+});
+
+// ── History section (new) ─────────────────────────────────────────────────────
+
+describe("SidePanel — History button in rail", () => {
+  it("renders a History toggle button in the rail", () => {
+    render(<SidePanel />);
+    expect(
+      screen.getByRole("button", { name: "History" }),
+    ).toBeInTheDocument();
+  });
+
+  it("History button has aria-pressed=false when panel is closed", () => {
+    render(<SidePanel />);
+    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("History button has aria-pressed=true when panel is open on history", () => {
+    _workspaceStoreState = makeStoreState(true, "history");
+    render(<SidePanel />);
+    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("clicking History button calls setPanelSection(key, 'history') and setPanelOpen(key, true)", () => {
+    render(<SidePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(mockSetPanelSection).toHaveBeenCalledWith(
+      "profile-1:user-1",
+      "history",
+    );
+    expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", true);
+  });
+
+  it("clicking the already-active History button closes the panel", () => {
+    _workspaceStoreState = makeStoreState(true, "history");
+    render(<SidePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", false);
+  });
+});
+
+describe("SidePanel — HistoryPanel mount", () => {
+  it("renders HistoryPanel when panel is open on history", () => {
+    _workspaceStoreState = makeStoreState(true, "history");
+    render(<SidePanel />);
+    expect(screen.getByTestId("history-panel")).toBeInTheDocument();
+  });
+
+  it("does NOT render HistoryPanel when panel section is sftp", () => {
+    _workspaceStoreState = makeStoreState(true, "sftp");
+    render(<SidePanel />);
+    expect(screen.queryByTestId("history-panel")).not.toBeInTheDocument();
+  });
+
+  it("does NOT render HistoryPanel when panel section is tunnel", () => {
+    _workspaceStoreState = makeStoreState(true, "tunnel");
+    render(<SidePanel />);
+    expect(screen.queryByTestId("history-panel")).not.toBeInTheDocument();
+  });
+
+  it("panel title shows 'History' when section is history", () => {
+    _workspaceStoreState = makeStoreState(true, "history");
+    render(<SidePanel />);
+    expect(screen.getByText("History")).toBeInTheDocument();
   });
 });
