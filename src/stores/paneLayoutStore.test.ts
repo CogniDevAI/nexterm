@@ -197,3 +197,107 @@ describe("paneLayoutStore — direction", () => {
     expect(getLayout("sess-1")!.direction).toBe("vertical");
   });
 });
+
+// ── WU-2: broadcastEnabled + toggleBroadcast ───────────────────────────────────
+
+describe("paneLayoutStore — broadcastEnabled", () => {
+  beforeEach(resetStore);
+
+  it("broadcastEnabled defaults to false on openLayout", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  it("toggleBroadcast flips broadcastEnabled from false to true (2-slot layout)", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
+  });
+
+  it("toggleBroadcast flips broadcastEnabled from true back to false (2-slot layout)", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  // MINOR-1: store-level guard — enabling broadcast requires >=2 slots
+  it("toggleBroadcast is a no-op (cannot enable) on a 1-slot layout", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    expect(getLayout("sess-1")!.slots).toHaveLength(1);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    // Guard: cannot enable with <2 panes
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  it("toggleBroadcast (disable) is allowed on a 1-slot layout when already off (no-op stays false)", () => {
+    // Disabling from false is trivially fine — stays false
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1"); // no-op: enable blocked
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1"); // toggle off false → still false
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  it("toggleBroadcast is a no-op when the layout does not exist", () => {
+    // Should not throw
+    expect(() => {
+      usePaneLayoutStore.getState().toggleBroadcast("nonexistent-sess");
+    }).not.toThrow();
+    expect(getLayout("nonexistent-sess")).toBeUndefined();
+  });
+
+  it("removeLayout destroys the layout (broadcastEnabled resets on next openLayout)", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
+
+    usePaneLayoutStore.getState().removeLayout("sess-1");
+    expect(getLayout("sess-1")).toBeUndefined();
+
+    // Re-open — must start with broadcastEnabled: false (never persisted)
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  it("closeSlot resets broadcastEnabled to false when slots drop below 2", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const firstSlotId = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", firstSlotId);
+
+    // Enable broadcast with 2 panes
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
+    expect(getLayout("sess-1")!.slots).toHaveLength(2);
+
+    // Close one pane → drops to 1
+    const secondSlotId = slot(getLayout("sess-1")!, 1).id;
+    usePaneLayoutStore.getState().closeSlot("sess-1", secondSlotId);
+
+    expect(getLayout("sess-1")!.slots).toHaveLength(1);
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(false);
+  });
+
+  it("closeSlot does NOT reset broadcastEnabled when 2+ panes remain", () => {
+    usePaneLayoutStore.getState().openLayout("sess-1", "term-1");
+    const s1 = slot(getLayout("sess-1")!, 0).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s1);
+    const s2 = slot(getLayout("sess-1")!, 1).id;
+    usePaneLayoutStore.getState().splitSlot("sess-1", s2);
+    expect(getLayout("sess-1")!.slots).toHaveLength(3);
+
+    usePaneLayoutStore.getState().toggleBroadcast("sess-1");
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
+
+    // Close one pane → 2 remain, broadcast stays ON
+    usePaneLayoutStore.getState().closeSlot("sess-1", s2);
+    expect(getLayout("sess-1")!.slots).toHaveLength(2);
+    expect(getLayout("sess-1")!.broadcastEnabled).toBe(true);
+  });
+});

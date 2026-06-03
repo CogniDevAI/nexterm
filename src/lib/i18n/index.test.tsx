@@ -36,6 +36,32 @@ function LocaleProbe() {
   );
 }
 
+// ── WU-6: Broadcast i18n keys present in both locales ─────────────────────────
+
+import { en } from "./en";
+import { es } from "./es";
+
+const BROADCAST_KEYS = [
+  "terminal.broadcastToggle",
+  "terminal.broadcastToggleOn",
+  "terminal.broadcastToggleOff",
+  "terminal.broadcastBanner",
+  "terminal.broadcastAriaOn",
+  "terminal.broadcastAriaOff",
+] as const;
+
+describe("i18n — broadcast keys", () => {
+  for (const key of BROADCAST_KEYS) {
+    it(`en.ts has key: ${key}`, () => {
+      expect(en[key]).toBeTruthy();
+    });
+
+    it(`es.ts has key: ${key}`, () => {
+      expect(es[key]).toBeTruthy();
+    });
+  }
+});
+
 describe("I18nProvider — html lang sync", () => {
   beforeEach(() => {
     localStorage.clear();

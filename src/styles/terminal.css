@@ -176,6 +176,7 @@
   display: flex;
   height: 100%;
   overflow: hidden;
+  position: relative; /* required for .terminal-broadcast-banner absolute positioning */
 }
 
 .terminal-split-horizontal {
@@ -260,13 +261,87 @@
   cursor: not-allowed;
 }
 
+/* ── Broadcast toggle button (tab bar) ──────────── */
+
+/* Visible only when paneCount >= 2 (conditional render in TerminalTabs).
+   ON state: warning color + wash background.
+   OFF state: muted like other tab-bar buttons. */
+.terminal-tab-broadcast {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-meta);
+  font-family: var(--font-sans);
+  padding: 2px 7px;
+  line-height: var(--lh-body);
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.terminal-tab-broadcast:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+/* ON state: warning token so it's clearly active */
+.terminal-tab-broadcast[aria-pressed="true"] {
+  color: var(--warning);
+  background-color: var(--warning-wash);
+}
+
+.terminal-tab-broadcast[aria-pressed="true"]:hover {
+  background-color: var(--warning-wash);
+}
+
+/* ── Broadcast banner (inside .terminal-split) ───── */
+
+/* Full-width strip at the top of the split container.
+   Uses --warning / --warning-wash LAMPLIGHT tokens.
+   z-index above terminal canvas but below dialogs.
+   NOT color-only: explicit text label required by design. */
+.terminal-broadcast-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background-color: var(--warning-wash);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-body);
+  pointer-events: none; /* passthrough to terminal beneath */
+}
+
+.terminal-broadcast-banner-icon {
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.terminal-broadcast-banner-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Per-pane close button ───────────────────────── */
 
 /* Positioned absolutely in the top-right corner of the pane.
    The pane (.terminal-split-pane) is already position:relative.
    Hidden by default; revealed on pane hover or keyboard focus.
    z-index above the terminal canvas but below dialogs.
-   Does NOT push xterm content — floats as an overlay. */
+   Does NOT push xterm content — floats as an overlay.
+   See broadcast-active override below for the banner-occlude fix. */
 .terminal-split-pane-close {
   position: absolute;
   top: 4px;
@@ -290,6 +365,17 @@
     background-color var(--transition-fast);
   /* pointer-events off when invisible so clicks reach the terminal */
   pointer-events: none;
+}
+
+/* When broadcast is active, the full-width banner strip covers top:0..~26px.
+   Push the close button below the banner so it is never occluded.
+   z-index:11 (> banner z-index:10) keeps it reachable. Works in both
+   LAMPLIGHT and DARK because it only shifts position, not color tokens.
+   The banner itself is pointer-events:none so the area beneath it is still
+   clickable — this rule ensures the close button is visible above the banner. */
+.terminal-split[data-broadcast="true"] .terminal-split-pane-close {
+  top: 30px; /* 26px banner height + 4px original offset */
+  z-index: 11; /* above banner (z-index:10) */
 }
 
 /* Reveal on pane hover */

@@ -18,6 +18,7 @@ import { usePaneLayoutStore } from "../../stores/paneLayoutStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { TerminalView } from "./TerminalView";
 import { SplitHandle } from "./SplitHandle";
+import { BroadcastBanner } from "./BroadcastBanner";
 import { useI18n } from "../../lib/i18n";
 import type { SessionId } from "../../lib/types";
 
@@ -132,7 +133,9 @@ export function PaneSplitView({
     <div
       ref={containerRef}
       className={`terminal-split terminal-split-${direction}`}
+      data-broadcast={layout.broadcastEnabled ? "true" : "false"}
     >
+      <BroadcastBanner broadcastEnabled={layout.broadcastEnabled} />
       {slots.map((slot, i) => {
         // MAJOR-2 fix: only the focused pane gets active=true
         // This ensures only the focused pane's terminal receives real keyboard focus.

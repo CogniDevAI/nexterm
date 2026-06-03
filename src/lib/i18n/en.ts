@@ -180,6 +180,12 @@ export const en = {
   "terminal.splitHorizontal": "Split pane horizontally",
   "terminal.splitVertical": "Split pane vertically",
   "terminal.closePane": "Close pane",
+  "terminal.broadcastToggle": "Broadcast",
+  "terminal.broadcastToggleOn": "Broadcast ON",
+  "terminal.broadcastToggleOff": "Broadcast OFF",
+  "terminal.broadcastBanner": "Broadcast ON — keystrokes sent to all panes",
+  "terminal.broadcastAriaOn": "Disable input broadcast",
+  "terminal.broadcastAriaOff": "Enable input broadcast",
 
   // Terminal find-bar
   "terminal.find.placeholder": "Search in terminal...",
