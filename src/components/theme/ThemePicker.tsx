@@ -75,7 +75,8 @@ export function ThemePicker() {
         setFocusedIdx((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleSelect(THEME_IDS[focusedIdx]);
+        const target = THEME_IDS[focusedIdx];
+        if (target !== undefined) handleSelect(target);
       }
     },
     [focusedIdx, handleSelect],
