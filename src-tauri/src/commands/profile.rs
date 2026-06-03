@@ -480,6 +480,7 @@ pub async fn import_profiles(
             users: users.clone(),
             startup_directory: None,
             startup_commands: Vec::new(),
+            folder: None,
             tunnels: Vec::new(),
             display_order: max_order + 1,
             created_at: now,
