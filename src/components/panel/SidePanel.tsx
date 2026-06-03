@@ -15,6 +15,7 @@ import { SftpBrowser } from "../../features/sftp/SftpBrowser";
 import { TunnelManager } from "../../features/tunnel/TunnelManager";
 import { HistoryPanel } from "../../features/history/HistoryPanel";
 import { MonitoringPanel } from "../../features/monitoring/MonitoringPanel";
+import { DockerPanel } from "../../features/docker/DockerPanel";
 import type { PanelSection } from "../../stores/workspaceStore";
 
 // ── SVG icons (inline, no external dep) ─────────────────────────────────────
@@ -135,6 +136,38 @@ function MonitoringIcon() {
   );
 }
 
+function DockerIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Docker whale body */}
+      <rect x="1" y="8" width="3" height="2" rx="0.5" stroke="currentColor" strokeWidth="1.1" fill="none" />
+      <rect x="5" y="6" width="3" height="2" rx="0.5" stroke="currentColor" strokeWidth="1.1" fill="none" />
+      <rect x="9" y="8" width="3" height="2" rx="0.5" stroke="currentColor" strokeWidth="1.1" fill="none" />
+      <rect x="5" y="8" width="3" height="2" rx="0.5" stroke="currentColor" strokeWidth="1.1" fill="none" />
+      <path
+        d="M1 10.5c1 1.5 3 2 5.5 1.5s5 0 6.5-2"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M12.5 7.5c.5-1 .5-2 .2-2.5"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg
@@ -186,7 +219,7 @@ export function SidePanel() {
 
   const sessionId = activeSession?.id ?? "";
 
-  function handleToggle(section: "sftp" | "tunnel" | "history" | "monitoring") {
+  function handleToggle(section: "sftp" | "tunnel" | "history" | "monitoring" | "docker") {
     if (!workspaceKey) return;
     const isActive = panelOpen && panelSection === section;
     if (isActive) {
@@ -253,6 +286,17 @@ export function SidePanel() {
         >
           <MonitoringIcon />
         </button>
+
+        <button
+          type="button"
+          aria-pressed={panelOpen && panelSection === "docker"}
+          aria-label={t("panel.docker")}
+          className={`side-panel-rail-btn${panelOpen && panelSection === "docker" ? " side-panel-rail-btn-active" : ""}`}
+          onClick={() => handleToggle("docker")}
+          title={t("panel.docker")}
+        >
+          <DockerIcon />
+        </button>
       </div>
 
       {/* Collapsible content pane */}
@@ -274,7 +318,9 @@ export function SidePanel() {
                     ? t("panel.history")
                     : panelSection === "monitoring"
                       ? t("panel.monitoring")
-                      : t("panel.tunnels")}
+                      : panelSection === "docker"
+                        ? t("panel.docker")
+                        : t("panel.tunnels")}
               </span>
               <button
                 type="button"
@@ -303,6 +349,9 @@ export function SidePanel() {
               )}
               {panelSection === "monitoring" && sessionId && (
                 <MonitoringPanel sessionId={sessionId} />
+              )}
+              {panelSection === "docker" && sessionId && (
+                <DockerPanel sessionId={sessionId} />
               )}
             </div>
           </section>

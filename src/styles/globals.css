@@ -6657,6 +6657,463 @@ dialog::backdrop {
 }
 
 /* ═══════════════════════════════════════════════════
+   Docker Panel
+   Remote Docker container management: container table,
+   state badges, action buttons, logs modal, rm confirm.
+   ═══════════════════════════════════════════════════ */
+
+/* ── Container ── */
+.docker-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 12px 14px;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-size: var(--fs-body);
+  position: relative;
+}
+
+/* ── Status states (loading / unavailable) ── */
+.docker-loading,
+.docker-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 120px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  text-align: center;
+  padding: 24px;
+}
+
+.docker-unavailable {
+  color: var(--warning);
+}
+
+/* ── Empty state ── */
+.docker-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+/* ── Panel header (refresh + error) ── */
+.docker-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* ── Refresh button ── */
+.docker-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  gap: 4px;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.docker-refresh-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+.docker-refresh-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.docker-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Action error banner ── */
+.docker-action-error {
+  font-size: var(--fs-meta);
+  color: var(--error);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Container table ── */
+.docker-containers {
+  display: flex;
+  flex-direction: column;
+}
+
+.docker-container-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-meta);
+}
+
+.docker-container-table thead th {
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  font-size: 0.625rem;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.docker-container-table tbody tr {
+  border-bottom: 1px solid var(--hairline);
+  transition: background-color var(--transition-fast);
+}
+
+.docker-container-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.docker-container-table tbody tr:hover {
+  background-color: var(--bg-raised);
+}
+
+.docker-container-table td {
+  padding: 5px 6px;
+  vertical-align: middle;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Container name column */
+.docker-container-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-primary) !important;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Image column */
+.docker-container-image {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status column */
+.docker-container-status {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── State badge ── */
+.docker-state-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-weight: var(--fw-medium);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* running → connected/green */
+.docker-state-badge--running {
+  background-color: var(--connected-wash);
+  color: var(--connected);
+  border: 1px solid color-mix(in oklch, var(--connected) 30%, transparent);
+}
+
+/* exited → muted */
+.docker-state-badge--exited {
+  background-color: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--hairline);
+}
+
+/* paused → warning */
+.docker-state-badge--paused {
+  background-color: color-mix(in oklch, var(--warning) 15%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in oklch, var(--warning) 30%, transparent);
+}
+
+/* created / restarting → accent */
+.docker-state-badge--created {
+  background-color: var(--accent-wash);
+  color: var(--accent);
+  border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
+}
+
+/* unknown state */
+.docker-state-badge--unknown {
+  background-color: var(--bg-raised);
+  color: var(--text-faint);
+  border: 1px solid var(--hairline);
+}
+
+/* ── Action group (per-row buttons) ── */
+.docker-container-table td:last-child {
+  width: 1%;
+  padding-right: 2px;
+  white-space: nowrap;
+}
+
+.docker-action-group {
+  display: inline-flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+/* ── Action buttons (lifecycle, logs, shell, rm) ── */
+.docker-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.docker-action-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+.docker-action-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.docker-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Remove button — red-tinted */
+.docker-action-btn--rm {
+  color: var(--text-muted);
+}
+
+.docker-action-btn--rm:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash-tint);
+}
+
+/* ── Rm confirm dialog (mirrors kill-confirm-dialog) ── */
+.rm-confirm-dialog {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.rm-confirm-name {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.rm-confirm-name strong {
+  color: var(--error);
+}
+
+.rm-confirm-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* Base rm confirm button */
+.rm-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: color var(--transition-fast), background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.rm-confirm-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Arm button */
+.rm-confirm-btn-arm {
+  color: var(--text-muted);
+  border-color: var(--hairline);
+  background: none;
+}
+
+.rm-confirm-btn-arm:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash-tint);
+}
+
+/* Danger confirm */
+.rm-confirm-btn-danger {
+  color: var(--error);
+  border-color: var(--error);
+  background-color: var(--error-wash);
+  font-weight: var(--fw-medium);
+}
+
+.rm-confirm-btn-danger:hover {
+  background-color: var(--error-wash);
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px var(--error-glow);
+}
+
+/* Cancel */
+.rm-confirm-btn-cancel {
+  color: var(--text-muted);
+  border-color: var(--hairline);
+  background: none;
+}
+
+.rm-confirm-btn-cancel:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+/* ── Logs modal ── */
+.docker-logs-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.docker-logs-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(700px, 90vw);
+  max-height: 80vh;
+  background-color: var(--bg-dialog);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.docker-logs-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background-color: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.docker-logs-modal-title {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+
+.docker-logs-modal-title strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.docker-logs-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.docker-logs-close-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+.docker-logs-close-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.docker-logs-truncated-banner {
+  padding: 6px 14px;
+  background-color: color-mix(in oklch, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  border-bottom: 1px solid color-mix(in oklch, var(--warning) 25%, transparent);
+  flex-shrink: 0;
+}
+
+.docker-logs-output {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 14px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background-color: var(--bg-abyss);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ═══════════════════════════════════════════════════
    Monitoring Panel
    Live remote-system metrics: sparklines, disk bars,
    process table + two-step kill confirm.
