@@ -8,6 +8,8 @@ pub mod handler;
 pub mod keygen;
 pub mod keys;
 pub mod known_hosts;
+pub mod metrics_parser;
+pub mod monitoring;
 pub mod session;
 pub mod sftp;
 pub mod socks5;
