@@ -4,6 +4,7 @@
 // registered in main.rs via generate_handler![].
 
 pub mod connection;
+pub mod docker;
 pub mod exec;
 pub mod keygen;
 pub mod monitoring;

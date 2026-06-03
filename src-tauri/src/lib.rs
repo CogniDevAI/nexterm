@@ -190,6 +190,10 @@ pub fn run() {
             commands::monitoring::start_monitoring,
             commands::monitoring::stop_monitoring,
             commands::monitoring::kill_remote_process,
+            // Docker (remote container management via SSH)
+            commands::docker::docker_list_containers,
+            commands::docker::docker_lifecycle_action,
+            commands::docker::docker_get_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

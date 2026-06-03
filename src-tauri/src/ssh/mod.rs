@@ -3,6 +3,7 @@
 // All SSH protocol interactions (connection, auth, terminal, SFTP, tunneling)
 // are encapsulated in this module and its submodules.
 
+pub mod docker;
 pub mod exec;
 pub mod handler;
 pub mod keygen;
