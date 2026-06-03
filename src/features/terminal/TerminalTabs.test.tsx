@@ -66,6 +66,13 @@ vi.mock("@xterm/addon-search", () => ({
   })),
 }));
 
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: vi.fn().mockImplementation(() => ({
+    onContextLoss: vi.fn(),
+    dispose: vi.fn(),
+  })),
+}));
+
 // Mock TerminalView — we only care about TerminalTabs rendering the shell
 vi.mock("./TerminalView", () => ({
   TerminalView: ({ active }: { active: boolean }) => (

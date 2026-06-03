@@ -78,6 +78,13 @@ vi.mock("@xterm/addon-search", () => ({
   })),
 }));
 
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: vi.fn().mockImplementation(() => ({
+    onContextLoss: vi.fn(),
+    dispose: vi.fn(),
+  })),
+}));
+
 vi.mock("./TerminalView", () => ({
   TerminalView: ({ active }: { active: boolean }) => (
     <div data-testid="terminal-view" data-active={active} />

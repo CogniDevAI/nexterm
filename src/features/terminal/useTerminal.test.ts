@@ -1,6 +1,7 @@
 // src/features/terminal/useTerminal.test.ts — TDD: applyThemeToAllTerminals export
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, act } from "@testing-library/react";
 import type { ITheme } from "@xterm/xterm";
 
 // ── localStorage stub so themeStore (imported dynamically by useTerminal) can work ──
@@ -21,38 +22,55 @@ vi.hoisted(() => {
 
 // ── Mock heavy native modules ──
 vi.mock("@xterm/xterm", () => ({
-  Terminal: vi.fn().mockImplementation(() => ({
-    loadAddon: vi.fn(),
-    open: vi.fn(),
-    cols: 80,
-    rows: 24,
-    onData: vi.fn(),
-    onBinary: vi.fn(),
-    focus: vi.fn(),
-    dispose: vi.fn(),
-    write: vi.fn(),
-    writeln: vi.fn(),
-    element: null,
-    options: {},
-  })),
+  Terminal: vi.fn().mockImplementation(function MockTerminal() {
+    return {
+      loadAddon: vi.fn(),
+      open: vi.fn(),
+      cols: 80,
+      rows: 24,
+      onData: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+      onBinary: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+      focus: vi.fn(),
+      dispose: vi.fn(),
+      write: vi.fn(),
+      writeln: vi.fn(),
+      element: null,
+      options: {},
+      attachCustomKeyEventHandler: vi.fn(),
+      hasSelection: vi.fn().mockReturnValue(false),
+      getSelection: vi.fn().mockReturnValue(""),
+    };
+  }),
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: vi.fn().mockImplementation(() => ({ fit: vi.fn(), dispose: vi.fn() })),
+  FitAddon: vi.fn().mockImplementation(function MockFitAddon() {
+    return { fit: vi.fn(), dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("@xterm/addon-web-links", () => ({
-  WebLinksAddon: vi.fn().mockImplementation(() => ({ dispose: vi.fn() })),
+  WebLinksAddon: vi.fn().mockImplementation(function MockWebLinksAddon() {
+    return { dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("@xterm/addon-search", () => ({
-  SearchAddon: vi.fn().mockImplementation(() => ({
-    activate: vi.fn(),
-    dispose: vi.fn(),
-    findNext: vi.fn().mockReturnValue(false),
-    findPrevious: vi.fn().mockReturnValue(false),
-    onDidChangeResults: vi.fn(),
-  })),
+  SearchAddon: vi.fn().mockImplementation(function MockSearchAddon() {
+    return {
+      activate: vi.fn(),
+      dispose: vi.fn(),
+      findNext: vi.fn().mockReturnValue(false),
+      findPrevious: vi.fn().mockReturnValue(false),
+      onDidChangeResults: vi.fn(),
+    };
+  }),
+}));
+
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: vi.fn().mockImplementation(function MockWebglAddon() {
+    return { onContextLoss: vi.fn(), dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("../../lib/tauri", () => ({
@@ -60,7 +78,9 @@ vi.mock("../../lib/tauri", () => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
-  Channel: vi.fn().mockImplementation(() => ({ onmessage: null })),
+  Channel: vi.fn().mockImplementation(function MockChannel() {
+    return { onmessage: null };
+  }),
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -369,5 +389,109 @@ describe("_testProcessOnDataChunk — onData history tap", () => {
     const state2 = _testProcessOnDataChunk(state1, "\x03", "sess-1", "host");
     expect(state2.buffer).toBe("");
     expect(mockAddCommand).not.toHaveBeenCalled();
+  });
+});
+
+// ── WebGL addon integration tests ─────────────────────────────────────────────
+// Tests verify: (a) WebglAddon is constructed and loadAddon called after open(),
+// onContextLoss registered, and addon pushed to disposables; (b) when
+// WebglAddon constructor throws (no-WebGL env), openTerminal does NOT crash.
+
+import { WebglAddon } from "@xterm/addon-webgl";
+import { useTerminal } from "./useTerminal";
+
+const MockWebglAddon = vi.mocked(WebglAddon);
+
+// jsdom stubs required by openTerminal
+if (typeof ResizeObserver === "undefined") {
+  (globalThis as Record<string, unknown>).ResizeObserver = vi.fn().mockImplementation(function MockResizeObserver(_cb: ResizeObserverCallback) {
+    return { observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() };
+  });
+}
+if (typeof navigator.clipboard === "undefined") {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: vi.fn().mockResolvedValue(undefined) },
+  });
+}
+
+describe("WebglAddon integration — openTerminal", () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    // Reset mock constructor state — use function syntax for constructor compatibility
+    MockWebglAddon.mockClear();
+    MockWebglAddon.mockImplementation(function MockWebglAddon() {
+      return { onContextLoss: vi.fn(), dispose: vi.fn() };
+    });
+  });
+
+  it("constructs WebglAddon and calls loadAddon with it after term.open()", async () => {
+    const { result } = renderHook(() => useTerminal());
+    let terminalId: string | undefined;
+    await act(async () => {
+      terminalId = await result.current.openTerminal(container, "sess-webgl-1");
+    });
+
+    // WebglAddon constructor must have been called once
+    expect(MockWebglAddon).toHaveBeenCalledTimes(1);
+
+    // The constructed instance must have been passed to term.loadAddon()
+    const { Terminal } = await import("@xterm/xterm");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const termInstance = vi.mocked(Terminal).mock.results.find(r => r.type === "return")?.value as any;
+    expect(termInstance).toBeDefined();
+    expect(termInstance.loadAddon).toHaveBeenCalledWith(
+      expect.objectContaining({ onContextLoss: expect.any(Function), dispose: expect.any(Function) }),
+    );
+
+    expect(typeof terminalId).toBe("string");
+  });
+
+  it("registers onContextLoss handler on the WebglAddon instance", async () => {
+    const mockOnContextLoss = vi.fn();
+    MockWebglAddon.mockImplementation(function MockWebglAddon() {
+      return { onContextLoss: mockOnContextLoss, dispose: vi.fn() };
+    });
+
+    const { result } = renderHook(() => useTerminal());
+    await act(async () => {
+      await result.current.openTerminal(container, "sess-webgl-2");
+    });
+
+    expect(mockOnContextLoss).toHaveBeenCalledTimes(1);
+    expect(mockOnContextLoss).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it("does not throw when WebglAddon constructor throws (graceful DOM fallback)", async () => {
+    // Simulate no-WebGL environment: constructor throws
+    MockWebglAddon.mockImplementation(function MockWebglAddon() {
+      throw new Error("WebGL2 not available");
+    });
+
+    const { result } = renderHook(() => useTerminal());
+    let terminalId: string | undefined;
+    await act(async () => {
+      terminalId = await result.current.openTerminal(container, "sess-webgl-3");
+    });
+    expect(terminalId).toBeDefined();
+  });
+
+  it("when WebglAddon throws, terminal is still functional (term.open was called)", async () => {
+    MockWebglAddon.mockImplementation(function MockWebglAddon() {
+      throw new Error("WebGL2 not available");
+    });
+
+    const { result } = renderHook(() => useTerminal());
+    await act(async () => {
+      await result.current.openTerminal(container, "sess-webgl-4");
+    });
+
+    const { Terminal } = await import("@xterm/xterm");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const termInstance = vi.mocked(Terminal).mock.results.find(r => r.type === "return")?.value as any;
+    expect(termInstance).toBeDefined();
+    expect(termInstance.open).toHaveBeenCalled();
   });
 });
