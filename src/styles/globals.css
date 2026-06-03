@@ -258,8 +258,8 @@
    Cool teal field (hue-neutral ~200), amber-yellow accent.
 
    WCAG AA verified (body text vs --bg-panel #073642):
-     text-primary  #839496 → 4.7:1 (AA)
-     text-secondary #586e75 → 3.7:1 (AA large, informational)
+     text-primary  #839496 → ~4.1:1 (canonical Solarized; below AA 4.5 by design)
+     text-secondary #586e75 → ~3.0:1 (AA large only, informational)
      accent #b58900 → 3.1:1 used only for icons/accents, never body
    ═══════════════════════════════════════════════════════════════ */
 
@@ -286,7 +286,7 @@
   --border-subtle:   oklch(0.300 0.032 200);
 
   /* ─── Text — Solarized base tones ─── */
-  --text-primary:   oklch(0.620 0.028 200);       /* #839496 base0 — 4.7:1 vs bg-panel (AA) */
+  --text-primary:   oklch(0.620 0.028 200);       /* #839496 base0 — ~4.1:1 vs bg-panel (canonical Solarized, below AA 4.5) */
   --text-secondary: oklch(0.480 0.030 200);       /* #586e75 base01 */
   --text-muted:     oklch(0.420 0.028 200);       /* #657b83 base00 */
   --text-faint:     oklch(0.370 0.026 200);       /* #586e75 darker */
@@ -339,7 +339,7 @@
    Warm earthy neutrals (hue-neutral ~62-65), gold accent.
 
    WCAG AAA verified (body text vs --bg-panel #282828):
-     text-primary #ebdbb2 → 11.8:1 (AAA)
+     text-primary #ebdbb2 → ~10.8:1 (AAA)
      text-secondary #d5c4a1 → 9.1:1 (AAA)
      accent #d79921 → 4.6:1 (AA for icons)
    ═══════════════════════════════════════════════════════════════ */
@@ -367,7 +367,7 @@
   --border-subtle:   oklch(0.290 0.018 62);
 
   /* ─── Text — Gruvbox fg tones ─── */
-  --text-primary:   oklch(0.900 0.040 78);        /* #ebdbb2 fg — 11.8:1 (AAA) */
+  --text-primary:   oklch(0.900 0.040 78);        /* #ebdbb2 fg — ~10.8:1 (AAA) */
   --text-secondary: oklch(0.840 0.034 76);        /* #d5c4a1 fg2 */
   --text-muted:     oklch(0.720 0.026 72);        /* #bdae93 fg3 */
   --text-faint:     oklch(0.600 0.020 68);        /* #a89984 fg4 */
@@ -420,7 +420,7 @@
    Cool purple-slate neutrals (hue-neutral ~270), mauve accent.
 
    WCAG AAA verified (body text vs --bg-panel #313244):
-     text-primary #cdd6f4 → 9.4:1 (AAA)
+     text-primary #cdd6f4 → ~8.7:1 (AAA)
      text-secondary #bac2de → 7.1:1 (AAA)
      accent #cba6f7 → 5.8:1 (AA+)
    ═══════════════════════════════════════════════════════════════ */
@@ -448,7 +448,7 @@
   --border-subtle:   oklch(0.305 0.028 270);
 
   /* ─── Text — Catppuccin text tones ─── */
-  --text-primary:   oklch(0.870 0.040 260);       /* #cdd6f4 text — 9.4:1 (AAA) */
+  --text-primary:   oklch(0.870 0.040 260);       /* #cdd6f4 text — ~8.7:1 (AAA) */
   --text-secondary: oklch(0.790 0.036 258);       /* #bac2de subtext1 */
   --text-muted:     oklch(0.710 0.030 256);       /* #a6adc8 subtext0 */
   --text-faint:     oklch(0.600 0.026 264);       /* #7f849c overlay2 */
