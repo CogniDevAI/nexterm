@@ -137,6 +137,7 @@ mod tests {
             sftp: None,
             tunnels: HashMap::new(),
             keepalive_task: None,
+            monitoring_task: None,
             cancel_token: tokio_util::sync::CancellationToken::new(),
             remote_forward_registry: None,
         }

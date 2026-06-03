@@ -6,6 +6,7 @@
 pub mod connection;
 pub mod exec;
 pub mod keygen;
+pub mod monitoring;
 pub mod profile;
 pub mod sftp;
 pub mod terminal;
