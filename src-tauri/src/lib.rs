@@ -194,6 +194,13 @@ pub fn run() {
             commands::docker::docker_list_containers,
             commands::docker::docker_lifecycle_action,
             commands::docker::docker_get_logs,
+            // Proxmox LXC management via SSH (pct CLI)
+            commands::proxmox::proxmox_list_lxc,
+            commands::proxmox::proxmox_lifecycle_action,
+            commands::proxmox::proxmox_list_snapshots,
+            commands::proxmox::proxmox_create_snapshot,
+            commands::proxmox::proxmox_rollback_snapshot,
+            commands::proxmox::proxmox_delete_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -9,6 +9,7 @@ pub mod exec;
 pub mod keygen;
 pub mod monitoring;
 pub mod profile;
+pub mod proxmox;
 pub mod sftp;
 pub mod terminal;
 pub mod tunnel;
