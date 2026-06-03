@@ -67,6 +67,9 @@ pub enum AppError {
     #[error("Connection timeout")]
     ConnectionTimeout,
 
+    #[error("Exec timeout")]
+    ExecTimeout,
+
     #[error("User selection required: profile has multiple users — provide a userId")]
     UserSelectionRequired,
 
@@ -171,6 +174,7 @@ mod tests {
             AppError::TransferCancelled,
             AppError::KeyError("test".into()),
             AppError::ConnectionTimeout,
+            AppError::ExecTimeout,
             AppError::UserSelectionRequired,
             AppError::UserNotFound(id),
             AppError::Other("test".into()),
