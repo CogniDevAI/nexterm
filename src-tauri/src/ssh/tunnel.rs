@@ -563,6 +563,264 @@ async fn proxy_bidirectional(
     Ok(())
 }
 
+/// Start a dynamic port forward (-D style / SOCKS5 proxy).
+///
+/// Binds a local SOCKS5 listener on `config.bind_host:config.bind_port`.
+/// For each incoming connection, performs the RFC 1928 SOCKS5 handshake to learn
+/// the target host/port, then opens `channel_open_direct_tcpip` and proxies data.
+///
+/// `config.target_host` and `config.target_port` are NOT used — the target is
+/// determined per-connection from the SOCKS5 CONNECT request.
+pub async fn start_dynamic_forward(
+    sessions: SharedSessions,
+    session_id: SessionId,
+    config: &TunnelConfig,
+    session_cancel: CancellationToken,
+    on_event: TauriChannel<TunnelEvent>,
+) -> Result<TunnelHandle, AppError> {
+    use crate::ssh::socks5;
+
+    let tunnel_id = config.id;
+    let tunnel_cancel = session_cancel.child_token();
+    let active_connections = Arc::new(AtomicU32::new(0));
+    let bytes_in = Arc::new(AtomicU64::new(0));
+    let bytes_out = Arc::new(AtomicU64::new(0));
+
+    let bind_host = resolve_bind_host(&config.bind_host);
+    if !is_loopback_bind(&bind_host) {
+        tracing::warn!(
+            "Dynamic tunnel {tunnel_id}: binding SOCKS5 proxy to non-loopback address '{bind_host}'. \
+             This allows ANY local process to tunnel arbitrary connections through the SSH session \
+             to the remote network. Bind 127.0.0.1 to restrict access to this machine only."
+        );
+    }
+
+    let bind_addr = format!("{}:{}", bind_host, config.bind_port);
+    let listener = TcpListener::bind(&bind_addr).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            AppError::TunnelError(format!("Port {} already in use", config.bind_port))
+        } else {
+            AppError::TunnelError(format!("Failed to bind {}: {}", bind_addr, e))
+        }
+    })?;
+
+    tracing::info!(
+        "Dynamic (SOCKS5) tunnel {tunnel_id}: listening on {bind_addr}"
+    );
+
+    let _ = on_event.send(TunnelEvent::StateChanged {
+        tunnel_id,
+        state: TunnelState::Active { connections: 0 },
+    });
+
+    let cancel = tunnel_cancel.clone();
+    let conns = active_connections.clone();
+    let bytes_in_clone = bytes_in.clone();
+    let bytes_out_clone = bytes_out.clone();
+    let event_channel = on_event.clone();
+
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    tracing::info!("Dynamic tunnel {tunnel_id}: cancelled, stopping listener");
+                    break;
+                }
+                accept_result = listener.accept() => {
+                    match accept_result {
+                        Ok((stream, peer_addr)) => {
+                            let conn_count = conns.fetch_add(1, Ordering::Relaxed) + 1;
+                            tracing::debug!(
+                                "Dynamic tunnel {tunnel_id}: accepted connection from {peer_addr} (active: {conn_count})"
+                            );
+
+                            let _ = event_channel.send(TunnelEvent::StateChanged {
+                                tunnel_id,
+                                state: TunnelState::Active { connections: conn_count },
+                            });
+
+                            let sessions_clone = sessions.clone();
+                            let conns_inner = conns.clone();
+                            let bytes_in_inner = bytes_in_clone.clone();
+                            let bytes_out_inner = bytes_out_clone.clone();
+                            let cancel_inner = cancel.clone();
+                            let event_inner = event_channel.clone();
+
+                            tokio::spawn(async move {
+                                // ── SOCKS5 handshake ───────────────────────
+                                // Split the TcpStream so we can borrow reader and writer
+                                // separately for the SOCKS5 handshake phases. After the
+                                // handshake, the halves are reunited for proxy_bidirectional.
+                                let (mut read_half, mut write_half) = stream.into_split();
+
+                                // Phase 1: method negotiation
+                                if let Err(e) = socks5::negotiate_method(&mut read_half, &mut write_half).await {
+                                    tracing::debug!(
+                                        "Dynamic tunnel {tunnel_id}: SOCKS5 negotiation failed from {peer_addr}: {e}"
+                                    );
+                                    let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                    let _ = event_inner.send(TunnelEvent::StateChanged {
+                                        tunnel_id,
+                                        state: TunnelState::Active { connections: conn_count },
+                                    });
+                                    return;
+                                }
+
+                                // Phase 2: read CONNECT request (read-half only)
+                                let connect_req = match socks5::read_connect_request(&mut read_half).await {
+                                    Ok(req) => req,
+                                    Err(socks5::Socks5Error::UnsupportedCommand(cmd)) => {
+                                        tracing::debug!(
+                                            "Dynamic tunnel {tunnel_id}: unsupported SOCKS5 CMD {cmd:#04x} from {peer_addr}"
+                                        );
+                                        let _ = socks5::send_error_reply(&mut write_half, socks5::rep::COMMAND_NOT_SUPPORTED).await;
+                                        let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                        let _ = event_inner.send(TunnelEvent::StateChanged {
+                                            tunnel_id,
+                                            state: TunnelState::Active { connections: conn_count },
+                                        });
+                                        return;
+                                    }
+                                    Err(socks5::Socks5Error::UnsupportedAddressType(atyp)) => {
+                                        tracing::debug!(
+                                            "Dynamic tunnel {tunnel_id}: unsupported SOCKS5 ATYP {atyp:#04x} from {peer_addr}"
+                                        );
+                                        let _ = socks5::send_error_reply(&mut write_half, socks5::rep::ADDRESS_TYPE_NOT_SUPPORTED).await;
+                                        let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                        let _ = event_inner.send(TunnelEvent::StateChanged {
+                                            tunnel_id,
+                                            state: TunnelState::Active { connections: conn_count },
+                                        });
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "Dynamic tunnel {tunnel_id}: SOCKS5 request parse error from {peer_addr}: {e}"
+                                        );
+                                        let _ = socks5::send_error_reply(&mut write_half, socks5::rep::GENERAL_FAILURE).await;
+                                        let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                        let _ = event_inner.send(TunnelEvent::StateChanged {
+                                            tunnel_id,
+                                            state: TunnelState::Active { connections: conn_count },
+                                        });
+                                        return;
+                                    }
+                                };
+
+                                // Phase 3: open SSH direct-tcpip channel to SOCKS target
+                                let channel_result = {
+                                    let sessions_guard = sessions_clone.lock().await;
+                                    let session = match sessions_guard.get(&session_id) {
+                                        Some(s) => s,
+                                        None => {
+                                            tracing::error!("Dynamic tunnel {tunnel_id}: session {session_id} not found");
+                                            let _ = socks5::send_error_reply(&mut write_half, socks5::rep::GENERAL_FAILURE).await;
+                                            let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                            let _ = event_inner.send(TunnelEvent::StateChanged {
+                                                tunnel_id,
+                                                state: TunnelState::Active { connections: conn_count },
+                                            });
+                                            return;
+                                        }
+                                    };
+                                    let ssh_handle = match &session.ssh_handle {
+                                        Some(h) => h,
+                                        None => {
+                                            tracing::error!("Dynamic tunnel {tunnel_id}: no SSH handle");
+                                            let _ = socks5::send_error_reply(&mut write_half, socks5::rep::GENERAL_FAILURE).await;
+                                            let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                            let _ = event_inner.send(TunnelEvent::StateChanged {
+                                                tunnel_id,
+                                                state: TunnelState::Active { connections: conn_count },
+                                            });
+                                            return;
+                                        }
+                                    };
+
+                                    ssh_handle
+                                        .channel_open_direct_tcpip(
+                                            connect_req.host.as_str(),
+                                            connect_req.port as u32,
+                                            peer_addr.ip().to_string(),
+                                            peer_addr.port() as u32,
+                                        )
+                                        .await
+                                };
+
+                                match channel_result {
+                                    Ok(channel) => {
+                                        // Phase 4: send SOCKS5 success reply
+                                        if let Err(e) = socks5::send_success_reply(&mut write_half).await {
+                                            tracing::debug!(
+                                                "Dynamic tunnel {tunnel_id}: failed to send success reply to {peer_addr}: {e}"
+                                            );
+                                        } else {
+                                            // Reunite the split halves for proxy_bidirectional
+                                            match read_half.reunite(write_half) {
+                                                Ok(stream) => {
+                                                    let result = proxy_bidirectional(
+                                                        stream,
+                                                        channel,
+                                                        tunnel_id,
+                                                        &bytes_in_inner,
+                                                        &bytes_out_inner,
+                                                        cancel_inner,
+                                                    )
+                                                    .await;
+
+                                                    if let Err(e) = result {
+                                                        tracing::debug!(
+                                                            "Dynamic tunnel {tunnel_id}: connection from {peer_addr} ended with error: {e}"
+                                                        );
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    // Should never happen — halves are from the same stream
+                                                    tracing::error!(
+                                                        "Dynamic tunnel {tunnel_id}: failed to reunite stream halves"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "Dynamic tunnel {tunnel_id}: failed to open direct-tcpip channel to {}:{}: {e}",
+                                            connect_req.host, connect_req.port
+                                        );
+                                        let _ = socks5::send_error_reply(&mut write_half, socks5::rep::GENERAL_FAILURE).await;
+                                    }
+                                }
+
+                                let conn_count = atomic_saturating_sub(&conns_inner, 1);
+                                let _ = event_inner.send(TunnelEvent::StateChanged {
+                                    tunnel_id,
+                                    state: TunnelState::Active { connections: conn_count },
+                                });
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!("Dynamic tunnel {tunnel_id}: accept error: {e}");
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(TunnelHandle {
+        id: tunnel_id,
+        config: config.clone(),
+        state: TunnelState::Active { connections: 0 },
+        cancel_token: tunnel_cancel,
+        task: Some(task),
+        bytes_in,
+        bytes_out,
+        active_connections: Some(active_connections),
+    })
+}
+
 /// Stop a tunnel — cancels the token, which triggers cleanup.
 pub fn stop_tunnel(handle: &mut TunnelHandle) {
     handle.cancel_token.cancel();
