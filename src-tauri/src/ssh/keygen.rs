@@ -5,7 +5,10 @@
 // Private key is always OpenSSH format; passphrase encryption via AES-256-CTR + bcrypt-pbkdf.
 
 use rand::rngs::OsRng;
-use ssh_key::{Algorithm, EcdsaCurve, LineEnding, PrivateKey};
+use ssh_key::{
+    private::{KeypairData, RsaKeypair},
+    Algorithm, EcdsaCurve, LineEnding, PrivateKey,
+};
 use zeroize::Zeroizing;
 
 use crate::error::AppError;
@@ -51,21 +54,41 @@ pub fn generate_keypair(
     comment: &str,
     passphrase: Option<&str>,
 ) -> Result<KeypairOutput, AppError> {
-    let ssh_algorithm = match algorithm {
-        KeyAlgorithm::Ed25519 => Algorithm::Ed25519,
-        KeyAlgorithm::Rsa2048 | KeyAlgorithm::Rsa4096 => Algorithm::Rsa { hash: None },
-        KeyAlgorithm::EcdsaP256 => Algorithm::Ecdsa {
-            curve: EcdsaCurve::NistP256,
-        },
-        KeyAlgorithm::EcdsaP384 => Algorithm::Ecdsa {
-            curve: EcdsaCurve::NistP384,
-        },
+    // Generate the raw keypair.
+    //
+    // RSA requires an explicit bit-size at construction time.
+    // PrivateKey::random() uses DEFAULT_RSA_KEY_SIZE (4096) for *all* RSA
+    // variants, so we must use RsaKeypair::random() directly and wrap it.
+    // Ed25519 / ECDSA have no user-visible size parameter and use PrivateKey::random().
+    let mut key: PrivateKey = match algorithm {
+        KeyAlgorithm::Rsa2048 | KeyAlgorithm::Rsa4096 => {
+            let bits = match algorithm {
+                KeyAlgorithm::Rsa2048 => 2048_usize,
+                KeyAlgorithm::Rsa4096 => 4096_usize,
+                _ => unreachable!(),
+            };
+            let kp = RsaKeypair::random(&mut OsRng, bits)
+                .map_err(|e| AppError::KeyError(format!("RSA generation failed: {e}")))?;
+            PrivateKey::new(KeypairData::from(kp), "")
+                .map_err(|e| AppError::KeyError(format!("RSA key construction failed: {e}")))?
+        }
+        KeyAlgorithm::Ed25519 => PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
+            .map_err(|e| AppError::KeyError(format!("Key generation failed: {e}")))?,
+        KeyAlgorithm::EcdsaP256 => PrivateKey::random(
+            &mut OsRng,
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP256,
+            },
+        )
+        .map_err(|e| AppError::KeyError(format!("Key generation failed: {e}")))?,
+        KeyAlgorithm::EcdsaP384 => PrivateKey::random(
+            &mut OsRng,
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP384,
+            },
+        )
+        .map_err(|e| AppError::KeyError(format!("Key generation failed: {e}")))?,
     };
-
-    // Generate the raw keypair
-    let mut key = PrivateKey::random(&mut OsRng, ssh_algorithm).map_err(|e| {
-        AppError::KeyError(format!("Key generation failed: {e}"))
-    })?;
 
     // Set the comment (modifies in-place via public_key_mut)
     key.set_comment(comment);
@@ -80,9 +103,8 @@ pub fn generate_keypair(
     let private_pem: Zeroizing<String> = if let Some(pass) = passphrase {
         if pass.is_empty() {
             // Treat empty passphrase as "no passphrase"
-            key.to_openssh(LineEnding::LF).map_err(|e| {
-                AppError::KeyError(format!("Failed to encode private key: {e}"))
-            })?
+            key.to_openssh(LineEnding::LF)
+                .map_err(|e| AppError::KeyError(format!("Failed to encode private key: {e}")))?
         } else {
             let encrypted = key
                 .encrypt(&mut OsRng, pass)
@@ -92,9 +114,8 @@ pub fn generate_keypair(
                 .map_err(|e| AppError::KeyError(format!("Failed to encode encrypted key: {e}")))?
         }
     } else {
-        key.to_openssh(LineEnding::LF).map_err(|e| {
-            AppError::KeyError(format!("Failed to encode private key: {e}"))
-        })?
+        key.to_openssh(LineEnding::LF)
+            .map_err(|e| AppError::KeyError(format!("Failed to encode private key: {e}")))?
     };
 
     Ok(KeypairOutput {
@@ -124,7 +145,10 @@ mod tests {
         assert!(!reparsed.is_encrypted());
     }
 
-    /// RSA 2048 roundtrip: generate → encode → re-parse, verify bit length
+    /// RSA 2048: generated key must have a 2048-bit modulus (not 4096).
+    ///
+    /// This test is the RED guard for CRITICAL-1. It MUST fail if both Rsa2048
+    /// and Rsa4096 silently produce 4096-bit keys.
     #[test]
     fn rsa_2048_key_has_correct_bits() {
         let output = generate_keypair(KeyAlgorithm::Rsa2048, "rsa@host", None)
@@ -133,10 +157,59 @@ mod tests {
         let reparsed = SshPrivateKey::from_openssh(output.private_pem.as_bytes())
             .expect("RSA private PEM must be parseable");
 
-        match reparsed.algorithm() {
-            Algorithm::Rsa { .. } => {}
-            other => panic!("Expected RSA algorithm, got {:?}", other),
-        }
+        let rsa_pub = match reparsed.key_data() {
+            ssh_key::private::KeypairData::Rsa(kp) => &kp.public,
+            other => panic!("Expected RSA keypair, got {:?}", other),
+        };
+
+        // The modulus `n` is stored as a big-endian mpint. Strip the leading
+        // sign byte (0x00) that OpenSSH prepends when the MSB is set, then
+        // count the significant bits: byte_count * 8, adjusted for leading
+        // zero bits in the first data byte.
+        let n_bytes = rsa_pub
+            .n
+            .as_positive_bytes()
+            .expect("RSA modulus must be a positive integer");
+        let bit_len = (n_bytes.len() * 8)
+            - n_bytes
+                .first()
+                .map(|b| b.leading_zeros() as usize)
+                .unwrap_or(0);
+
+        assert_eq!(
+            bit_len, 2048,
+            "RSA 2048 key must have a 2048-bit modulus, got {bit_len} bits"
+        );
+    }
+
+    /// RSA 4096: generated key must have a 4096-bit modulus.
+    #[test]
+    fn rsa_4096_key_has_correct_bits() {
+        let output = generate_keypair(KeyAlgorithm::Rsa4096, "rsa4096@host", None)
+            .expect("RSA 4096 generation must not fail");
+
+        let reparsed = SshPrivateKey::from_openssh(output.private_pem.as_bytes())
+            .expect("RSA 4096 private PEM must be parseable");
+
+        let rsa_pub = match reparsed.key_data() {
+            ssh_key::private::KeypairData::Rsa(kp) => &kp.public,
+            other => panic!("Expected RSA keypair, got {:?}", other),
+        };
+
+        let n_bytes = rsa_pub
+            .n
+            .as_positive_bytes()
+            .expect("RSA modulus must be a positive integer");
+        let bit_len = (n_bytes.len() * 8)
+            - n_bytes
+                .first()
+                .map(|b| b.leading_zeros() as usize)
+                .unwrap_or(0);
+
+        assert_eq!(
+            bit_len, 4096,
+            "RSA 4096 key must have a 4096-bit modulus, got {bit_len} bits"
+        );
     }
 
     /// Passphrase: encrypted key decrypts with correct passphrase, fails with wrong one
@@ -204,6 +277,9 @@ mod tests {
         let reparsed = SshPrivateKey::from_openssh(output.private_pem.as_bytes())
             .expect("PEM must be parseable");
 
-        assert!(!reparsed.is_encrypted(), "Empty passphrase must not encrypt");
+        assert!(
+            !reparsed.is_encrypted(),
+            "Empty passphrase must not encrypt"
+        );
     }
 }

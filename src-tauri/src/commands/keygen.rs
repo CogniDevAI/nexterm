@@ -88,12 +88,15 @@ pub async fn generate_ssh_key(
     let priv_path_c = priv_path.clone();
     let pub_path_c = pub_path.clone();
     let comment_c = comment.clone();
-    let passphrase_ref: Option<String> = passphrase_z.as_deref().map(|s| s.to_owned());
+    // Move `passphrase_z` (Zeroizing<String>) into the blocking closure so the
+    // passphrase never exists as a plain, non-zeroizing String copy on the heap.
+    // We deref to &str only inside the closure, which is on the blocking thread.
+    let passphrase_z_owned = passphrase_z;
 
     // ── Generate the keypair ─────────────────────────────────────────────
     // RSA generation is CPU-bound — always run in a blocking thread.
     let (private_pem, public_openssh) = task::spawn_blocking(move || {
-        let pass_ref = passphrase_ref.as_deref();
+        let pass_ref = passphrase_z_owned.as_deref().map(|s| s.as_str());
         let output = generate_keypair(algorithm, &comment_c, pass_ref)?;
         Ok::<_, AppError>((output.private_pem, output.public_openssh))
     })
