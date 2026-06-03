@@ -59,39 +59,12 @@ function middleEllipsis(str: string, maxLen = 30): string {
 }
 
 // ─── Client-side group derivation ─────────────────────────
-// No backend `group` field yet — derive from profile name heuristics.
-// Returns: "production" | "development" | "certification" | "staging" | "other"
-type GroupKey = "production" | "development" | "certification" | "staging" | "other";
-
-function deriveGroup(profile: ConnectionProfile): GroupKey {
-  const name = profile.name.toLowerCase();
-  if (/\b(prod|production|prd)\b/.test(name)) return "production";
-  if (/\b(dev|develop|development)\b/.test(name)) return "development";
-  if (/\b(cert|cer|qa|test|tst)\b/.test(name)) return "certification";
-  if (/\b(stag|staging|uat|pre\-?prod)\b/.test(name)) return "staging";
-  return "other";
-}
-
-// Stable group display order
-const GROUP_ORDER: GroupKey[] = ["production", "staging", "certification", "development", "other"];
-
-interface ProfileGroup {
-  key: GroupKey;
-  profiles: ConnectionProfile[];
-}
-
-function groupProfiles(profiles: ConnectionProfile[]): ProfileGroup[] {
-  const map = new Map<GroupKey, ConnectionProfile[]>();
-  for (const key of GROUP_ORDER) map.set(key, []);
-  for (const p of profiles) {
-    const key = deriveGroup(p);
-    map.get(key)!.push(p);
-  }
-  // Only emit groups that have profiles
-  return GROUP_ORDER
-    .filter((key) => map.get(key)!.length > 0)
-    .map((key) => ({ key, profiles: map.get(key)! }));
-}
+// Folder-first grouping: profile.folder takes priority; deriveGroup is the
+// fallback for profiles without an explicit folder assignment.
+// Logic is extracted to sidebarGrouping.ts for testability.
+import { groupProfiles, isLegacyGroupKey } from "./sidebarGrouping";
+import type { ProfileGroup } from "./sidebarGrouping";
+type GroupKey = string;
 
 // ─── Session elapsed time ─────────────────────────────────
 function formatElapsed(connectedAt: number): string {
@@ -462,16 +435,14 @@ function GroupHeader({
   count: number;
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
 }) {
-  const labelKey: TranslationKey =
-    groupKey === "production" ? "sidebar.group.production"
-    : groupKey === "development" ? "sidebar.group.development"
-    : groupKey === "certification" ? "sidebar.group.certification"
-    : groupKey === "staging" ? "sidebar.group.staging"
-    : "sidebar.group.other";
+  // Legacy heuristic keys map to i18n; user-assigned folder names render verbatim (uppercased).
+  const label = isLegacyGroupKey(groupKey)
+    ? t(`sidebar.group.${groupKey}` as TranslationKey)
+    : groupKey.toUpperCase();
 
   return (
     <div className="lp-group-header">
-      <span className="lp-group-label">{t(labelKey)}</span>
+      <span className="lp-group-label">{label}</span>
       <span className="lp-group-count">{count}</span>
     </div>
   );
@@ -735,9 +706,9 @@ export function Sidebar({
   // Group the filtered profiles (only group when not searching)
   const profileGroups = useMemo(() => {
     if (searchQuery.trim()) {
-      // When searching, show flat list under a single "PROFILES" group
+      // When searching, show flat list under the generic "PROFILES" bucket
       return filteredProfiles.length > 0
-        ? [{ key: "other" as GroupKey, profiles: filteredProfiles }]
+        ? [{ key: "other", profiles: filteredProfiles } satisfies ProfileGroup]
         : [];
     }
     return groupProfiles(filteredProfiles);

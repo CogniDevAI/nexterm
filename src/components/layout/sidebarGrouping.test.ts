@@ -106,7 +106,7 @@ describe("groupProfiles", () => {
 
     // Only "infra" should appear — no empty legacy groups
     expect(groups).toHaveLength(1);
-    expect(groups[0].key).toBe("infra");
+    expect(groups[0]?.key).toBe("infra");
   });
 
   it("preserves profile insertion order within a group", () => {
@@ -115,8 +115,9 @@ describe("groupProfiles", () => {
     const groups = groupProfiles([p1, p2]);
 
     const infraGroup = groups.find((g) => g.key === "infra");
-    expect(infraGroup?.profiles[0]).toBe(p1);
-    expect(infraGroup?.profiles[1]).toBe(p2);
+    expect(infraGroup).toBeDefined();
+    expect(infraGroup!.profiles[0]).toBe(p1);
+    expect(infraGroup!.profiles[1]).toBe(p2);
   });
 
   it("sorts user-assigned folders before heuristic groups", () => {
@@ -125,8 +126,8 @@ describe("groupProfiles", () => {
     const groups = groupProfiles([heuristicProfile, folderProfile]);
 
     // User-assigned folder should come first
-    expect(groups[0].key).toBe("my-team");
-    expect(groups[1].key).toBe("production");
+    expect(groups[0]?.key).toBe("my-team");
+    expect(groups[1]?.key).toBe("production");
   });
 
   it("handles empty profile list", () => {
