@@ -95,7 +95,6 @@ export function SidePanel() {
   const { t } = useI18n();
 
   const { activeSessionId, sessions } = useSessionStore();
-  const { workspaces, setPanelSection, setPanelOpen } = useWorkspaceStore();
 
   const activeSession = activeSessionId
     ? sessions.get(activeSessionId)
@@ -106,9 +105,20 @@ export function SidePanel() {
       ? buildWorkspaceKey(activeSession.profileId, activeSession.userId)
       : null;
 
-  const workspace = workspaceKey ? workspaces[workspaceKey] : undefined;
-  const panelOpen = workspace?.panelOpen ?? false;
-  const panelSection: PanelSection = workspace?.panelSection ?? null;
+  // Selector: subscribe only to the fields we actually render (panelOpen,
+  // panelSection, setters). This avoids re-renders on unrelated store changes
+  // such as sftp snapshot updates.
+  const panelOpen = useWorkspaceStore((s) =>
+    workspaceKey ? (s.workspaces[workspaceKey]?.panelOpen ?? false) : false,
+  );
+  const panelSection = useWorkspaceStore((s) =>
+    workspaceKey
+      ? ((s.workspaces[workspaceKey]?.panelSection ?? null) as PanelSection)
+      : null,
+  );
+  const setPanelSection = useWorkspaceStore((s) => s.setPanelSection);
+  const setPanelOpen = useWorkspaceStore((s) => s.setPanelOpen);
+
   const sessionId = activeSession?.id ?? "";
 
   function handleToggle(section: "sftp" | "tunnel") {
@@ -132,7 +142,7 @@ export function SidePanel() {
       {/* Icon rail — always visible */}
       <div
         role="toolbar"
-        aria-label={t("panel.region")}
+        aria-label={t("panel.sections")}
         className="side-panel-rail"
       >
         <button

@@ -148,17 +148,12 @@ export const en = {
   "sidebar.credentials": "{n} credentials",
   "sidebar.overflow": "More actions",
 
-  // Tab bar (features)
-  "tabbar.terminal": "Terminal",
-  "tabbar.sftp": "SFTP",
-  "tabbar.tunnels": "Tunnels",
-
   // Side panel
   "panel.sftp": "Files",
   "panel.tunnels": "Tunnels",
   "panel.close": "Close panel",
-  "panel.open": "Open panel",
   "panel.region": "Session panel",
+  "panel.sections": "Panel sections",
 
   // Terminal
   "terminal.newTab": "New terminal",

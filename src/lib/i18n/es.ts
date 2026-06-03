@@ -150,17 +150,12 @@ export const es: Record<TranslationKey, string> = {
   "sidebar.credentials": "{n} credenciales",
   "sidebar.overflow": "Más acciones",
 
-  // Tab bar (features)
-  "tabbar.terminal": "Terminal",
-  "tabbar.sftp": "SFTP",
-  "tabbar.tunnels": "Túneles",
-
   // Side panel
   "panel.sftp": "Archivos",
   "panel.tunnels": "Túneles",
   "panel.close": "Cerrar panel",
-  "panel.open": "Abrir panel",
   "panel.region": "Panel de sesión",
+  "panel.sections": "Secciones del panel",
 
   // Terminal
   "terminal.newTab": "Nueva terminal",

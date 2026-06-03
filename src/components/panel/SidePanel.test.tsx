@@ -29,8 +29,8 @@ vi.mock("../../lib/i18n", () => ({
         "panel.sftp": "Files",
         "panel.tunnels": "Tunnels",
         "panel.close": "Close panel",
-        "panel.open": "Open panel",
         "panel.region": "Session panel",
+        "panel.sections": "Panel sections",
       };
       return labels[k] ?? k;
     },
@@ -38,11 +38,21 @@ vi.mock("../../lib/i18n", () => ({
 }));
 
 // ── workspaceStore mock ───────────────────────────────────────────────────────
+// SidePanel uses useWorkspaceStore with selectors (e.g. useWorkspaceStore(s => s.panelOpen)).
+// The mock must apply the selector when one is provided.
 const mockSetPanelSection = vi.fn();
 const mockSetPanelOpen = vi.fn();
 
+let _workspaceStoreState: ReturnType<typeof makeStoreState>;
+
 vi.mock("../../stores/workspaceStore", () => ({
-  useWorkspaceStore: vi.fn(),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useWorkspaceStore: vi.fn((selector?: (s: any) => any) => {
+    if (typeof selector === "function") {
+      return selector(_workspaceStoreState);
+    }
+    return _workspaceStoreState;
+  }),
   buildWorkspaceKey: vi.fn((p: string, u: string) => `${p}:${u}`),
 }));
 
@@ -65,10 +75,8 @@ vi.mock("../../features/tunnel/TunnelManager", () => ({
 }));
 
 import { SidePanel } from "./SidePanel";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useSessionStore } from "../../stores/sessionStore";
 
-const mockedUseWorkspaceStore = vi.mocked(useWorkspaceStore);
 const mockedUseSessionStore = vi.mocked(useSessionStore);
 
 function makeStoreState(
@@ -81,7 +89,6 @@ function makeStoreState(
         key: "profile-1:user-1",
         profileId: "profile-1",
         userId: "user-1",
-        activeFeature: "terminal" as const,
         activeTerminalId: null,
         sftp: {
           local: { path: "", history: [], historyIndex: -1 },
@@ -98,7 +105,6 @@ function makeStoreState(
     setPanelSection: mockSetPanelSection,
     setPanelOpen: mockSetPanelOpen,
     getOrCreateWorkspace: vi.fn(),
-    setActiveFeature: vi.fn(),
     setActiveTerminalId: vi.fn(),
     setSftpSnapshot: vi.fn(),
   };
@@ -129,12 +135,10 @@ function makeSessionState(
       ],
     ]),
     activeSessionId: sessionId,
-    activeFeature: "terminal" as const,
     startupPreview: null,
     addSession: vi.fn(),
     removeSession: vi.fn(),
     setActiveSession: vi.fn(),
-    setActiveFeature: vi.fn(),
     updateSessionState: vi.fn(),
     setStartupPreview: vi.fn(),
     clearStartupPreview: vi.fn(),
@@ -147,16 +151,18 @@ function makeSessionState(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedUseWorkspaceStore.mockReturnValue(makeStoreState() as ReturnType<typeof useWorkspaceStore>);
+  _workspaceStoreState = makeStoreState();
   mockedUseSessionStore.mockReturnValue(makeSessionState() as ReturnType<typeof useSessionStore>);
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("SidePanel — icon rail a11y", () => {
-  it("renders a toolbar region with aria-label", () => {
+  it("renders a toolbar with a distinct aria-label (panel.sections, not panel.region)", () => {
     render(<SidePanel />);
-    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+    expect(
+      screen.getByRole("toolbar", { name: "Panel sections" }),
+    ).toBeInTheDocument();
   });
 
   it("renders SFTP toggle button with accessible name", () => {
@@ -180,9 +186,7 @@ describe("SidePanel — icon rail a11y", () => {
   });
 
   it("SFTP button has aria-pressed=true when panel is open on sftp", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute(
       "aria-pressed",
@@ -191,9 +195,7 @@ describe("SidePanel — icon rail a11y", () => {
   });
 
   it("Tunnels button has aria-pressed=true when panel is open on tunnel", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "tunnel") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(screen.getByRole("button", { name: "Tunnels" })).toHaveAttribute(
       "aria-pressed",
@@ -214,18 +216,14 @@ describe("SidePanel — panel toggle interactions", () => {
   });
 
   it("clicking an already-active button closes the panel", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", false);
   });
 
   it("clicking Tunnels button when SFTP is active switches section", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     fireEvent.click(screen.getByRole("button", { name: "Tunnels" }));
     expect(mockSetPanelSection).toHaveBeenCalledWith(
@@ -238,33 +236,25 @@ describe("SidePanel — panel toggle interactions", () => {
 
 describe("SidePanel — content rendering", () => {
   it("renders SftpBrowser when panel is open on sftp", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     expect(screen.getByTestId("sftp-browser")).toBeInTheDocument();
   });
 
   it("does NOT render SftpBrowser when panel section is tunnel", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "tunnel") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(screen.queryByTestId("sftp-browser")).not.toBeInTheDocument();
   });
 
   it("renders TunnelManager when panel is open on tunnel", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "tunnel") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(screen.getByTestId("tunnel-manager")).toBeInTheDocument();
   });
 
   it("passes sessionId to SftpBrowser", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     expect(screen.getByTestId("sftp-browser")).toHaveAttribute(
       "data-session-id",
@@ -273,9 +263,7 @@ describe("SidePanel — content rendering", () => {
   });
 
   it("renders a labeled region for the panel content", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     expect(
       screen.getByRole("region", { name: "Session panel" }),
@@ -285,9 +273,7 @@ describe("SidePanel — content rendering", () => {
 
 describe("SidePanel — close button when open", () => {
   it("renders a close button when panel is open", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     expect(
       screen.getByRole("button", { name: "Close panel" }),
@@ -295,9 +281,7 @@ describe("SidePanel — close button when open", () => {
   });
 
   it("clicking close button calls setPanelOpen(key, false)", () => {
-    mockedUseWorkspaceStore.mockReturnValue(
-      makeStoreState(true, "sftp") as ReturnType<typeof useWorkspaceStore>,
-    );
+    _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
     expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", false);
