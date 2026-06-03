@@ -4,6 +4,7 @@
 // Posture: preview+confirm on every connect — never silent auto-run.
 
 import { Dialog } from "../../components/ui/Dialog";
+import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../lib/i18n";
 
 interface StartupCommandsDialogProps {
@@ -54,13 +55,13 @@ export function StartupCommandsDialog({
       </div>
 
       <div className="cd-actions">
-        <button type="button" className="btn-ghost" onClick={onCancel}>
+        <Button variant="ghost" type="button" onClick={onCancel}>
           {t("startup.cancel")}
-        </button>
+        </Button>
         <div className="cd-actions-right">
-          <button type="button" className="btn-primary" onClick={onConfirm}>
+          <Button variant="primary" type="button" onClick={onConfirm}>
             {t("startup.run")}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>
