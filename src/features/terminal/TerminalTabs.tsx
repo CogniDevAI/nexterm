@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSessionStore, type TerminalTab } from "../../stores/sessionStore";
 import { usePaneLayoutStore, MAX_PANE_COUNT } from "../../stores/paneLayoutStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { PaneSplitView } from "./PaneSplitView";
 import { TerminalView } from "./TerminalView";
 import { useTerminal } from "./useTerminal";
@@ -30,6 +31,7 @@ import type { SessionId } from "../../lib/types";
 interface TerminalTabsProps {
   sessionId: SessionId;
   onOpenSnippets?: () => void;
+  workspaceKey?: string;
 }
 
 /** Format elapsed time since a timestamp into a human-readable string */
@@ -42,7 +44,7 @@ function formatElapsed(connectedAt: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
+export function TerminalTabs({ sessionId, onOpenSnippets, workspaceKey }: TerminalTabsProps) {
   const { t } = useI18n();
   const { sessions, addTerminalTab, removeTerminalTab, replaceTerminalTab, setActiveTerminal } =
     useSessionStore();
@@ -250,6 +252,12 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
     [sessionId, replaceTerminalTab, assignTerminal, sessions],
   );
 
+  // mainView toggle — read from workspaceStore via injected workspaceKey
+  const mainView = useWorkspaceStore((s) =>
+    workspaceKey ? (s.workspaces[workspaceKey]?.mainView ?? "terminal") : "terminal",
+  );
+  const setMainView = useWorkspaceStore((s) => s.setMainView);
+
   const tabBarRef = useRef<HTMLDivElement>(null);
   // Roving-tabindex refs so keyboard navigation can move DOM focus.
   // Declared before the early return to keep the hook order stable.
@@ -292,7 +300,28 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
     <div className="terminal-tabs">
       {/* Tab bar */}
       <div className="terminal-tabbar" ref={tabBarRef}>
-        <div className="terminal-tabbar-scroll" role="tablist">
+        {/* View toggle — always visible at the left of the tab bar */}
+        {workspaceKey && (
+          <div className="terminal-view-toggle" role="group" aria-label="View">
+            <button
+              type="button"
+              className={`terminal-view-toggle-btn${mainView === "terminal" ? " terminal-view-toggle-btn-active" : ""}`}
+              aria-pressed={mainView === "terminal"}
+              onClick={() => setMainView(workspaceKey, "terminal")}
+            >
+              {t("view.terminal")}
+            </button>
+            <button
+              type="button"
+              className={`terminal-view-toggle-btn${mainView === "files" ? " terminal-view-toggle-btn-active" : ""}`}
+              aria-pressed={mainView === "files"}
+              onClick={() => setMainView(workspaceKey, "files")}
+            >
+              {t("view.files")}
+            </button>
+          </div>
+        )}
+        <div className="terminal-tabbar-scroll" role="tablist" style={mainView === "files" ? { display: "none" } : undefined}>
           {terminals.map((tab, i) => {
             const isActive = tab.id === activeTerminalId;
             return (
@@ -324,70 +353,74 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
             );
           })}
         </div>
-        <button
-          className="terminal-tab-new"
-          onClick={() => void handleNewTab()}
-          title={t("terminal.newTab")}
-        >
-          +
-        </button>
-        <button
-          className="terminal-tab-split"
-          onClick={() => void handleSplit()}
-          title={t("terminal.splitHorizontal")}
-          disabled={paneCount >= MAX_PANE_COUNT}
-          aria-label={t("terminal.splitHorizontal")}
-        >
-          ⊟
-        </button>
-        {paneCount >= 2 && (
-          <button
-            className="terminal-tab-split-direction"
-            onClick={handleDirectionToggle}
-            title={
-              paneLayout?.direction === "horizontal"
-                ? t("terminal.splitVertical")
-                : t("terminal.splitHorizontal")
-            }
-            aria-label={
-              paneLayout?.direction === "horizontal"
-                ? t("terminal.splitVertical")
-                : t("terminal.splitHorizontal")
-            }
-          >
-            {paneLayout?.direction === "horizontal" ? "⊠" : "⊟"}
-          </button>
-        )}
-        {paneCount >= 2 && (
-          <button
-            className="terminal-tab-broadcast"
-            onClick={() => toggleBroadcast(sessionId)}
-            aria-pressed={paneLayout?.broadcastEnabled ?? false}
-            title={
-              paneLayout?.broadcastEnabled
-                ? t("terminal.broadcastAriaOn")
-                : t("terminal.broadcastAriaOff")
-            }
-            aria-label={
-              paneLayout?.broadcastEnabled
-                ? t("terminal.broadcastAriaOn")
-                : t("terminal.broadcastAriaOff")
-            }
-          >
-            {paneLayout?.broadcastEnabled
-              ? t("terminal.broadcastToggleOn")
-              : t("terminal.broadcastToggleOff")}
-          </button>
-        )}
-        {onOpenSnippets && (
-          <button
-            className="terminal-tab-snippets"
-            onClick={onOpenSnippets}
-            title={t("snippets.openSnippets")}
-            aria-label={t("snippets.openSnippets")}
-          >
-            §
-          </button>
+        {mainView !== "files" && (
+          <>
+            <button
+              className="terminal-tab-new"
+              onClick={() => void handleNewTab()}
+              title={t("terminal.newTab")}
+            >
+              +
+            </button>
+            <button
+              className="terminal-tab-split"
+              onClick={() => void handleSplit()}
+              title={t("terminal.splitHorizontal")}
+              disabled={paneCount >= MAX_PANE_COUNT}
+              aria-label={t("terminal.splitHorizontal")}
+            >
+              ⊟
+            </button>
+            {paneCount >= 2 && (
+              <button
+                className="terminal-tab-split-direction"
+                onClick={handleDirectionToggle}
+                title={
+                  paneLayout?.direction === "horizontal"
+                    ? t("terminal.splitVertical")
+                    : t("terminal.splitHorizontal")
+                }
+                aria-label={
+                  paneLayout?.direction === "horizontal"
+                    ? t("terminal.splitVertical")
+                    : t("terminal.splitHorizontal")
+                }
+              >
+                {paneLayout?.direction === "horizontal" ? "⊠" : "⊟"}
+              </button>
+            )}
+            {paneCount >= 2 && (
+              <button
+                className="terminal-tab-broadcast"
+                onClick={() => toggleBroadcast(sessionId)}
+                aria-pressed={paneLayout?.broadcastEnabled ?? false}
+                title={
+                  paneLayout?.broadcastEnabled
+                    ? t("terminal.broadcastAriaOn")
+                    : t("terminal.broadcastAriaOff")
+                }
+                aria-label={
+                  paneLayout?.broadcastEnabled
+                    ? t("terminal.broadcastAriaOn")
+                    : t("terminal.broadcastAriaOff")
+                }
+              >
+                {paneLayout?.broadcastEnabled
+                  ? t("terminal.broadcastToggleOn")
+                  : t("terminal.broadcastToggleOff")}
+              </button>
+            )}
+            {onOpenSnippets && (
+              <button
+                className="terminal-tab-snippets"
+                onClick={onOpenSnippets}
+                title={t("snippets.openSnippets")}
+                aria-label={t("snippets.openSnippets")}
+              >
+                §
+              </button>
+            )}
+          </>
         )}
       </div>
 

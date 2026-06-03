@@ -11,7 +11,6 @@
 import { useI18n } from "../../lib/i18n";
 import { useWorkspaceStore, buildWorkspaceKey } from "../../stores/workspaceStore";
 import { useSessionStore } from "../../stores/sessionStore";
-import { SftpBrowser } from "../../features/sftp/SftpBrowser";
 import { TunnelManager } from "../../features/tunnel/TunnelManager";
 import { HistoryPanel } from "../../features/history/HistoryPanel";
 import { MonitoringPanel } from "../../features/monitoring/MonitoringPanel";
@@ -281,10 +280,11 @@ export function SidePanel() {
   );
   const setPanelSection = useWorkspaceStore((s) => s.setPanelSection);
   const setPanelOpen = useWorkspaceStore((s) => s.setPanelOpen);
+  const setMainView = useWorkspaceStore((s) => s.setMainView);
 
   const sessionId = activeSession?.id ?? "";
 
-  function handleToggle(section: "sftp" | "tunnel" | "history" | "monitoring" | "docker" | "proxmox") {
+  function handleToggle(section: "tunnel" | "history" | "monitoring" | "docker" | "proxmox") {
     if (!workspaceKey) return;
     const isActive = panelOpen && panelSection === section;
     if (isActive) {
@@ -293,6 +293,11 @@ export function SidePanel() {
       setPanelSection(workspaceKey, section);
       setPanelOpen(workspaceKey, true);
     }
+  }
+
+  function handleFilesToggle() {
+    if (!workspaceKey) return;
+    setMainView(workspaceKey, "files");
   }
 
   function handleClose() {
@@ -310,10 +315,10 @@ export function SidePanel() {
       >
         <button
           type="button"
-          aria-pressed={panelOpen && panelSection === "sftp"}
+          aria-pressed={false}
           aria-label={t("panel.sftp")}
-          className={`side-panel-rail-btn${panelOpen && panelSection === "sftp" ? " side-panel-rail-btn-active" : ""}`}
-          onClick={() => handleToggle("sftp")}
+          className="side-panel-rail-btn"
+          onClick={handleFilesToggle}
           title={t("panel.sftp")}
         >
           <FolderIcon />
@@ -388,17 +393,15 @@ export function SidePanel() {
             {/* Header with close button */}
             <div className="side-panel-header">
               <span className="side-panel-title">
-                {panelSection === "sftp"
-                  ? t("panel.sftp")
-                  : panelSection === "history"
-                    ? t("panel.history")
-                    : panelSection === "monitoring"
-                      ? t("panel.monitoring")
-                      : panelSection === "docker"
-                        ? t("panel.docker")
-                        : panelSection === "proxmox"
-                          ? t("panel.proxmox")
-                          : t("panel.tunnels")}
+                {panelSection === "history"
+                  ? t("panel.history")
+                  : panelSection === "monitoring"
+                    ? t("panel.monitoring")
+                    : panelSection === "docker"
+                      ? t("panel.docker")
+                      : panelSection === "proxmox"
+                        ? t("panel.proxmox")
+                        : t("panel.tunnels")}
               </span>
               <button
                 type="button"
@@ -412,9 +415,6 @@ export function SidePanel() {
 
             {/* Content — lazy mount by section */}
             <div className="side-panel-body">
-              {panelSection === "sftp" && sessionId && (
-                <SftpBrowser sessionId={sessionId} />
-              )}
               {panelSection === "tunnel" && sessionId && (
                 <TunnelManager sessionId={sessionId} />
               )}

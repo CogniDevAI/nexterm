@@ -202,6 +202,10 @@ export const es: Record<TranslationKey, string> = {
   "history.noticeMessage": "El historial captura todo lo que escribís. Las contraseñas ingresadas en prompts pueden quedar registradas. Podés desactivar la captura o limpiar el historial en cualquier momento.",
   "history.noticeDismiss": "Entendido",
 
+  // View toggle
+  "view.terminal": "Terminal",
+  "view.files": "Archivos",
+
   // Terminal
   "terminal.newTab": "Nueva terminal",
   "terminal.closeTab": "Cerrar terminal",

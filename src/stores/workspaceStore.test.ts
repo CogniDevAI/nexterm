@@ -1,4 +1,4 @@
-// src/stores/workspaceStore.test.ts — TDD: panelSection + panelOpen fields
+// src/stores/workspaceStore.test.ts — TDD: panelSection + panelOpen + mainView fields
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { vi } from "vitest";
@@ -84,6 +84,54 @@ describe("workspaceStore — panelSection + panelOpen", () => {
   it("does nothing when workspaceKey not found in setPanelOpen", () => {
     const before = { ...useWorkspaceStore.getState().workspaces };
     useWorkspaceStore.getState().setPanelOpen("missing-key", true);
+    expect(useWorkspaceStore.getState().workspaces).toEqual(before);
+  });
+});
+
+describe("workspaceStore — mainView", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it("new workspace defaults mainView to 'terminal'", () => {
+    const ws = useWorkspaceStore
+      .getState()
+      .getOrCreateWorkspace("profile-1", "user-1");
+    expect(ws.mainView).toBe("terminal");
+  });
+
+  it("setMainView updates mainView to 'files'", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setMainView(key, "files");
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
+    expect(updated.mainView).toBe("files");
+  });
+
+  it("setMainView updates mainView back to 'terminal'", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
+    const key = buildWorkspaceKey("profile-1", "user-1");
+    useWorkspaceStore.getState().setMainView(key, "files");
+    useWorkspaceStore.getState().setMainView(key, "terminal");
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
+    expect(updated.mainView).toBe("terminal");
+  });
+
+  it("setMainView is independent per workspace key", () => {
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-a", "user-1");
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-b", "user-1");
+    const keyA = buildWorkspaceKey("profile-a", "user-1");
+    const keyB = buildWorkspaceKey("profile-b", "user-1");
+
+    useWorkspaceStore.getState().setMainView(keyA, "files");
+
+    expect(useWorkspaceStore.getState().workspaces[keyA]!.mainView).toBe("files");
+    expect(useWorkspaceStore.getState().workspaces[keyB]!.mainView).toBe("terminal");
+  });
+
+  it("does nothing when workspaceKey not found in setMainView", () => {
+    const before = { ...useWorkspaceStore.getState().workspaces };
+    useWorkspaceStore.getState().setMainView("missing-key", "files");
     expect(useWorkspaceStore.getState().workspaces).toEqual(before);
   });
 });

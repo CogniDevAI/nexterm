@@ -200,6 +200,10 @@ export const en = {
   "history.noticeMessage": "Command history captures everything you type. Passwords entered at prompts may be recorded. You can disable capture or clear history at any time.",
   "history.noticeDismiss": "Got it",
 
+  // View toggle
+  "view.terminal": "Terminal",
+  "view.files": "Files",
+
   // Terminal
   "terminal.newTab": "New terminal",
   "terminal.closeTab": "Close terminal",

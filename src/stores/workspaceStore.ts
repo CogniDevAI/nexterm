@@ -6,6 +6,7 @@ import type { SearchMode } from "../features/sftp/FilePane";
 import type { TerminalId } from "../lib/types";
 
 export type PanelSection = "sftp" | "tunnel" | "history" | "monitoring" | "docker" | "proxmox" | null;
+export type MainView = "terminal" | "files";
 
 export interface WorkspacePaneSnapshot {
   path: string;
@@ -29,6 +30,7 @@ export interface WorkspaceSnapshot {
   sftp: WorkspaceSftpSnapshot;
   panelSection: PanelSection;
   panelOpen: boolean;
+  mainView: MainView;
   updatedAt: number;
 }
 
@@ -45,6 +47,7 @@ interface WorkspaceStoreState {
   ) => void;
   setPanelSection: (workspaceKey: string, section: PanelSection) => void;
   setPanelOpen: (workspaceKey: string, open: boolean) => void;
+  setMainView: (workspaceKey: string, view: MainView) => void;
 }
 
 const DEFAULT_PANE_SNAPSHOT: WorkspacePaneSnapshot = {
@@ -79,6 +82,7 @@ function createWorkspaceSnapshot(
     },
     panelSection: null,
     panelOpen: false,
+    mainView: "terminal",
     updatedAt: Date.now(),
   };
 }
@@ -186,6 +190,22 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()(
               [workspaceKey]: {
                 ...current,
                 panelOpen: open,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      setMainView: (workspaceKey, view) =>
+        set((state) => {
+          const current = state.workspaces[workspaceKey];
+          if (!current) return state;
+          return {
+            workspaces: {
+              ...state.workspaces,
+              [workspaceKey]: {
+                ...current,
+                mainView: view,
                 updatedAt: Date.now(),
               },
             },

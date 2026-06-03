@@ -27,6 +27,8 @@ import { RemoteEditCoordinator } from "./features/sftp/RemoteEditCoordinator";
 import { OnboardingTour } from "./components/ui/OnboardingTour";
 import { useSessionStore } from "./stores/sessionStore";
 import { useProfileStore } from "./stores/profileStore";
+import { useWorkspaceStore, buildWorkspaceKey } from "./stores/workspaceStore";
+import { SftpBrowser } from "./features/sftp/SftpBrowser";
 import type { StartupPreview } from "./stores/sessionStore";
 import { useConnection } from "./features/connection/useConnection";
 import { useUpdater } from "./features/updater/useUpdater";
@@ -377,6 +379,16 @@ function App() {
     ? sessions.get(activeSessionId)
     : undefined;
 
+  // Derive workspaceKey and read mainView for the active session
+  const activeWorkspaceKey = activeSession
+    ? buildWorkspaceKey(activeSession.profileId, activeSession.userId)
+    : null;
+  const mainView = useWorkspaceStore((s) =>
+    activeWorkspaceKey
+      ? (s.workspaces[activeWorkspaceKey]?.mainView ?? "terminal")
+      : "terminal",
+  );
+
   // Find profile info for auth prompt
   const pendingProfile = pendingProfileId
     ? profiles.find((p) => p.id === pendingProfileId)
@@ -413,14 +425,24 @@ function App() {
         {activeSession ? (
           <div className="session-view">
             <div className="session-content">
-              {/* Terminal is always mounted — never unmounted when panel opens */}
-              <div className="session-terminal-area">
+              {/* Terminal area — always mounted, hidden via CSS when files view is active */}
+              <div
+                className="session-terminal-area"
+                style={mainView === "files" ? { display: "none" } : undefined}
+              >
                 <TerminalTabs
                   sessionId={activeSession.id}
                   onOpenSnippets={() => setSnippetPickerOpen(true)}
+                  workspaceKey={activeWorkspaceKey ?? ""}
                 />
               </div>
-              {/* Side panel docked to the right — SFTP/Tunnels without unmounting terminal */}
+              {/* Files view — mounts SftpBrowser in the full main area */}
+              {mainView === "files" && (
+                <div className="session-files-area">
+                  <SftpBrowser sessionId={activeSession.id} />
+                </div>
+              )}
+              {/* Side panel docked to the right — Tunnels/History/Monitoring/Docker/Proxmox */}
               <SidePanel />
             </div>
           </div>

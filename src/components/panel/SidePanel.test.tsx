@@ -43,6 +43,7 @@ vi.mock("../../lib/i18n", () => ({
 // The mock must apply the selector when one is provided.
 const mockSetPanelSection = vi.fn();
 const mockSetPanelOpen = vi.fn();
+const mockSetMainView = vi.fn();
 
 let _workspaceStoreState: ReturnType<typeof makeStoreState>;
 
@@ -106,11 +107,13 @@ function makeStoreState(
         },
         panelSection,
         panelOpen,
+        mainView: "terminal" as const,
         updatedAt: Date.now(),
       },
     },
     setPanelSection: mockSetPanelSection,
     setPanelOpen: mockSetPanelOpen,
+    setMainView: mockSetMainView,
     getOrCreateWorkspace: vi.fn(),
     setActiveTerminalId: vi.fn(),
     setSftpSnapshot: vi.fn(),
@@ -192,12 +195,12 @@ describe("SidePanel — icon rail a11y", () => {
     );
   });
 
-  it("SFTP button has aria-pressed=true when panel is open on sftp", () => {
+  it("SFTP button always has aria-pressed=false (it navigates, never toggles)", () => {
     _workspaceStoreState = makeStoreState(true, "sftp");
     render(<SidePanel />);
     expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute(
       "aria-pressed",
-      "true",
+      "false",
     );
   });
 
@@ -212,20 +215,22 @@ describe("SidePanel — icon rail a11y", () => {
 });
 
 describe("SidePanel — panel toggle interactions", () => {
-  it("clicking SFTP button calls setPanelSection(key, sftp) and setPanelOpen(key, true)", () => {
+  it("clicking SFTP button calls setMainView(key, 'files')", () => {
     render(<SidePanel />);
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    expect(mockSetPanelSection).toHaveBeenCalledWith(
+    expect(mockSetMainView).toHaveBeenCalledWith(
       "profile-1:user-1",
-      "sftp",
+      "files",
     );
-    expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", true);
+    // Panel section/open are NOT called for the files button
+    expect(mockSetPanelSection).not.toHaveBeenCalled();
+    expect(mockSetPanelOpen).not.toHaveBeenCalled();
   });
 
-  it("clicking an already-active button closes the panel", () => {
-    _workspaceStoreState = makeStoreState(true, "sftp");
+  it("clicking an already-active Tunnels button closes the panel", () => {
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
-    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tunnels" }));
     expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", false);
   });
 
@@ -242,14 +247,8 @@ describe("SidePanel — panel toggle interactions", () => {
 });
 
 describe("SidePanel — content rendering", () => {
-  it("renders SftpBrowser when panel is open on sftp", () => {
+  it("does NOT render SftpBrowser (it has moved to main area)", () => {
     _workspaceStoreState = makeStoreState(true, "sftp");
-    render(<SidePanel />);
-    expect(screen.getByTestId("sftp-browser")).toBeInTheDocument();
-  });
-
-  it("does NOT render SftpBrowser when panel section is tunnel", () => {
-    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(screen.queryByTestId("sftp-browser")).not.toBeInTheDocument();
   });
@@ -260,17 +259,14 @@ describe("SidePanel — content rendering", () => {
     expect(screen.getByTestId("tunnel-manager")).toBeInTheDocument();
   });
 
-  it("passes sessionId to SftpBrowser", () => {
-    _workspaceStoreState = makeStoreState(true, "sftp");
+  it("does NOT render SftpBrowser when panel section is tunnel", () => {
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
-    expect(screen.getByTestId("sftp-browser")).toHaveAttribute(
-      "data-session-id",
-      "sid-1",
-    );
+    expect(screen.queryByTestId("sftp-browser")).not.toBeInTheDocument();
   });
 
   it("renders a labeled region for the panel content", () => {
-    _workspaceStoreState = makeStoreState(true, "sftp");
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(
       screen.getByRole("region", { name: "Session panel" }),
@@ -280,7 +276,7 @@ describe("SidePanel — content rendering", () => {
 
 describe("SidePanel — close button when open", () => {
   it("renders a close button when panel is open", () => {
-    _workspaceStoreState = makeStoreState(true, "sftp");
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(
       screen.getByRole("button", { name: "Close panel" }),
@@ -288,7 +284,7 @@ describe("SidePanel — close button when open", () => {
   });
 
   it("clicking close button calls setPanelOpen(key, false)", () => {
-    _workspaceStoreState = makeStoreState(true, "sftp");
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
     expect(mockSetPanelOpen).toHaveBeenCalledWith("profile-1:user-1", false);
@@ -347,8 +343,8 @@ describe("SidePanel — HistoryPanel mount", () => {
     expect(screen.getByTestId("history-panel")).toBeInTheDocument();
   });
 
-  it("does NOT render HistoryPanel when panel section is sftp", () => {
-    _workspaceStoreState = makeStoreState(true, "sftp");
+  it("does NOT render HistoryPanel when panel section is tunnel", () => {
+    _workspaceStoreState = makeStoreState(true, "tunnel");
     render(<SidePanel />);
     expect(screen.queryByTestId("history-panel")).not.toBeInTheDocument();
   });

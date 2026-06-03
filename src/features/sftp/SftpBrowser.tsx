@@ -12,6 +12,7 @@ import { TransferOverlay } from "./TransferOverlay";
 import { FileContextMenu } from "./FileContextMenu";
 import { ConflictDialog } from "./ConflictDialog";
 import { useSftp } from "./useSftp";
+import { SplitHandle } from "../../features/terminal/SplitHandle";
 import { Spinner } from "../../components/ui/Spinner";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
@@ -169,7 +170,7 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     () => workspaceSnapshot?.sftp.splitPosition ?? 50,
   ); // percentage
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
     setSearchMode(workspaceSnapshot?.sftp.searchMode ?? "filter");
@@ -178,6 +179,19 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
     setSearchLoading(false);
     setSplitPosition(workspaceSnapshot?.sftp.splitPosition ?? 50);
   }, [workspaceKey]);
+
+  // Track container width for SplitHandle pointer-capture resize
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setContainerWidth(w);
+    });
+    ro.observe(el);
+    setContainerWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
 
   // ─── Initialize SFTP on mount ─────────────────────────
 
@@ -489,29 +503,11 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
 
   // ─── Split Resize ─────────────────────────────────────
 
-  const handleSplitMouseDown = useCallback(() => {
-    isDraggingRef.current = true;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const pct = (x / rect.width) * 100;
-      setSplitPosition(Math.max(20, Math.min(80, pct)));
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+  const handleSplitDragEnd = useCallback((deltaFraction: number) => {
+    setSplitPosition((prev) => {
+      const next = prev + deltaFraction * 100;
+      return Math.max(20, Math.min(80, next));
+    });
   }, []);
 
   // ─── Context Menu ─────────────────────────────────────
@@ -1307,8 +1303,12 @@ export function SftpBrowser({ sessionId }: SftpBrowserProps) {
           />
         </div>
 
-        {/* Resize handle */}
-        <div className="sftp-split-handle" onMouseDown={handleSplitMouseDown} />
+        {/* Resize handle — pointer-capture via SplitHandle (same as terminal panes) */}
+        <SplitHandle
+          direction="horizontal"
+          containerSize={containerWidth}
+          onDragEnd={handleSplitDragEnd}
+        />
 
         <div
           className="sftp-pane-container"
