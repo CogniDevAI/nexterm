@@ -252,11 +252,7 @@ pub async fn stat(sftp: &SftpSession, path: &str) -> Result<FileEntry, AppError>
         .map_err(|e| AppError::Sftp(format!("Failed to stat '{path}': {e}")))?;
 
     // Extract filename from path
-    let name = path
-        .rsplit('/')
-        .next()
-        .unwrap_or(path)
-        .to_string();
+    let name = path.rsplit('/').next().unwrap_or(path).to_string();
 
     Ok(attrs_to_file_entry(name, path.to_string(), &metadata))
 }
@@ -517,7 +513,7 @@ pub async fn search_files(
             }
 
             // Enqueue subdirectories for further traversal
-            if entry.file_type == FileType::Directory && depth + 1 <= max_depth {
+            if entry.file_type == FileType::Directory && depth < max_depth {
                 queue.push_back((entry.path.clone(), depth + 1));
             }
         }
@@ -543,16 +539,15 @@ pub async fn upload(
     on_progress: Channel<TransferEvent>,
     cancel_token: CancellationToken,
 ) -> Result<TransferId, AppError> {
-
     // Open local file
     let mut local_file = tokio::fs::File::open(local_path)
         .await
-        .map_err(|e| AppError::Io(e))?;
+        .map_err(AppError::Io)?;
 
     // Get file size
     let metadata = tokio::fs::metadata(local_path)
         .await
-        .map_err(|e| AppError::Io(e))?;
+        .map_err(AppError::Io)?;
     let total_bytes = metadata.len();
 
     let file_name = local_path
@@ -653,7 +648,6 @@ pub async fn download(
     on_progress: Channel<TransferEvent>,
     cancel_token: CancellationToken,
 ) -> Result<TransferId, AppError> {
-
     // Get remote file size first
     let remote_metadata = sftp
         .metadata(remote_path)
@@ -685,7 +679,7 @@ pub async fn download(
     // Create local file (create or truncate)
     let mut local_file = tokio::fs::File::create(local_path)
         .await
-        .map_err(|e| AppError::Io(e))?;
+        .map_err(AppError::Io)?;
 
     let mut bytes_transferred: u64 = 0;
     let mut buf = vec![0u8; TRANSFER_CHUNK_SIZE];
@@ -707,14 +701,14 @@ pub async fn download(
                 match result {
                     Ok(0) => {
                         // EOF — download complete
-                        local_file.flush().await.map_err(|e| AppError::Io(e))?;
+                        local_file.flush().await.map_err(AppError::Io)?;
 
                         let _ = on_progress.send(TransferEvent::Completed { transfer_id });
                         return Ok(transfer_id);
                     }
                     Ok(n) => {
                         // Write chunk to local file
-                        local_file.write_all(&buf[..n]).await.map_err(|e| AppError::Io(e))?;
+                        local_file.write_all(&buf[..n]).await.map_err(AppError::Io)?;
 
                         bytes_transferred += n as u64;
 
@@ -767,10 +761,9 @@ pub async fn download_to_path(
     let mut buf = vec![0u8; TRANSFER_CHUNK_SIZE];
 
     loop {
-        let n = remote_file
-            .read(&mut buf)
-            .await
-            .map_err(|e| AppError::Sftp(format!("Failed to read remote file '{remote_path}': {e}")))?;
+        let n = remote_file.read(&mut buf).await.map_err(|e| {
+            AppError::Sftp(format!("Failed to read remote file '{remote_path}': {e}"))
+        })?;
         if n == 0 {
             break;
         }
@@ -822,57 +815,46 @@ pub async fn download_to_path_with_progress(
     });
 
     // Open remote file for reading
-    let mut remote_file = sftp
-        .open(remote_path)
-        .await
-        .map_err(|e| {
-            let error_msg = format!("Failed to open remote file '{remote_path}': {e}");
+    let mut remote_file = sftp.open(remote_path).await.map_err(|e| {
+        let error_msg = format!("Failed to open remote file '{remote_path}': {e}");
+        let _ = on_progress.send(TransferEvent::Failed {
+            transfer_id,
+            error: error_msg.clone(),
+        });
+        AppError::Sftp(error_msg)
+    })?;
+
+    // Create local file (create or truncate)
+    let mut local_file = tokio::fs::File::create(local_path).await.map_err(|e| {
+        let _ = on_progress.send(TransferEvent::Failed {
+            transfer_id,
+            error: format!("Failed to create local file: {e}"),
+        });
+        AppError::Io(e)
+    })?;
+
+    let mut bytes_transferred: u64 = 0;
+    let mut buf = vec![0u8; TRANSFER_CHUNK_SIZE];
+
+    loop {
+        let n = remote_file.read(&mut buf).await.map_err(|e| {
+            let error_msg = format!("Failed to read remote file '{remote_path}': {e}");
             let _ = on_progress.send(TransferEvent::Failed {
                 transfer_id,
                 error: error_msg.clone(),
             });
             AppError::Sftp(error_msg)
         })?;
-
-    // Create local file (create or truncate)
-    let mut local_file = tokio::fs::File::create(local_path)
-        .await
-        .map_err(|e| {
-            let _ = on_progress.send(TransferEvent::Failed {
-                transfer_id,
-                error: format!("Failed to create local file: {e}"),
-            });
-            AppError::Io(e)
-        })?;
-
-    let mut bytes_transferred: u64 = 0;
-    let mut buf = vec![0u8; TRANSFER_CHUNK_SIZE];
-
-    loop {
-        let n = remote_file
-            .read(&mut buf)
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Failed to read remote file '{remote_path}': {e}");
-                let _ = on_progress.send(TransferEvent::Failed {
-                    transfer_id,
-                    error: error_msg.clone(),
-                });
-                AppError::Sftp(error_msg)
-            })?;
         if n == 0 {
             break;
         }
-        local_file
-            .write_all(&buf[..n])
-            .await
-            .map_err(|e| {
-                let _ = on_progress.send(TransferEvent::Failed {
-                    transfer_id,
-                    error: format!("Failed to write local file: {e}"),
-                });
-                AppError::Io(e)
-            })?;
+        local_file.write_all(&buf[..n]).await.map_err(|e| {
+            let _ = on_progress.send(TransferEvent::Failed {
+                transfer_id,
+                error: format!("Failed to write local file: {e}"),
+            });
+            AppError::Io(e)
+        })?;
 
         bytes_transferred += n as u64;
 
@@ -956,10 +938,7 @@ async fn walk_remote_dir(
             // A malicious SFTP server could supply names like "../../../.ssh/authorized_keys"
             // or "/etc/cron.d/evil" to escape the chosen download directory.
             if !is_safe_component(&entry.name) {
-                tracing::warn!(
-                    "Skipping unsafe entry name from server: {:?}",
-                    entry.name
-                );
+                tracing::warn!("Skipping unsafe entry name from server: {:?}", entry.name);
                 continue;
             }
             let local_child = ldir.join(&entry.name);
@@ -1040,10 +1019,7 @@ pub async fn download_dir(
 
     for ldir in &dirs {
         if let Err(e) = tokio::fs::create_dir_all(ldir).await {
-            let error_msg = format!(
-                "Failed to create local directory '{}': {e}",
-                ldir.display()
-            );
+            let error_msg = format!("Failed to create local directory '{}': {e}", ldir.display());
             let _ = on_progress.send(TransferEvent::Failed {
                 transfer_id,
                 error: error_msg.clone(),

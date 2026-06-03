@@ -71,17 +71,17 @@ pub async fn open_pty(
     let terminal_id = uuid::Uuid::new_v4();
 
     // Open a session channel
-    let channel = ssh_handle.channel_open_session().await.map_err(AppError::Ssh)?;
+    let channel = ssh_handle
+        .channel_open_session()
+        .await
+        .map_err(AppError::Ssh)?;
     let channel_id = channel.id();
 
     // Request PTY
     channel
         .request_pty(
             true, // interactive editors need PTY negotiation to succeed explicitly
-            TERM_TYPE,
-            cols,
-            rows,
-            0, // pixel width (0 = let server decide)
+            TERM_TYPE, cols, rows, 0, // pixel width (0 = let server decide)
             0, // pixel height
             PTY_MODES,
         )
@@ -89,10 +89,7 @@ pub async fn open_pty(
         .map_err(AppError::Ssh)?;
 
     // Start shell
-    channel
-        .request_shell(true)
-        .await
-        .map_err(AppError::Ssh)?;
+    channel.request_shell(true).await.map_err(AppError::Ssh)?;
 
     // Create the command channel
     let (command_tx, command_rx) = mpsc::channel::<TerminalCommand>(COMMAND_CHANNEL_SIZE);
@@ -296,9 +293,7 @@ pub async fn resize_pty(
 
 /// Close a terminal by sending a Close command through the command channel.
 /// The reader task will close the SSH channel and exit.
-pub async fn close_terminal(
-    command_tx: &mpsc::Sender<TerminalCommand>,
-) -> Result<(), AppError> {
+pub async fn close_terminal(command_tx: &mpsc::Sender<TerminalCommand>) -> Result<(), AppError> {
     // Use try_send for close — if the channel is full or closed, that's fine
     let _ = command_tx.try_send(TerminalCommand::Close);
     Ok(())

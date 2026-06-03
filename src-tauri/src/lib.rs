@@ -15,7 +15,78 @@ pub mod ssh;
 pub mod state;
 pub mod vault;
 
-use state::AppState;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use state::{AppState, AutoLockState};
+use tokio::sync::Mutex;
+use vault::{suspend_gap_detected, Vault};
+
+/// How often the background auto-lock task wakes up to check idle/suspend.
+const AUTO_LOCK_TICK: Duration = Duration::from_secs(15);
+
+/// Tolerated scheduling jitter on top of [`AUTO_LOCK_TICK`] before a tick gap is
+/// treated as an OS suspend. Generous enough to absorb a stalled/overloaded
+/// event loop without false-locking, tight enough that real sleep (seconds to
+/// hours of frozen wall time) is always caught.
+const SUSPEND_SLACK: Duration = Duration::from_secs(20);
+
+/// Lock the vault in `AppState` if it is currently unlocked, zeroizing the
+/// derived key. Idempotent: safe to call when already locked or absent. This is
+/// the single lock path shared by manual lock, idle timeout, and suspend.
+async fn lock_vault(vault: &Mutex<Option<Vault>>) {
+    let mut guard = vault.lock().await;
+    if let Some(v) = guard.as_mut() {
+        if v.is_unlocked() {
+            v.lock(); // drops the Zeroizing<[u8;32]>, wiping key material
+            tracing::info!("Vault auto-locked");
+        }
+    }
+}
+
+/// Spawn the background idle/suspend auto-lock task.
+///
+/// The task wakes every [`AUTO_LOCK_TICK`] and:
+///  1. Detects OS suspend by the *monotonic-clock gap* heuristic. Tauri 2.10's
+///     `RunEvent` exposes no OS suspend/resume signal (only winit-level
+///     `Resumed`, which is a rendering-lifecycle event, not power management),
+///     so we infer suspension: while the machine sleeps this task is frozen, so
+///     on wake the elapsed gap between ticks far exceeds the tick interval.
+///     `suspend_gap_detected` turns that into a defensive immediate lock.
+///  2. Otherwise applies the idle-timeout policy via `AutoLockState`.
+///
+/// It does nothing while the vault is locked or absent (the lock call is a
+/// no-op). Cleanly stops with the app: it is a detached task on Tauri's async
+/// runtime which is torn down on exit — it never panics on shutdown because it
+/// only ever locks (idempotent) and reads atomics/mutexes that outlive it for
+/// the process lifetime via `Arc`.
+pub fn spawn_auto_lock_task(vault: Arc<Mutex<Option<Vault>>>, auto_lock: Arc<AutoLockState>) {
+    tauri::async_runtime::spawn(async move {
+        let mut last_tick = Instant::now();
+        loop {
+            tokio::time::sleep(AUTO_LOCK_TICK).await;
+
+            let now = Instant::now();
+            let gap = now.saturating_duration_since(last_tick);
+            last_tick = now;
+
+            // Suspend heuristic: a tick gap far larger than expected means wall
+            // time was lost while we were frozen — lock defensively, immediately.
+            if suspend_gap_detected(gap, AUTO_LOCK_TICK, SUSPEND_SLACK) {
+                tracing::info!("Detected clock gap of {gap:?} (likely OS suspend) — locking vault");
+                lock_vault(&vault).await;
+                // Treat resume as fresh: don't also fire an idle lock on the
+                // same tick using a now-stale activity timestamp.
+                continue;
+            }
+
+            // Idle policy. `should_lock_now` already honors timeout==0 (disabled).
+            if auto_lock.should_lock_now(now) {
+                lock_vault(&vault).await;
+            }
+        }
+    });
+}
 
 /// Initialize and run the Tauri application
 pub fn run() {
@@ -26,19 +97,28 @@ pub fn run() {
         )
         .init();
 
+    let app_state = AppState::default();
+    // Clone the shared handles the background auto-lock task needs *before*
+    // `manage` takes ownership of the state.
+    let vault_handle = Arc::clone(&app_state.vault);
+    let auto_lock_handle = Arc::clone(&app_state.auto_lock);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
+        .setup(move |app| {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_process::init())?;
+
+            // Start the idle/suspend auto-lock watchdog.
+            spawn_auto_lock_task(Arc::clone(&vault_handle), Arc::clone(&auto_lock_handle));
             Ok(())
         })
-        .manage(AppState::default())
+        .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             // Profile CRUD
             commands::profile::save_profile,
@@ -53,6 +133,7 @@ pub fn run() {
             commands::vault::vault_create,
             commands::vault::vault_unlock,
             commands::vault::vault_lock,
+            commands::vault::vault_set_idle_timeout,
             commands::vault::vault_reset,
             commands::vault::store_credential,
             commands::vault::has_credential,
@@ -63,7 +144,9 @@ pub fn run() {
             commands::connection::list_sessions,
             commands::connection::get_session_state,
             commands::connection::respond_host_key_verification,
+            commands::connection::respond_keyboard_interactive_challenge,
             commands::connection::test_connection,
+            commands::connection::list_ssh_keys,
             // Terminal
             commands::terminal::open_terminal,
             commands::terminal::write_terminal,

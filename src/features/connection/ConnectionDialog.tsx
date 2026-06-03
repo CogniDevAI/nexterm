@@ -11,8 +11,9 @@ import { useProfileStore } from "../../stores/profileStore";
 import { tauriInvoke } from "../../lib/tauri";
 import { DEFAULT_SSH_PORT } from "../../lib/constants";
 import { useI18n } from "../../lib/i18n";
-import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult } from "../../lib/types";
+import type { ConnectionProfile, AuthMethodConfig, UserCredential, TestConnectionResult, KeyInfo } from "../../lib/types";
 import { classifyTestResult, type TestTone } from "./testResult";
+import { normalizeStartupCommands } from "./startupCommands";
 
 interface ConnectionDialogProps {
   open: boolean;
@@ -62,6 +63,28 @@ function UserPlusIcon() {
   );
 }
 
+function KeyboardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="12" rx="2" ry="2" />
+      <line x1="6" y1="10" x2="6" y2="10" />
+      <line x1="10" y1="10" x2="10" y2="10" />
+      <line x1="14" y1="10" x2="14" y2="10" />
+      <line x1="18" y1="10" x2="18" y2="10" />
+      <line x1="6" y1="14" x2="18" y2="14" />
+    </svg>
+  );
+}
+
+function AgentIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
 function newUserCredential(): UserCredential {
   return {
     id: crypto.randomUUID(),
@@ -79,6 +102,7 @@ function newProfile(): ConnectionProfile {
     host: "",
     port: DEFAULT_SSH_PORT,
     users: [defaultUser],
+    startupCommands: [],
     tunnels: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -100,6 +124,8 @@ export function ConnectionDialog({
   // Per-user test state
   const [testingUser, setTestingUser] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { tone: TestTone; message: string }>>({});
+  // Discovered SSH keys for the key picker dropdown
+  const [availableKeys, setAvailableKeys] = useState<KeyInfo[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -117,6 +143,15 @@ export function ConnectionDialog({
       setTestResults({});
     }
   }, [open, editProfileId, profiles]);
+
+  // Pre-fetch available SSH keys independently of profile changes.
+  // Separated to avoid re-running when `profiles` reference changes on save.
+  useEffect(() => {
+    if (!open) return;
+    void tauriInvoke<KeyInfo[]>("list_ssh_keys")
+      .then(setAvailableKeys)
+      .catch(() => setAvailableKeys([]));
+  }, [open]);
 
   // ─── User management helpers ─────────────────────────
 
@@ -138,8 +173,14 @@ export function ConnectionDialog({
     let authMethod: AuthMethodConfig;
     if (type === "publicKey") {
       authMethod = { type: "publicKey", privateKeyPath: "", passphraseInKeychain: false };
+      // Fetch (or refresh) available keys when switching to publicKey auth
+      void tauriInvoke<KeyInfo[]>("list_ssh_keys")
+        .then(setAvailableKeys)
+        .catch(() => setAvailableKeys([]));
     } else if (type === "keyboardInteractive") {
       authMethod = { type: "keyboardInteractive" };
+    } else if (type === "agent") {
+      authMethod = { type: "agent" };
     } else {
       authMethod = { type: "password" };
     }
@@ -206,7 +247,8 @@ export function ConnectionDialog({
     if (!validate()) return;
     setSaving(true);
     try {
-      const id = await saveProfile(profile);
+      const normalized = normalizeStartupCommands(profile.startupCommands ?? []);
+      const id = await saveProfile({ ...profile, startupCommands: normalized });
       // Store ALL passwords that have content in vault
       for (const user of profile.users) {
         const pw = passwords[user.id];
@@ -292,6 +334,7 @@ export function ConnectionDialog({
       onClose={onClose}
       title=""
       width="540px"
+      aria-labelledby="connection-dialog-title"
     >
       {/* ─── Custom Header with Icon ─── */}
       <div className="cd-header">
@@ -299,7 +342,7 @@ export function ConnectionDialog({
           <ServerIcon />
         </div>
         <div className="cd-header-text">
-          <h3 className="cd-title">
+          <h3 id="connection-dialog-title" className="cd-title">
             {isEdit ? t("connection.editTitle") : t("connection.newTitle")}
           </h3>
         </div>
@@ -393,9 +436,25 @@ export function ConnectionDialog({
                   >
                     <KeyIcon />
                   </button>
+                  <button
+                    type="button"
+                    className={`cd-user-row-auth-btn ${user.authMethod.type === "keyboardInteractive" ? "cd-user-row-auth-btn-active" : ""}`}
+                    onClick={() => setUserAuthType(user.id, "keyboardInteractive")}
+                    title={t("connection.keyboardInteractive")}
+                  >
+                    <KeyboardIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className={`cd-user-row-auth-btn ${user.authMethod.type === "agent" ? "cd-user-row-auth-btn-active" : ""}`}
+                    onClick={() => setUserAuthType(user.id, "agent")}
+                    title={t("connection.agent")}
+                  >
+                    <AgentIcon />
+                  </button>
                 </div>
 
-                {/* Credential field (password or key path) */}
+                {/* Credential field (password, key picker, or hint) */}
                 <div className="cd-user-row-field cd-user-row-credential">
                   {user.authMethod.type === "password" ? (
                     <input
@@ -413,25 +472,73 @@ export function ConnectionDialog({
                       }}
                       placeholder={t("connection.passwordPlaceholder")}
                     />
-                  ) : (
-                    <input
-                      className={`cd-user-row-input ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
-                      value={user.authMethod.type === "publicKey" ? user.authMethod.privateKeyPath : ""}
-                      onChange={(e) => {
+                  ) : user.authMethod.type === "publicKey" ? (
+                    // publicKey auth — dropdown picker + manual text fallback
+                    (() => {
+                      const currentPath = user.authMethod.privateKeyPath;
+                      const passphraseInKeychain = user.authMethod.passphraseInKeychain;
+                      // "other" means the current value is not in the list
+                      const isOther =
+                        currentPath !== "" &&
+                        !availableKeys.some((k) => k.path === currentPath);
+
+                      function setKeyPath(path: string) {
                         updateUser(user.id, {
                           authMethod: {
                             type: "publicKey",
-                            privateKeyPath: e.target.value,
-                            passphraseInKeychain:
-                              user.authMethod.type === "publicKey"
-                                ? user.authMethod.passphraseInKeychain
-                                : false,
+                            privateKeyPath: path,
+                            passphraseInKeychain,
                           },
                         });
-                      }}
-                      placeholder="~/.ssh/id_ed25519"
-                      spellCheck={false}
-                    />
+                      }
+
+                      return (
+                        <div className="cd-key-picker">
+                          <select
+                            data-testid="key-picker-select"
+                            className={`cd-user-row-input cd-key-picker-select ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
+                            value={isOther ? "__other__" : currentPath}
+                            onChange={(e) => {
+                              if (e.target.value === "__other__") {
+                                setKeyPath(currentPath || "");
+                              } else {
+                                setKeyPath(e.target.value);
+                              }
+                            }}
+                          >
+                            <option value="">
+                              {availableKeys.length === 0
+                                ? "~/.ssh/id_ed25519"
+                                : t("connection.privateKeyPath")}
+                            </option>
+                            {availableKeys.map((key) => (
+                              <option key={key.path} value={key.path}>
+                                {key.keyType}
+                                {key.comment ? ` — ${key.comment}` : ""}
+                                {key.isEncrypted ? " (encrypted)" : ""}
+                              </option>
+                            ))}
+                            <option value="__other__">Other…</option>
+                          </select>
+                          {(isOther ||
+                            (currentPath === "" &&
+                              availableKeys.length === 0)) && (
+                            <input
+                              className={`cd-user-row-input cd-key-picker-manual ${errors[`user-${user.id}-keyPath`] ? "cd-user-row-input-error" : ""}`}
+                              value={currentPath}
+                              onChange={(e) => setKeyPath(e.target.value)}
+                              placeholder="~/.ssh/id_ed25519"
+                              spellCheck={false}
+                            />
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : user.authMethod.type === "agent" ? (
+                    <span className="cd-auth-hint">{t("connection.agentHint")}</span>
+                  ) : (
+                    // keyboardInteractive
+                    <span className="cd-auth-hint">{t("connection.keyboardInteractiveHint")}</span>
                   )}
                 </div>
 
@@ -509,6 +616,30 @@ export function ConnectionDialog({
             <UserPlusIcon />
             <span>{t("connection.addUser")}</span>
           </button>
+        </div>
+      </div>
+
+      {/* ─── Section: Startup Commands ─── */}
+      <div className="cd-section">
+        <div className="cd-section-label">{t("connection.sectionStartup")}</div>
+        <div className="cd-section-content">
+          <label htmlFor="startup-commands" className="sr-only">
+            {t("connection.sectionStartup")}
+          </label>
+          <textarea
+            id="startup-commands"
+            className="cd-startup-textarea"
+            value={(profile.startupCommands ?? []).join("\n")}
+            onChange={(e) =>
+              setProfile((p) => ({
+                ...p,
+                startupCommands: e.target.value.split("\n"),
+              }))
+            }
+            placeholder={t("connection.startupPlaceholder")}
+            rows={4}
+            spellCheck={false}
+          />
         </div>
       </div>
 

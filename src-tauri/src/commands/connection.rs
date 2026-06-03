@@ -16,7 +16,8 @@ use crate::error::AppError;
 use crate::profile::UserCredential;
 use crate::ssh::session;
 use crate::state::{
-    AppState, HostKeyVerificationRequest, HostKeyVerificationResponse, SessionId, SessionInfo,
+    AppState, HostKeyVerificationRequest, HostKeyVerificationResponse,
+    KeyboardInteractiveChallengeRequest, KeyboardInteractiveResponse, SessionId, SessionInfo,
     SessionState,
 };
 
@@ -25,24 +26,57 @@ use crate::state::{
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "event", content = "data", rename_all = "camelCase")]
 pub enum SessionStateEvent {
-    StateChanged { session_id: SessionId, state: SessionState },
+    StateChanged {
+        session_id: SessionId,
+        state: SessionState,
+    },
     HostKeyVerification(HostKeyVerificationRequest),
+    KeyboardInteractiveChallenge(KeyboardInteractiveChallengeRequest),
 }
 
 // ─── Pending host key verifications ─────────────────────
 
 /// We store the response_tx for pending host key verifications
 /// keyed by session_id so the `respond_host_key_verification` command can find it.
-type PendingVerifications =
-    tokio::sync::Mutex<std::collections::HashMap<SessionId, oneshot::Sender<HostKeyVerificationResponse>>>;
+type PendingVerifications = tokio::sync::Mutex<
+    std::collections::HashMap<SessionId, oneshot::Sender<HostKeyVerificationResponse>>,
+>;
 
 /// Lazy-initialized global storage for pending host key verification channels.
 /// This is necessary because the handler's oneshot bridge needs to be accessible
 /// from the `respond_host_key_verification` command.
-static PENDING_HK_VERIFICATIONS: std::sync::OnceLock<PendingVerifications> = std::sync::OnceLock::new();
+static PENDING_HK_VERIFICATIONS: std::sync::OnceLock<PendingVerifications> =
+    std::sync::OnceLock::new();
 
 fn pending_hk() -> &'static PendingVerifications {
-    PENDING_HK_VERIFICATIONS.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+    PENDING_HK_VERIFICATIONS
+        .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+// ─── Pending keyboard-interactive challenges ────────────
+
+/// Per-session response sender for the CURRENT keyboard-interactive challenge
+/// round. Mirrors `PendingVerifications`, but the value is re-armed for EACH
+/// challenge round (the bridge's factory replaces the entry before emitting the
+/// next challenge), since one MFA flow can pose several rounds.
+///
+/// Guarded by a *synchronous* `std::sync::Mutex` (not the tokio one used for
+/// host keys): every critical section is a single HashMap insert/remove with no
+/// `.await`, and — crucially — the bridge's response-receiver factory is a
+/// synchronous `FnMut` that must arm a sender without being able to `.await` a
+/// tokio lock. A std mutex is both correct and the only thing callable here.
+type PendingKeyboardInteractiveResponses = std::sync::Mutex<
+    std::collections::HashMap<SessionId, oneshot::Sender<KeyboardInteractiveResponse>>,
+>;
+
+/// Lazy-initialized global storage for the in-flight keyboard-interactive
+/// response channel, keyed by session id. The auth loop arms a fresh sender per
+/// round; `respond_keyboard_interactive_challenge` removes and fires it.
+static PENDING_KI_RESPONSES: std::sync::OnceLock<PendingKeyboardInteractiveResponses> =
+    std::sync::OnceLock::new();
+
+fn pending_ki() -> &'static PendingKeyboardInteractiveResponses {
+    PENDING_KI_RESPONSES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 // ─── Commands ───────────────────────────────────────────
@@ -69,14 +103,12 @@ pub async fn connect(
 
     // Resolve which user to connect as
     let resolved_user: UserCredential = match user_id {
-        Some(uid) => {
-            profile
-                .users
-                .iter()
-                .find(|u| u.id == uid)
-                .cloned()
-                .ok_or(AppError::UserNotFound(uid))?
-        }
+        Some(uid) => profile
+            .users
+            .iter()
+            .find(|u| u.id == uid)
+            .cloned()
+            .ok_or(AppError::UserNotFound(uid))?,
         None => {
             if profile.users.len() == 1 {
                 profile.users[0].clone()
@@ -84,6 +116,53 @@ pub async fn connect(
                 return Err(AppError::UserSelectionRequired);
             }
         }
+    };
+
+    // ── Phase 0: Bastion / jump host (ssh -J equivalent, SINGLE hop) ──
+    // When the profile carries a jump_host, reach the target THROUGH the
+    // bastion: connect to the bastion, verify ITS host key against known_hosts
+    // (MITM-critical — never blind-accept), authenticate (credentials zeroized),
+    // and open a direct-tcpip channel to the target. The resulting stream is
+    // handed to `do_handshake`, which then runs the TARGET SSH handshake over it
+    // (target host-key verification still applies). On any bastion-phase failure
+    // we surface a message that is clearly distinct from target-phase errors and
+    // the bastion handle is dropped inside `prepare_bastion_channel`, so nothing
+    // leaks. SCOPE: a single hop only — a bastion does not carry its own jump.
+    let bastion: Option<session::BastionConnection> = match profile.jump_host.as_ref() {
+        Some(jump) => {
+            let vault_guard = state.vault.lock().await;
+            let vault_ref = vault_guard.as_ref();
+            let result = session::prepare_bastion_channel(
+                jump,
+                &profile.host,
+                profile.port,
+                vault_ref,
+                Some(&state.auto_lock),
+            )
+            .await;
+            drop(vault_guard);
+
+            match result {
+                Ok(conn) => Some(conn),
+                Err(err) => {
+                    // Phase 0 fails BEFORE a session id exists, so there is no
+                    // StateChanged event to emit (the frontend has no session to
+                    // key it to). Return a bastion-tagged error that is clearly
+                    // distinct from a target-phase failure.
+                    tracing::warn!(
+                        "Bastion phase failed for {}:{} (target {}:{}) — {err}",
+                        jump.host,
+                        jump.port,
+                        profile.host,
+                        profile.port
+                    );
+                    return Err(AppError::AuthFailed(format!(
+                        "Bastion connection failed: {err}"
+                    )));
+                }
+            }
+        }
+        None => None,
     };
 
     // ── Phase 1: Prepare connection — extract channels BEFORE handshake ──
@@ -121,8 +200,13 @@ pub async fn connect(
         }
     });
 
-    // ── Phase 2: TCP + SSH handshake (triggers check_server_key) ────
-    let handshake_result = session::do_handshake(handshake_handle, &profile).await;
+    // ── Phase 2: SSH handshake to the TARGET (triggers check_server_key) ──
+    // When `bastion` is Some, the handshake runs over the bastion's
+    // direct-tcpip stream and the bastion handle is moved into the resulting
+    // SessionHandle. If the target handshake fails, the consumed
+    // BastionConnection is dropped here (inside do_handshake), tearing down the
+    // bastion hop — no leak.
+    let handshake_result = session::do_handshake(handshake_handle, &profile, bastion).await;
 
     // If handshake failed, clean up HK state and propagate error
     let mut handle = match handshake_result {
@@ -165,8 +249,48 @@ pub async fn connect(
     handle.user_id = resolved_user.id;
     handle.username = resolved_user.username.clone();
 
+    // ── Keyboard-interactive (MFA) bridge ──────────────────────────
+    // Built up front so it can be handed to `authenticate`. It only does work if
+    // the resolved method is keyboard-interactive; otherwise the request channel
+    // is simply never used. The bridge mirrors the host-key oneshot pattern but
+    // for MULTIPLE challenge rounds: an mpsc carries each round's challenge to
+    // this command, which forwards it to the frontend as a
+    // `KeyboardInteractiveChallenge` event, and a per-round oneshot (armed by the
+    // factory below, stored in `pending_ki`) carries the answers back.
+    let (ki_request_tx, mut ki_request_rx) =
+        tokio::sync::mpsc::channel::<KeyboardInteractiveChallengeRequest>(1);
+
+    // Factory: arm a fresh response oneshot for the NEXT round, store its sender
+    // in the pending map keyed by session id, return the receiver to the bridge.
+    let ki_session_id = session_id;
+    let ki_response_factory = Box::new(move || {
+        let (tx, rx) = oneshot::channel::<KeyboardInteractiveResponse>();
+        // Synchronous std-mutex insert — no `.await`, safe inside this FnMut.
+        pending_ki().lock().unwrap().insert(ki_session_id, tx);
+        rx
+    });
+
+    let ki_bridge = session::KeyboardInteractiveBridge::new(ki_request_tx, ki_response_factory);
+
+    // Forward each emitted challenge to the frontend (injecting the session id
+    // so the dialog can respond without awaiting the connect promise — mirrors
+    // the host-key request watcher). Lives until the bridge's request sender is
+    // dropped (end of the auth block).
+    let on_event_ki = on_event.clone();
+    let ki_forward_task = tokio::spawn(async move {
+        while let Some(mut request) = ki_request_rx.recv().await {
+            request.session_id = Some(ki_session_id);
+            let _ = on_event_ki.send(SessionStateEvent::KeyboardInteractiveChallenge(request));
+        }
+    });
+
     let auth_result: Result<(), AppError> = async {
-        // Resolve authentication method (pass vault reference for credential lookup)
+        // Resolve authentication method (pass vault reference for credential
+        // lookup). The `auto_lock` reference lets `resolve_auth_method` reset the
+        // idle timer on a genuine stored-credential read, so a user who is
+        // actively (re)connecting with vault credentials is not auto-locked
+        // mid-use — which would make the next connection needing a stored
+        // credential hit `VaultLocked`.
         let vault_guard = state.vault.lock().await;
         let vault_ref = vault_guard.as_ref();
         let auth_method = session::resolve_auth_method(
@@ -174,6 +298,7 @@ pub async fn connect(
             &profile.id,
             password.as_ref().map(|z| z.as_str()),
             vault_ref,
+            Some(&state.auto_lock),
         )?;
         drop(vault_guard);
 
@@ -185,8 +310,10 @@ pub async fn connect(
                     state: SessionState::Authenticating,
                 });
 
-                // Authenticate with the resolved user's username
-                session::authenticate(&mut handle, auth, &resolved_user.username).await?;
+                // Authenticate with the resolved user's username. The KI bridge
+                // is consumed here; the password/public-key paths ignore it.
+                session::authenticate(&mut handle, auth, &resolved_user.username, Some(ki_bridge))
+                    .await?;
             }
             None => {
                 // Need user input for password/passphrase — return error
@@ -200,6 +327,16 @@ pub async fn connect(
         Ok(())
     }
     .await;
+
+    // ── Tear down the keyboard-interactive bridge ───────────────────
+    // The bridge (and its request sender) was moved into `authenticate`, so by
+    // here the auth attempt has finished and the sender is dropped: the forward
+    // task's `recv()` loop will end on its own. Abort it as a safety net and drop
+    // any still-armed per-round response sender so no entry lingers between
+    // connection attempts (the answers themselves were already zeroized inside
+    // the auth loop).
+    ki_forward_task.abort();
+    pending_ki().lock().unwrap().remove(&session_id);
 
     // ── Handle auth failure: disconnect and propagate error ──────
     if let Err(err) = auth_result {
@@ -272,16 +409,17 @@ pub async fn connect(
         }
     });
 
-    tracing::info!("Session {session_id} connected to {}:{}", profile.host, profile.port);
+    tracing::info!(
+        "Session {session_id} connected to {}:{}",
+        profile.host,
+        profile.port
+    );
 
     Ok(session_id)
 }
 
 #[tauri::command]
-pub async fn disconnect(
-    state: State<'_, AppState>,
-    session_id: SessionId,
-) -> Result<(), AppError> {
+pub async fn disconnect(state: State<'_, AppState>, session_id: SessionId) -> Result<(), AppError> {
     let mut sessions = state.sessions.lock().await;
     let handle = sessions
         .get_mut(&session_id)
@@ -298,9 +436,7 @@ pub async fn disconnect(
 }
 
 #[tauri::command]
-pub async fn list_sessions(
-    state: State<'_, AppState>,
-) -> Result<Vec<SessionInfo>, AppError> {
+pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, AppError> {
     let sessions = state.sessions.lock().await;
 
     let infos: Vec<SessionInfo> = sessions
@@ -353,6 +489,41 @@ pub async fn respond_host_key_verification(
             "No pending host key verification for session {session_id}"
         )))
     }
+}
+
+/// Deliver the user's answers for the in-flight keyboard-interactive challenge
+/// round back to the awaiting auth loop. Mirrors `respond_host_key_verification`,
+/// but the response carrier holds the per-prompt answers.
+///
+/// SECURITY: the answers are NOT logged here (nor anywhere). They flow straight
+/// into the oneshot the auth loop awaits, which wraps them in `Zeroizing`.
+#[tauri::command]
+pub async fn respond_keyboard_interactive_challenge(
+    session_id: SessionId,
+    responses: KeyboardInteractiveResponse,
+) -> Result<(), AppError> {
+    // Remove the armed sender for THIS round (std-mutex; no `.await` held).
+    let tx = pending_ki().lock().unwrap().remove(&session_id);
+
+    if let Some(tx) = tx {
+        tx.send(responses).map_err(|_| {
+            AppError::KeyboardInteractive(
+                "keyboard-interactive challenge channel already closed".to_string(),
+            )
+        })?;
+        Ok(())
+    } else {
+        Err(AppError::KeyboardInteractive(format!(
+            "no pending keyboard-interactive challenge for session {session_id}"
+        )))
+    }
+}
+
+// ─── SSH Key Discovery ──────────────────────────────────────
+
+#[tauri::command]
+pub fn list_ssh_keys() -> Result<Vec<crate::ssh::keys::KeyInfo>, AppError> {
+    crate::ssh::keys::list_available_keys()
 }
 
 // ─── Test Connection ────────────────────────────────────
@@ -466,9 +637,9 @@ pub async fn test_connection(
     // ── TCP + SSH handshake with a known_hosts-verifying handler ──
     // The handler captures the verification result; we inspect it AFTER the
     // handshake to decide whether sending credentials is safe.
-    let config = russh::client::Config {
-        ..Default::default()
-    };
+    // Share the exact same client config (incl. keepalive) as the interactive
+    // path — see `session::build_client_config` for why keepalive matters.
+    let config = session::build_client_config();
     let addr = (host.as_str(), port);
 
     let hk_status: Arc<std::sync::Mutex<Option<HostKeyStatus>>> =
@@ -529,18 +700,20 @@ pub async fn test_connection(
     };
 
     // ── Resolve auth method and authenticate ──
-    // test_connection uses a temp user — no vault lookup needed (password always explicit)
+    // test_connection uses a temp user — no vault lookup needed (password always
+    // explicit), so no vault and no auto-lock recorder are passed.
     let auth = session::resolve_auth_method(
         &temp_user,
         &temp_profile_id,
         password.as_ref().map(|z| z.as_str()),
+        None,
         None,
     )?;
 
     let result: Result<TestConnectionResult, AppError> = match auth {
         Some(session::AuthMethod::Password(pw)) => {
             let authenticated = ssh_handle
-                .authenticate_password(&username, &pw)
+                .authenticate_password(&username, &*pw)
                 .await
                 .map_err(AppError::Ssh)?;
             if authenticated {
@@ -577,6 +750,22 @@ pub async fn test_connection(
                 })
             }
         }
+        // `test_connection` builds its auth config from raw form values that map
+        // only to Password / PublicKey, so resolve_auth_method never returns
+        // KeyboardInteractive here. There is also no challenge dialog to drive in
+        // a one-shot test. Surface that clearly instead of leaving the match
+        // non-total.
+        Some(session::AuthMethod::KeyboardInteractive(_)) => Err(AppError::KeyboardInteractive(
+            "keyboard-interactive auth cannot be tested non-interactively".to_string(),
+        )),
+        // `test_connection` builds its auth config from raw form values that map
+        // only to Password / PublicKey, so resolve_auth_method never returns
+        // Agent here. Refuse explicitly (mirrors the KeyboardInteractive arm)
+        // rather than leaving the match non-total — agent auth is exercised
+        // through the live connect path, not the one-shot tester.
+        Some(session::AuthMethod::Agent { .. }) => Err(AppError::Agent(
+            "SSH agent auth cannot be tested non-interactively".to_string(),
+        )),
         None => Err(AppError::AuthFailed(
             "Password or passphrase required".to_string(),
         )),

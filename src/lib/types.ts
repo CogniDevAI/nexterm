@@ -30,6 +30,7 @@ export interface ConnectionProfile {
   port: number;
   users: UserCredential[];
   startupDirectory?: string;
+  startupCommands?: string[];
   tunnels: TunnelConfig[];
   displayOrder?: number;
   createdAt: string; // ISO 8601
@@ -39,7 +40,8 @@ export interface ConnectionProfile {
 export type AuthMethodConfig =
   | { type: "password" }
   | { type: "publicKey"; privateKeyPath: string; passphraseInKeychain: boolean }
-  | { type: "keyboardInteractive" };
+  | { type: "keyboardInteractive" }
+  | { type: "agent"; keyId?: string };
 
 // ─── Session State ──────────────────────────────────────
 
@@ -191,6 +193,21 @@ export type HostKeyVerificationResponse =
   | "acceptAndSave"
   | "reject";
 
+// ─── Keyboard-Interactive (MFA) Challenge ───────────
+
+export interface KeyboardInteractivePrompt {
+  text: string;
+  echo: boolean;
+}
+
+export interface KeyboardInteractiveChallengeRequest {
+  sessionId?: string;
+  name: string;
+  instruction: string;
+  prompts: KeyboardInteractivePrompt[];
+  round: number;
+}
+
 // ─── Test Connection Result ──────────────────────────
 
 export interface TestConnectionResult {
@@ -200,6 +217,16 @@ export interface TestConnectionResult {
   hostKey: "trusted" | "unknown" | "changed" | "revoked";
   /** Human-readable summary. */
   message: string;
+}
+
+// ─── SSH Key Discovery ───────────────────────────────
+
+/** Mirrors ssh/keys.rs KeyInfo (serde camelCase) */
+export interface KeyInfo {
+  path: string;
+  keyType: string;
+  isEncrypted: boolean;
+  comment: string | null;
 }
 
 // ─── Search Result (SFTP recursive search) ──────────

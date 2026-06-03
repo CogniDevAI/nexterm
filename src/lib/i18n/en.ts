@@ -81,6 +81,9 @@ export const en = {
   "connection.usernameRequired": "Username is required for each user",
   "connection.selectUser": "Select user",
   "connection.keyboardInteractive": "Keyboard Interactive",
+  "connection.agent": "SSH Agent",
+  "connection.agentHint": "Using SSH agent",
+  "connection.keyboardInteractiveHint": "Server will prompt at connect",
   "connection.testUser": "Test connection",
   "connection.testingUser": "Testing\u2026",
   "connection.testSuccess": "Connection successful",
@@ -88,6 +91,8 @@ export const en = {
   "connection.testAuthFailed": "Credentials rejected",
   "connection.testUntrusted": "Host key not trusted",
   "connection.testMitm": "Host key changed or revoked",
+  "connection.sectionStartup": "Startup Commands",
+  "connection.startupPlaceholder": "One command per line — run after connect",
 
   // Host key dialog
   "hostKey.unknownTitle": "New Host",
@@ -121,10 +126,27 @@ export const en = {
   "auth.cancel": "Cancel",
   "auth.connect": "Connect",
 
-  // Welcome
+  // Welcome / empty state (Lamplight launchpad)
   "welcome.title": "NexTerm",
   "welcome.connecting": "Connecting...",
   "welcome.message": "Select a profile to connect, or create a new one.",
+  "welcome.headline": "Ready when you are",
+  "welcome.subline": "Open a server to start a session.",
+  "welcome.cta": "Connect to a server",
+  "welcome.hint": "or press ⌘N",
+  "welcome.recent": "Recent",
+  "welcome.reconnect": "Reconnect",
+  "welcome.connectingTo": "Connecting to {host}...",
+  "welcome.cancelConnect": "Cancel",
+  // Sidebar groups (derived, presentational only)
+  "sidebar.group.production": "PRODUCTION",
+  "sidebar.group.development": "DEVELOPMENT",
+  "sidebar.group.certification": "CERTIFICATION",
+  "sidebar.group.staging": "STAGING",
+  "sidebar.group.other": "PROFILES",
+  // Sidebar credentials label
+  "sidebar.credentials": "{n} credentials",
+  "sidebar.overflow": "More actions",
 
   // Tab bar (features)
   "tabbar.terminal": "Terminal",
@@ -349,6 +371,17 @@ export const en = {
   "tour.done": "Done",
   "tour.stepOf": "{current} of {total}",
   "tour.helpButton": "Tour",
+
+  // Startup commands preview dialog
+  "startup.title": "Run startup commands?",
+  "startup.subtitle": "These commands will run in the new session. Review before running.",
+  "startup.run": "Run",
+  "startup.cancel": "Skip",
+
+  // MFA / keyboard-interactive challenge dialog
+  "mfa.title": "Authentication Required",
+  "mfa.submit": "Submit",
+  "mfa.cancel": "Cancel",
 
   // General
   "general.ok": "OK",

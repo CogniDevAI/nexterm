@@ -60,9 +60,7 @@ fn tmp_path_for(path: &Path) -> PathBuf {
 pub fn secure_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = tmp_path_for(path);
 
-    if let Err(e) = std::fs::write(&tmp, bytes) {
-        return Err(e);
-    }
+    std::fs::write(&tmp, bytes)?;
 
     if let Err(e) = platform::set_owner_only(&tmp) {
         let _ = std::fs::remove_file(&tmp);

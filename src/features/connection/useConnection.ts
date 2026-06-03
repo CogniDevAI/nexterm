@@ -7,38 +7,47 @@ import { Channel } from "@tauri-apps/api/core";
 import { tauriInvoke } from "../../lib/tauri";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useProfileStore } from "../../stores/profileStore";
+import { useTerminal } from "../terminal/useTerminal";
+import { normalizeStartupCommands } from "./startupCommands";
 import type {
   SessionId,
   SessionState,
   HostKeyVerificationRequest,
   HostKeyVerificationResponse,
+  KeyboardInteractiveChallengeRequest,
   UserCredential,
 } from "../../lib/types";
 
 // Mirror the Rust SessionStateEvent enum
 type SessionStateEvent =
   | { event: "stateChanged"; data: { sessionId: string; state: SessionState } }
-  | { event: "hostKeyVerification"; data: HostKeyVerificationRequest };
+  | { event: "hostKeyVerification"; data: HostKeyVerificationRequest }
+  | { event: "keyboardInteractiveChallenge"; data: KeyboardInteractiveChallengeRequest };
 
 interface UseConnectionReturn {
   connecting: boolean;
   connectingProfileId: string | null;
   connectError: string | null;
   hostKeyRequest: HostKeyVerificationRequest | null;
+  mfaChallenge: KeyboardInteractiveChallengeRequest | null;
   needsPassword: boolean;
   pendingProfileId: string | null;
   pendingUser: UserCredential | null;
   connect: (profileId: string, password?: string, userId?: string) => Promise<void>;
   disconnect: (sessionId: string) => Promise<void>;
   respondHostKey: (response: HostKeyVerificationResponse) => void;
+  respondMfa: (answers: string[]) => void;
   submitPassword: (password: string, remember: boolean) => void;
   cancelConnect: () => void;
   clearError: () => void;
+  runStartupCommands: (sessionId: string, commands: string[]) => Promise<void>;
 }
 
 export function useConnection(): UseConnectionReturn {
-  const { addSession, removeSession, updateSessionState } = useSessionStore();
+  const { addSession, removeSession, updateSessionState, setStartupPreview } =
+    useSessionStore();
   const { storeCredential } = useProfileStore();
+  const { disposeSessionTerminals } = useTerminal();
 
   const [connecting, setConnecting] = useState(false);
   // H6 fix: Use a ref for the connecting guard so the double-connect check
@@ -48,6 +57,8 @@ export function useConnection(): UseConnectionReturn {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [hostKeyRequest, setHostKeyRequest] =
     useState<HostKeyVerificationRequest | null>(null);
+  const [mfaChallenge, setMfaChallenge] =
+    useState<KeyboardInteractiveChallengeRequest | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
   const [pendingUser, setPendingUser] = useState<UserCredential | null>(null);
@@ -105,6 +116,16 @@ export function useConnection(): UseConnectionReturn {
           if (message.event === "stateChanged") {
             const { sessionId, state } = message.data;
             updateSessionState(sessionId, state);
+            // Server-initiated disconnect: clean up session just as the
+            // explicit disconnect button does. state may be the string
+            // "disconnected" or an error object { error: { message } }.
+            const isTerminal =
+              state === "disconnected" ||
+              (typeof state === "object" && "error" in state);
+            if (isTerminal) {
+              disposeSessionTerminals(sessionId);
+              removeSession(sessionId);
+            }
           } else if (message.event === "hostKeyVerification") {
             // The Rust side injects sessionId into the HK event so we can
             // respond immediately — without waiting for the connect promise.
@@ -114,6 +135,11 @@ export function useConnection(): UseConnectionReturn {
               setPendingSessionId(message.data.sessionId);
             }
             setHostKeyRequest(message.data);
+          } else if (message.event === "keyboardInteractiveChallenge") {
+            if (message.data.sessionId) {
+              setPendingSessionId(message.data.sessionId);
+            }
+            setMfaChallenge(message.data);
           }
         };
 
@@ -141,6 +167,18 @@ export function useConnection(): UseConnectionReturn {
           activeTerminalId: null,
         });
 
+        // Trigger startup commands preview if the profile has any
+        const commands = normalizeStartupCommands(
+          profile.startupCommands ?? [],
+        );
+        if (commands.length > 0) {
+          setStartupPreview({
+            sessionId,
+            commands,
+            profileName: profile.name,
+          });
+        }
+
         setConnecting(false);
         connectingProfileIdRef.current = null;
         setConnectingProfileId(null);
@@ -162,19 +200,22 @@ export function useConnection(): UseConnectionReturn {
         }
       }
     },
-    [addSession, updateSessionState],
+    [addSession, updateSessionState, setStartupPreview, removeSession, disposeSessionTerminals],
   );
 
   const disconnect = useCallback(
     async (sessionId: string) => {
       try {
         await tauriInvoke<void>("disconnect", { sessionId });
+        // Dispose xterm.js instances BEFORE removing the session from the store
+        // so any remaining references are cleaned up first (PTY leak fix).
+        disposeSessionTerminals(sessionId);
         removeSession(sessionId);
       } catch (err) {
         setConnectError(String(err));
       }
     },
-    [removeSession],
+    [removeSession, disposeSessionTerminals],
   );
 
   const respondHostKey = useCallback(
@@ -193,6 +234,21 @@ export function useConnection(): UseConnectionReturn {
       });
     },
     [hostKeyRequest, pendingSessionId],
+  );
+
+  const respondMfa = useCallback(
+    (answers: string[]) => {
+      const sessionId = mfaChallenge?.sessionId ?? pendingSessionId;
+      if (!sessionId) return;
+      setMfaChallenge(null);
+      void tauriInvoke<void>("respond_keyboard_interactive_challenge", {
+        sessionId,
+        responses: { responses: answers },
+      }).catch((err) => {
+        setConnectError(String(err));
+      });
+    },
+    [mfaChallenge, pendingSessionId],
   );
 
   const submitPassword = useCallback(
@@ -215,6 +271,7 @@ export function useConnection(): UseConnectionReturn {
     setConnectingProfileId(null);
     setConnectError(null);
     setHostKeyRequest(null);
+    setMfaChallenge(null);
     setNeedsPassword(false);
     setPendingProfileId(null);
     setPendingUser(null);
@@ -225,19 +282,59 @@ export function useConnection(): UseConnectionReturn {
     setConnectError(null);
   }, []);
 
+  // Inject startup commands into the active terminal PTY sequentially.
+  // Guards against a missing activeTerminalId (acceptable — confirm latency
+  // means the terminal is essentially always ready, but we never crash).
+  const runStartupCommands = useCallback(
+    async (sessionId: string, commands: string[]) => {
+      // The preview can be confirmed before the PTY is ready: activeTerminalId
+      // is null until TerminalTabs mounts, then a placeholder 'pending-<uuid>'
+      // until onTerminalOpened swaps in the real id. Writing to either is a
+      // no-op (null) or a backend reject (pending). Wait briefly for a real id.
+      const isReady = (id: string | null | undefined): id is string =>
+        !!id && !id.startsWith("pending-");
+
+      let terminalId =
+        useSessionStore.getState().sessions.get(sessionId)?.activeTerminalId;
+      for (let i = 0; i < 50 && !isReady(terminalId); i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        terminalId =
+          useSessionStore.getState().sessions.get(sessionId)?.activeTerminalId;
+      }
+      if (!isReady(terminalId)) return;
+
+      try {
+        for (const cmd of commands) {
+          const data = Array.from(new TextEncoder().encode(cmd + "\n"));
+          await tauriInvoke<void>("write_terminal", {
+            sessionId,
+            terminalId,
+            data,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to run startup commands", err);
+      }
+    },
+    [],
+  );
+
   return {
     connecting,
     connectingProfileId,
     connectError,
     hostKeyRequest,
+    mfaChallenge,
     needsPassword,
     pendingProfileId,
     pendingUser,
     connect,
     disconnect,
     respondHostKey,
+    respondMfa,
     submitPassword,
     cancelConnect,
     clearError,
+    runStartupCommands,
   };
 }

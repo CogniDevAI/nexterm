@@ -90,6 +90,12 @@ fn open_with_selected_app(path: &Path, app_path: &str) -> Result<(), AppError> {
 
 #[tauri::command]
 pub async fn choose_application(prompt: Option<String>) -> Result<Option<String>, AppError> {
+    // `prompt` is only read by the macOS/Windows chooser blocks below; on other
+    // platforms the function returns Ok(None) without using it.
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(target_os = "windows")),
+        allow(unused_variables)
+    )]
     let prompt = prompt.unwrap_or_else(|| "Choose application".to_string());
 
     #[cfg(target_os = "macos")]
@@ -118,10 +124,10 @@ pub async fn choose_application(prompt: Option<String>) -> Result<Option<String>
             return Ok(None);
         }
 
-        return Err(AppError::Sftp(format!(
+        Err(AppError::Sftp(format!(
             "Failed to choose application: {}",
             stderr.trim()
-        )));
+        )))
     }
 
     #[cfg(target_os = "windows")]
@@ -233,10 +239,7 @@ pub async fn sftp_open(
 
 /// Close the SFTP subsystem.
 #[tauri::command]
-pub async fn sftp_close(
-    state: State<'_, AppState>,
-    session_id: SessionId,
-) -> Result<(), AppError> {
+pub async fn sftp_close(state: State<'_, AppState>, session_id: SessionId) -> Result<(), AppError> {
     let mut sessions = state.sessions.lock().await;
     let handle = sessions
         .get_mut(&session_id)
@@ -244,7 +247,7 @@ pub async fn sftp_close(
 
     if let Some(sftp_handle) = handle.sftp.take() {
         // Cancel all active transfers
-        for (_, transfer) in &sftp_handle.active_transfers {
+        for transfer in sftp_handle.active_transfers.values() {
             transfer.cancel_token.cancel();
         }
         // Close the SFTP session
@@ -677,9 +680,7 @@ pub async fn sftp_cancel_transfer(
         tracing::info!("Cancelled transfer {transfer_id}");
         Ok(())
     } else {
-        Err(AppError::Sftp(format!(
-            "Transfer not found: {transfer_id}"
-        )))
+        Err(AppError::Sftp(format!("Transfer not found: {transfer_id}")))
     }
 }
 
@@ -858,17 +859,14 @@ pub async fn sftp_save_and_reveal(
             .arg("-R")
             .arg(&local)
             .spawn()
-            .map_err(|e| {
-                AppError::Sftp(format!("Failed to reveal file in Finder: {e}"))
-            })?;
+            .map_err(|e| AppError::Sftp(format!("Failed to reveal file in Finder: {e}")))?;
     }
 
     #[cfg(target_os = "windows")]
     {
         if let Some(parent) = local.parent() {
-            open::that(parent).map_err(|e| {
-                AppError::Sftp(format!("Failed to reveal file in Explorer: {e}"))
-            })?;
+            open::that(parent)
+                .map_err(|e| AppError::Sftp(format!("Failed to reveal file in Explorer: {e}")))?;
         }
     }
 
@@ -898,9 +896,7 @@ pub async fn list_local_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
     let dir_path = PathBuf::from(&path);
 
     // Validate path exists and is a directory
-    let metadata = tokio::fs::metadata(&dir_path)
-        .await
-        .map_err(AppError::Io)?;
+    let metadata = tokio::fs::metadata(&dir_path).await.map_err(AppError::Io)?;
 
     if !metadata.is_dir() {
         return Err(AppError::Io(std::io::Error::new(
@@ -910,9 +906,7 @@ pub async fn list_local_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
     }
 
     let mut entries = Vec::new();
-    let mut read_dir = tokio::fs::read_dir(&dir_path)
-        .await
-        .map_err(AppError::Io)?;
+    let mut read_dir = tokio::fs::read_dir(&dir_path).await.map_err(AppError::Io)?;
 
     while let Some(entry) = read_dir.next_entry().await.map_err(AppError::Io)? {
         let entry_name = entry.file_name().to_string_lossy().to_string();
@@ -991,8 +985,7 @@ pub async fn list_local_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
         let (permissions, permissions_str, owner, group) = {
             use std::os::unix::fs::MetadataExt;
             let mode = meta.mode();
-            let perms_str =
-                crate::ssh::sftp::format_unix_permissions(mode, &file_type);
+            let perms_str = crate::ssh::sftp::format_unix_permissions(mode, &file_type);
             (mode, perms_str, Some(meta.uid()), Some(meta.gid()))
         };
 
@@ -1056,18 +1049,11 @@ pub async fn open_local_file(path: String) -> Result<(), AppError> {
     let file_path = std::path::Path::new(&path);
 
     if !file_path.exists() {
-        return Err(AppError::Sftp(format!(
-            "File does not exist: {}",
-            path
-        )));
+        return Err(AppError::Sftp(format!("File does not exist: {}", path)));
     }
 
-    open::that(&path).map_err(|e| {
-        AppError::Sftp(format!(
-            "Failed to open '{}' with system app: {e}",
-            path
-        ))
-    })?;
+    open::that(&path)
+        .map_err(|e| AppError::Sftp(format!("Failed to open '{}' with system app: {e}", path)))?;
 
     tracing::info!("Opened local file with system app: {}", path);
     Ok(())
@@ -1078,10 +1064,7 @@ pub async fn open_local_file_with(path: String, app_path: String) -> Result<(), 
     let file_path = Path::new(&path);
 
     if !file_path.exists() {
-        return Err(AppError::Sftp(format!(
-            "File does not exist: {}",
-            path
-        )));
+        return Err(AppError::Sftp(format!("File does not exist: {}", path)));
     }
 
     open_with_selected_app(file_path, &app_path)?;

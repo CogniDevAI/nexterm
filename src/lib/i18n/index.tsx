@@ -1,6 +1,6 @@
 // lib/i18n/index.tsx — Lightweight i18n system (context + hook)
 
-import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 import { en, type TranslationKey } from "./en";
 import { es } from "./es";
 
@@ -34,6 +34,13 @@ function detectLocale(): Locale {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(detectLocale);
+
+  // Keep the document language in sync with the active locale so assistive
+  // technology announces content in the correct language. Runs on mount and
+  // whenever the locale changes.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const t: TranslateFn = useCallback(
     (key, params) => {

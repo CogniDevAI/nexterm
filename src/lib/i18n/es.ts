@@ -83,6 +83,9 @@ export const es: Record<TranslationKey, string> = {
   "connection.usernameRequired": "El nombre de usuario es obligatorio para cada usuario",
   "connection.selectUser": "Seleccionar usuario",
   "connection.keyboardInteractive": "Interactivo por Teclado",
+  "connection.agent": "Agente SSH",
+  "connection.agentHint": "Usando agente SSH",
+  "connection.keyboardInteractiveHint": "El servidor solicitará credenciales al conectar",
   "connection.testUser": "Probar conexi\u00f3n",
   "connection.testingUser": "Probando\u2026",
   "connection.testSuccess": "Conexi\u00f3n exitosa",
@@ -90,6 +93,8 @@ export const es: Record<TranslationKey, string> = {
   "connection.testAuthFailed": "Credenciales rechazadas",
   "connection.testUntrusted": "Clave de host no confiable",
   "connection.testMitm": "Clave de host cambiada o revocada",
+  "connection.sectionStartup": "Comandos de Inicio",
+  "connection.startupPlaceholder": "Un comando por línea — se ejecutan al conectar",
 
   // Host key dialog
   "hostKey.unknownTitle": "Host Nuevo",
@@ -123,10 +128,27 @@ export const es: Record<TranslationKey, string> = {
   "auth.cancel": "Cancelar",
   "auth.connect": "Conectar",
 
-  // Welcome
+  // Welcome / empty state (Lamplight launchpad)
   "welcome.title": "NexTerm",
   "welcome.connecting": "Conectando...",
   "welcome.message": "Selecciona un perfil para conectar, o crea uno nuevo.",
+  "welcome.headline": "Listo cuando vos quieras",
+  "welcome.subline": "Abri un servidor para iniciar una sesión.",
+  "welcome.cta": "Conectar a un servidor",
+  "welcome.hint": "o presioná ⌘N",
+  "welcome.recent": "Recientes",
+  "welcome.reconnect": "Reconectar",
+  "welcome.connectingTo": "Conectando a {host}...",
+  "welcome.cancelConnect": "Cancelar",
+  // Sidebar groups (derived, presentational only)
+  "sidebar.group.production": "PRODUCCIÓN",
+  "sidebar.group.development": "DESARROLLO",
+  "sidebar.group.certification": "CERTIFICACIÓN",
+  "sidebar.group.staging": "STAGING",
+  "sidebar.group.other": "PERFILES",
+  // Sidebar credentials label
+  "sidebar.credentials": "{n} credenciales",
+  "sidebar.overflow": "Más acciones",
 
   // Tab bar (features)
   "tabbar.terminal": "Terminal",
@@ -351,6 +373,17 @@ export const es: Record<TranslationKey, string> = {
   "tour.done": "Listo",
   "tour.stepOf": "{current} de {total}",
   "tour.helpButton": "Tour",
+
+  // Startup commands preview dialog
+  "startup.title": "¿Ejecutar comandos de inicio?",
+  "startup.subtitle": "Estos comandos se ejecutarán en la nueva sesión. Revísalos antes de confirmar.",
+  "startup.run": "Ejecutar",
+  "startup.cancel": "Omitir",
+
+  // MFA / keyboard-interactive challenge dialog
+  "mfa.title": "Autenticación Requerida",
+  "mfa.submit": "Enviar",
+  "mfa.cancel": "Cancelar",
 
   // General
   "general.ok": "OK",

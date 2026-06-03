@@ -14,6 +14,12 @@ import {
   useWorkspaceStore,
 } from "./workspaceStore";
 
+export interface StartupPreview {
+  sessionId: SessionId;
+  commands: string[];
+  profileName?: string;
+}
+
 export interface TerminalTab {
   id: TerminalId;
   label: string;
@@ -42,12 +48,15 @@ interface SessionStoreState {
   sessions: Map<string, SessionEntry>;
   activeSessionId: string | null;
   activeFeature: ActiveFeature;
+  startupPreview: StartupPreview | null;
 
   addSession: (session: SessionEntry) => void;
   removeSession: (sessionId: string) => void;
   setActiveSession: (sessionId: string | null) => void;
   setActiveFeature: (feature: ActiveFeature) => void;
   updateSessionState: (sessionId: string, state: SessionState) => void;
+  setStartupPreview: (preview: StartupPreview) => void;
+  clearStartupPreview: () => void;
 
   // Terminal tab management
   addTerminalTab: (sessionId: string, tab: TerminalTab) => void;
@@ -60,6 +69,7 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
   sessions: new Map(),
   activeSessionId: null,
   activeFeature: "terminal",
+  startupPreview: null,
 
   addSession: (session) =>
     set((state) => {
@@ -98,7 +108,12 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
             ).activeFeature
         : state.activeFeature;
 
-      return { sessions: next, activeSessionId, activeFeature };
+      const startupPreview =
+        state.startupPreview?.sessionId === sessionId
+          ? null
+          : state.startupPreview;
+
+      return { sessions: next, activeSessionId, activeFeature, startupPreview };
     }),
 
   setActiveSession: (sessionId) =>
@@ -158,6 +173,18 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
       next.set(sessionId, { ...entry, state: newState });
       return { sessions: next };
     }),
+
+  setStartupPreview: (preview) =>
+    set((state) =>
+      // Do not clobber an unresolved preview for a different session: the user
+      // must resolve (confirm/skip) the visible one first so no connect's
+      // commands are silently dropped.
+      state.startupPreview && state.startupPreview.sessionId !== preview.sessionId
+        ? state
+        : { startupPreview: preview },
+    ),
+
+  clearStartupPreview: () => set({ startupPreview: null }),
 
   addTerminalTab: (sessionId, tab) =>
     set((state) => {

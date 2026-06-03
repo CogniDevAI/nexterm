@@ -28,6 +28,12 @@ pub enum AppError {
     #[error("Authentication failed: {0}")]
     AuthFailed(String),
 
+    #[error("Keyboard-interactive authentication error: {0}")]
+    KeyboardInteractive(String),
+
+    #[error("SSH agent error: {0}")]
+    Agent(String),
+
     #[error("Host key verification failed")]
     HostKeyRejected,
 
@@ -127,14 +133,33 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_interactive_serializes_with_message() {
+        let err = AppError::KeyboardInteractive("answer count mismatch".to_string());
+        let serialized = serde_json::to_string(&err).unwrap();
+        assert_eq!(
+            serialized,
+            "\"Keyboard-interactive authentication error: answer count mismatch\""
+        );
+    }
+
+    #[test]
+    fn agent_serializes_with_message() {
+        let err = AppError::Agent("no identities in agent".to_string());
+        let serialized = serde_json::to_string(&err).unwrap();
+        assert_eq!(serialized, "\"SSH agent error: no identities in agent\"");
+    }
+
+    #[test]
     fn all_variants_serialize() {
         let id = uuid::Uuid::nil();
         let variants: Vec<AppError> = vec![
             AppError::Sftp("test".into()),
-            AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+            AppError::Agent("test".into()),
+            AppError::Io(std::io::Error::other("test")),
             AppError::SessionNotFound(id),
             AppError::NotConnected,
             AppError::AuthFailed("test".into()),
+            AppError::KeyboardInteractive("test".into()),
             AppError::HostKeyRejected,
             AppError::TerminalNotFound(id),
             AppError::TunnelError("test".into()),

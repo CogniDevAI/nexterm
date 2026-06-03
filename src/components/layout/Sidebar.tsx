@@ -1,6 +1,6 @@
 // components/layout/Sidebar.tsx — Left sidebar with profiles and active sessions
 //
-// Premium minimalist redesign with drag-and-drop reordering via @dnd-kit.
+// LAMPLIGHT STEP 2: Redesigned profile rows, status dots, keyboard nav, group headers.
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
@@ -40,6 +40,70 @@ interface SidebarProps {
   onClearError: () => void;
 }
 
+// ─── Middle-ellipsis helper ───────────────────────────────
+// CSS text-overflow: ellipsis drops the END (port disappears).
+// This splits host:port so the port is always visible.
+function middleEllipsis(str: string, maxLen = 30): string {
+  if (str.length <= maxLen) return str;
+  // Try to preserve the :port suffix
+  const portMatch = str.match(/:(\d+)$/);
+  if (portMatch) {
+    const portSuffix = portMatch[0]; // e.g. ":22"
+    const host = str.slice(0, str.length - portSuffix.length);
+    const availableForHost = maxLen - portSuffix.length - 1; // 1 for ellipsis
+    if (availableForHost > 4) {
+      return host.slice(0, availableForHost) + "…" + portSuffix;
+    }
+  }
+  return str.slice(0, maxLen - 1) + "…";
+}
+
+// ─── Client-side group derivation ─────────────────────────
+// No backend `group` field yet — derive from profile name heuristics.
+// Returns: "production" | "development" | "certification" | "staging" | "other"
+type GroupKey = "production" | "development" | "certification" | "staging" | "other";
+
+function deriveGroup(profile: ConnectionProfile): GroupKey {
+  const name = profile.name.toLowerCase();
+  if (/\b(prod|production|prd)\b/.test(name)) return "production";
+  if (/\b(dev|develop|development)\b/.test(name)) return "development";
+  if (/\b(cert|cer|qa|test|tst)\b/.test(name)) return "certification";
+  if (/\b(stag|staging|uat|pre\-?prod)\b/.test(name)) return "staging";
+  return "other";
+}
+
+// Stable group display order
+const GROUP_ORDER: GroupKey[] = ["production", "staging", "certification", "development", "other"];
+
+interface ProfileGroup {
+  key: GroupKey;
+  profiles: ConnectionProfile[];
+}
+
+function groupProfiles(profiles: ConnectionProfile[]): ProfileGroup[] {
+  const map = new Map<GroupKey, ConnectionProfile[]>();
+  for (const key of GROUP_ORDER) map.set(key, []);
+  for (const p of profiles) {
+    const key = deriveGroup(p);
+    map.get(key)!.push(p);
+  }
+  // Only emit groups that have profiles
+  return GROUP_ORDER
+    .filter((key) => map.get(key)!.length > 0)
+    .map((key) => ({ key, profiles: map.get(key)! }));
+}
+
+// ─── Session elapsed time ─────────────────────────────────
+function formatElapsed(connectedAt: number): string {
+  const ms = Date.now() - connectedAt;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h`;
+}
+
 // ─── Helpers ──────────────────────────────────────────────
 
 function SessionStateIndicator({ state }: { state: SessionEntry["state"] }) {
@@ -63,9 +127,17 @@ function getSessionStateKey(state: SessionEntry["state"]): TranslationKey {
 function ChevronIcon({ collapsed }: { collapsed: boolean }) {
   return (
     <span className={`sidebar-chevron ${collapsed ? "sidebar-chevron-collapsed" : ""}`}>
-      {"\u25BC"}
+      {"▼"}
     </span>
   );
+}
+
+// ─── Status dot ───────────────────────────────────────────
+// idle = hollow ring (text-faint), connecting = copper pulse, live = jade
+function StatusDot({ connected, connecting }: { connected: boolean; connecting: boolean }) {
+  if (connected) return <span className="lp-status-dot lp-status-dot-live" />;
+  if (connecting) return <span className="lp-status-dot lp-status-dot-connecting" />;
+  return <span className="lp-status-dot lp-status-dot-idle" />;
 }
 
 // ─── Sortable Profile Card ───────────────────────────────
@@ -78,7 +150,6 @@ interface SortableProfileCardProps {
   isExpanded: boolean;
   profileSessions?: SessionEntry[];
   activeSessionId: string | null;
-  statusClass: string;
   onProfileClick: (id: string) => void;
   onConnect: (id: string, userId?: string) => void;
   onEditProfile: (id: string) => void;
@@ -88,6 +159,7 @@ interface SortableProfileCardProps {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   connectingLabel: string;
   connectLabel: string;
+  isFocused: boolean;
 }
 
 function SortableProfileCard({
@@ -98,7 +170,6 @@ function SortableProfileCard({
   isExpanded,
   profileSessions,
   activeSessionId,
-  statusClass,
   onProfileClick,
   onConnect,
   onEditProfile,
@@ -108,6 +179,7 @@ function SortableProfileCard({
   t,
   connectingLabel,
   connectLabel,
+  isFocused,
 }: SortableProfileCardProps) {
   const {
     attributes,
@@ -125,28 +197,45 @@ function SortableProfileCard({
     zIndex: isDragging ? 10 : undefined,
   };
 
-  // Build subtitle based on number of users
+  // Build subtitle: for single-user show user@host:port; for multi show "N credentials · host"
   const isSingleUser = p.users.length <= 1;
   const defaultUser = p.users.find((u) => u.isDefault) ?? p.users[0];
-  const subtitle = isSingleUser && defaultUser
+
+  const rawSubtitle = isSingleUser && defaultUser
     ? `${defaultUser.username || "?"}@${p.host}:${p.port}`
-    : `${p.users.length} users · ${p.host}:${p.port}`;
+    : `${p.host}:${p.port}`;
+
+  const subtitle = middleEllipsis(rawSubtitle, 32);
+
+  const credentialBadge = !isSingleUser
+    ? t("sidebar.credentials", { n: p.users.length })
+    : null;
+
+  // Find live sessions for this profile to show elapsed time
+  const liveSession = connected
+    ? profileSessions?.find((s) => s.state === "connected")
+    : undefined;
 
   // User picker state (for multi-user connect)
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const overflowRef = useRef<HTMLDivElement>(null);
 
-  // Close picker when clicking outside
+  // Close picker or overflow when clicking outside
   useEffect(() => {
-    if (!pickerOpen) return;
+    if (!pickerOpen && !overflowOpen) return;
     function handleClickOutside(e: MouseEvent) {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
         setPickerOpen(false);
       }
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [pickerOpen]);
+  }, [pickerOpen, overflowOpen]);
 
   // Which users already have an active session?
   const connectedUserIds = new Set(
@@ -158,10 +247,8 @@ function SortableProfileCard({
 
   function handleConnectClick() {
     if (isSingleUser) {
-      // Single user — connect directly (even if already connected, allows multiple sessions)
       onConnect(p.id);
     } else {
-      // Multi-user — show picker
       setPickerOpen((prev) => !prev);
     }
   }
@@ -171,57 +258,90 @@ function SortableProfileCard({
     onConnect(p.id, userId);
   }
 
+  // Live row shows elapsed time instead of connect button prominence
+  const elapsedLabel = liveSession ? formatElapsed(liveSession.connectedAt) : null;
+
+  // Does this profile own the session currently shown in the terminal? That is
+  // the "you are here" marker, distinct from the transient keyboard focus.
+  const ownsActiveSession =
+    !!activeSessionId && (profileSessions?.some((s) => s.id === activeSessionId) ?? false);
+
   return (
     <div ref={setNodeRef} style={style}>
       {/* Profile card */}
       <div
-        className={`sidebar-profile-card ${connected ? "sidebar-profile-card-connected" : ""}`}
+        className={[
+          "lp-profile-row",
+          connected ? "lp-profile-row-live" : "",
+          connecting ? "lp-profile-row-connecting" : "",
+          ownsActiveSession ? "lp-profile-row-active" : "",
+          isFocused ? "lp-profile-row-focused" : "",
+        ].filter(Boolean).join(" ")}
+        role="listitem"
         onClick={() => onProfileClick(p.id)}
-        title={subtitle}
+        title={`${p.name} — ${rawSubtitle}`}
+        tabIndex={-1}
       >
-        {/* Drag handle */}
+        {/* Drag handle (hidden until hover) */}
         <div
-          className="sidebar-drag-handle"
+          className="lp-drag-handle"
           {...attributes}
           {...listeners}
-        >
-          <span className="sidebar-drag-dots" />
-        </div>
-
-        <div className="sidebar-profile-card-left">
-          <span className={`sidebar-chevron sidebar-profile-chevron ${isExpanded ? "" : "sidebar-chevron-collapsed"}`}>{"\u25BC"}</span>
-          <span className={`sidebar-status-dot ${statusClass}`} />
-          <div className="sidebar-profile-text">
-            <div className="sidebar-profile-name">{p.name}</div>
-            <div className="sidebar-profile-host">
-              {subtitle}
-            </div>
-          </div>
-        </div>
-        <div
-          className="sidebar-profile-card-actions"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="sidebar-connect-wrapper" ref={pickerRef}>
+          <span className="lp-drag-dots" />
+        </div>
+
+        {/* Chevron for expand/collapse */}
+        <span className={`sidebar-chevron sidebar-profile-chevron ${isExpanded ? "" : "sidebar-chevron-collapsed"}`}>
+          {"▼"}
+        </span>
+
+        {/* Status dot */}
+        <StatusDot connected={connected} connecting={connecting} />
+
+        {/* Text block */}
+        <div className="lp-profile-text">
+          <div className="lp-profile-name">{p.name}</div>
+          <div className="lp-profile-meta">
+            {credentialBadge && (
+              <span className="lp-credential-badge">{credentialBadge}</span>
+            )}
+            <span className="lp-profile-host" title={rawSubtitle}>{subtitle}</span>
+          </div>
+        </div>
+
+        {/* Right side: elapsed time for live sessions, action buttons */}
+        <div className="lp-profile-actions" onClick={(e) => e.stopPropagation()}>
+          {connected && elapsedLabel && (
+            <span className="lp-elapsed">{elapsedLabel}</span>
+          )}
+
+          {/* Connect button — always visible */}
+          <div className="lp-connect-wrapper" ref={pickerRef}>
             <button
-              className={`sidebar-profile-btn sidebar-profile-btn-connect ${connected ? "sidebar-profile-btn-add" : ""}`}
+              className={`lp-action-btn lp-action-btn-connect ${connected ? "lp-action-btn-add" : ""}`}
               onClick={handleConnectClick}
               disabled={connecting}
               title={connecting ? connectingLabel : connected ? t("sidebar.newSession") : connectLabel}
+              tabIndex={-1}
             >
               {connecting ? (
-                <span className="sidebar-btn-spinner" />
+                <span className="lp-spinner" />
               ) : connected ? (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                // Plus icon for new session when already connected
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
               ) : (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                // Play/Enter glyph for connect
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <polygon points="5,3 19,12 5,21" />
                 </svg>
               )}
             </button>
+
             {/* User picker popover (multi-user profiles) */}
             {pickerOpen && !isSingleUser && (
               <div className="sidebar-user-picker">
@@ -235,7 +355,7 @@ function SortableProfileCard({
                     >
                       <span className="sidebar-user-picker-name">{u.username || "?"}</span>
                       <span className="sidebar-user-picker-auth">
-                        {u.authMethod.type === "publicKey" ? "\uD83D\uDD11" : "\uD83D\uDD12"}
+                        {u.authMethod.type === "publicKey" ? "🔑" : "🔒"}
                       </span>
                       {isUserConnected && (
                         <span className="sidebar-user-picker-connected-dot" />
@@ -246,25 +366,43 @@ function SortableProfileCard({
               </div>
             )}
           </div>
-          <button
-            className="sidebar-profile-btn"
-            onClick={() => onEditProfile(p.id)}
-            title={t("sidebar.edit")}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-            </svg>
-          </button>
-          <button
-            className="sidebar-profile-btn sidebar-profile-btn-delete"
-            onClick={() => onDeleteClick(p.id, p.name)}
-            title={t("sidebar.delete")}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+
+          {/* Overflow menu (edit / delete) — hidden until hover */}
+          <div className="lp-overflow-wrapper" ref={overflowRef}>
+            <button
+              className="lp-action-btn lp-action-btn-overflow"
+              onClick={() => setOverflowOpen((prev) => !prev)}
+              title={t("sidebar.overflow")}
+              tabIndex={-1}
+            >
+              <span className="lp-overflow-dots">&#xB7;&#xB7;&#xB7;</span>
+            </button>
+            {overflowOpen && (
+              <div className="lp-overflow-menu">
+                <button
+                  className="lp-overflow-item"
+                  onClick={() => { setOverflowOpen(false); onEditProfile(p.id); }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                  {t("sidebar.edit")}
+                </button>
+                <button
+                  className="lp-overflow-item lp-overflow-item-danger"
+                  onClick={() => { setOverflowOpen(false); onDeleteClick(p.id, p.name); }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                    <path d="M9 6V4h6v2" />
+                  </svg>
+                  {t("sidebar.delete")}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -303,12 +441,38 @@ function SortableProfileCard({
                   }}
                   title={t("sidebar.disconnect")}
                 >
-                  {"\u23FB"}
+                  {"⏻"}
                 </button>
               </div>
             ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Group header ─────────────────────────────────────────
+
+function GroupHeader({
+  groupKey,
+  count,
+  t,
+}: {
+  groupKey: GroupKey;
+  count: number;
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+}) {
+  const labelKey: TranslationKey =
+    groupKey === "production" ? "sidebar.group.production"
+    : groupKey === "development" ? "sidebar.group.development"
+    : groupKey === "certification" ? "sidebar.group.certification"
+    : groupKey === "staging" ? "sidebar.group.staging"
+    : "sidebar.group.other";
+
+  return (
+    <div className="lp-group-header">
+      <span className="lp-group-label">{t(labelKey)}</span>
+      <span className="lp-group-count">{count}</span>
     </div>
   );
 }
@@ -339,6 +503,10 @@ export function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [profilesCollapsed, setProfilesCollapsed] = useState(false);
   const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(new Set());
+
+  // Keyboard navigation: focused row index within filteredProfiles
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Delete confirmation dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -392,7 +560,6 @@ export function Sidebar({
       setBanner({ type: "error", message: t("sidebar.noProfilesToExport") });
       return;
     }
-    // Reset export dialog state
     setExportIncludePasswords(false);
     setExportPassword("");
     setExportPasswordConfirm("");
@@ -451,10 +618,9 @@ export function Sidebar({
         ],
         multiple: false,
       });
-      if (!path) return; // user cancelled
+      if (!path) return;
       const filePath = path as string;
 
-      // Check if encrypted file
       if (filePath.endsWith(".nexterm")) {
         setImportPassword("");
         setImportError(null);
@@ -463,7 +629,6 @@ export function Sidebar({
         return;
       }
 
-      // Plain JSON import
       const result = await importProfiles(filePath);
       setBanner({
         type: "success",
@@ -472,7 +637,7 @@ export function Sidebar({
           skipped: result.skipped,
         }),
       });
-    } catch (err) {
+    } catch {
       setBanner({ type: "error", message: t("sidebar.importError") });
     }
   }, [importProfiles, t]);
@@ -524,10 +689,9 @@ export function Sidebar({
     return map;
   }, [sessionEntries]);
 
-  // Track which profiles we've already auto-expanded so we don't fight the user's collapse
+  // Track which profiles we've already auto-expanded
   const autoExpandedRef = useRef<Set<string>>(new Set());
 
-  // Auto-expand a profile only when it FIRST gets an active session
   useEffect(() => {
     const profilesWithSessions = new Set<string>();
     for (const [profileId, sess] of profileSessionMap) {
@@ -535,7 +699,6 @@ export function Sidebar({
         profilesWithSessions.add(profileId);
       }
     }
-    // Only expand profiles we haven't auto-expanded before
     const toExpand: string[] = [];
     for (const id of profilesWithSessions) {
       if (!autoExpandedRef.current.has(id)) {
@@ -543,7 +706,6 @@ export function Sidebar({
         autoExpandedRef.current.add(id);
       }
     }
-    // Clean up profiles that no longer have sessions
     for (const id of autoExpandedRef.current) {
       if (!profilesWithSessions.has(id)) {
         autoExpandedRef.current.delete(id);
@@ -558,7 +720,7 @@ export function Sidebar({
     }
   }, [profileSessionMap]);
 
-  // Filter profiles by search query (searches all usernames in users array)
+  // Filter profiles by search query
   const filteredProfiles = useMemo(() => {
     if (!searchQuery.trim()) return profiles;
     const q = searchQuery.toLowerCase();
@@ -570,6 +732,17 @@ export function Sidebar({
     );
   }, [profiles, searchQuery]);
 
+  // Group the filtered profiles (only group when not searching)
+  const profileGroups = useMemo(() => {
+    if (searchQuery.trim()) {
+      // When searching, show flat list under a single "PROFILES" group
+      return filteredProfiles.length > 0
+        ? [{ key: "other" as GroupKey, profiles: filteredProfiles }]
+        : [];
+    }
+    return groupProfiles(filteredProfiles);
+  }, [filteredProfiles, searchQuery]);
+
   // DnD handler
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -580,22 +753,14 @@ export function Sidebar({
       const newIndex = filteredProfiles.findIndex((p) => p.id === over.id);
       if (oldIndex === -1 || newIndex === -1) return;
 
-      // Build new order from the full profiles list
       const newProfiles = [...profiles];
-      const activeProfile = newProfiles.find((p) => p.id === active.id);
-      if (!activeProfile) return;
-
-      // Remove the dragged profile and insert at new position
       const filteredIds = filteredProfiles.map((p) => p.id);
       const newFilteredIds = [...filteredIds];
       newFilteredIds.splice(oldIndex, 1);
       newFilteredIds.splice(newIndex, 0, active.id as string);
 
-      // If search is active, only reorder within filtered results
-      // but maintain positions of non-filtered profiles
       if (searchQuery.trim()) {
         const fullIds = newProfiles.map((p) => p.id);
-        // Replace filtered IDs in their original positions
         let filterIdx = 0;
         const reorderedIds = fullIds.map((id) => {
           if (filteredIds.includes(id)) {
@@ -612,9 +777,9 @@ export function Sidebar({
   );
 
   function handleDeleteClick(profileId: string, profileName: string) {
-    const profileSessions = profileSessionMap.get(profileId);
+    const ps = profileSessionMap.get(profileId);
     const hasActive =
-      profileSessions?.some(
+      ps?.some(
         (s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating"
       ) ?? false;
     setDeleteConfirm({ profileId, profileName, hasActiveSession: hasActive });
@@ -624,36 +789,27 @@ export function Sidebar({
     if (!deleteConfirm) return;
     setDeleteLoading(true);
     try {
-      // If active session, disconnect all sessions for this profile first
       if (deleteConfirm.hasActiveSession) {
-        const profileSessions = profileSessionMap.get(deleteConfirm.profileId);
-        const activeSess = profileSessions?.filter(
+        const ps = profileSessionMap.get(deleteConfirm.profileId);
+        const activeSess = ps?.filter(
           (s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating"
         ) ?? [];
-        for (const s of activeSess) {
-          onDisconnect(s.id);
-        }
-        // Brief wait for disconnect to propagate
+        for (const s of activeSess) onDisconnect(s.id);
         await new Promise((r) => setTimeout(r, 300));
       }
       await deleteProfile(deleteConfirm.profileId);
       setDeleteConfirm(null);
     } catch {
-      // Backend may still reject — try disconnect+delete approach
-      // if the error indicates active session
       try {
-        const profileSessions = profileSessionMap.get(deleteConfirm.profileId);
-        const activeSess = profileSessions?.filter(
+        const ps = profileSessionMap.get(deleteConfirm.profileId);
+        const activeSess = ps?.filter(
           (s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating"
         ) ?? [];
-        for (const s of activeSess) {
-          onDisconnect(s.id);
-        }
+        for (const s of activeSess) onDisconnect(s.id);
         await new Promise((r) => setTimeout(r, 500));
         await deleteProfile(deleteConfirm.profileId);
         setDeleteConfirm(null);
       } catch {
-        // If still failing, update dialog to show active session state
         setDeleteConfirm((prev) =>
           prev ? { ...prev, hasActiveSession: true } : null
         );
@@ -673,12 +829,11 @@ export function Sidebar({
   }
 
   function isProfileConnected(profileId: string) {
-    const profileSessions = profileSessionMap.get(profileId);
-    return profileSessions?.some((s) => s.state === "connected") ?? false;
+    const ps = profileSessionMap.get(profileId);
+    return ps?.some((s) => s.state === "connected") ?? false;
   }
 
   function handleProfileClick(profileId: string) {
-    // Toggle expand/collapse
     setExpandedProfiles((prev) => {
       const next = new Set(prev);
       if (next.has(profileId)) {
@@ -688,12 +843,41 @@ export function Sidebar({
       }
       return next;
     });
+    // Also move keyboard focus to this profile
+    const idx = filteredProfiles.findIndex((p) => p.id === profileId);
+    if (idx !== -1) setFocusedIndex(idx);
   }
 
-  function getProfileStatusClass(profileId: string): string {
-    if (isProfileConnected(profileId)) return "sidebar-status-dot-connected";
-    if (isProfileConnecting(profileId)) return "sidebar-status-dot-connecting";
-    return "sidebar-status-dot-idle";
+  // Keyboard navigation on the list container
+  function handleListKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const len = filteredProfiles.length;
+    if (len === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusedIndex((prev) => {
+        if (prev === null) return 0;
+        return Math.min(prev + 1, len - 1);
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusedIndex((prev) => {
+        if (prev === null) return len - 1;
+        return Math.max(prev - 1, 0);
+      });
+    } else if (e.key === "Enter" && focusedIndex !== null) {
+      e.preventDefault();
+      const p = filteredProfiles[focusedIndex];
+      if (p) onConnect(p.id);
+    } else if (e.key === "e" && focusedIndex !== null) {
+      e.preventDefault();
+      const p = filteredProfiles[focusedIndex];
+      if (p) onEditProfile(p.id);
+    } else if ((e.key === "Delete" || e.key === "Backspace") && focusedIndex !== null) {
+      e.preventDefault();
+      const p = filteredProfiles[focusedIndex];
+      if (p) handleDeleteClick(p.id, p.name);
+    }
   }
 
   return (
@@ -776,70 +960,95 @@ export function Sidebar({
         <div
           className={`sidebar-section-content ${profilesCollapsed ? "sidebar-section-content-collapsed" : ""}`}
         >
-          <div className="sidebar-list">
-            {/* Loading state */}
-            {loading && <div className="sidebar-empty">{t("sidebar.loading")}</div>}
+          {/* Loading state */}
+          {loading && <div className="sidebar-empty">{t("sidebar.loading")}</div>}
 
-            {/* Empty: no profiles at all */}
-            {!loading && profiles.length === 0 && (
-              <div className="sidebar-empty-state">
-                {t("sidebar.noProfiles")}{" "}
-                <button className="sidebar-empty-state-cta" onClick={onNewProfile}>
-                  {t("sidebar.noProfilesCta")}
-                </button>
-              </div>
-            )}
+          {/* Empty: no profiles at all */}
+          {!loading && profiles.length === 0 && (
+            <div className="sidebar-empty-state">
+              {t("sidebar.noProfiles")}{" "}
+              <button className="sidebar-empty-state-cta" onClick={onNewProfile}>
+                {t("sidebar.noProfilesCta")}
+              </button>
+            </div>
+          )}
 
-            {/* Empty: search returned no results */}
-            {!loading && profiles.length > 0 && filteredProfiles.length === 0 && (
-              <div className="sidebar-empty-state">{t("sidebar.noResults")}</div>
-            )}
+          {/* Empty: search returned no results */}
+          {!loading && profiles.length > 0 && filteredProfiles.length === 0 && (
+            <div className="sidebar-empty-state">{t("sidebar.noResults")}</div>
+          )}
 
-            {/* Profile cards with drag-and-drop */}
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
+          {/* Profile list with groups and keyboard navigation */}
+          {!loading && filteredProfiles.length > 0 && (
+            <div
+              className="lp-profile-list"
+              ref={listRef}
+              role="list"
+              tabIndex={0}
+              onKeyDown={handleListKeyDown}
+              aria-label={t("sidebar.profiles")}
             >
-              <SortableContext
-                items={filteredProfiles.map((p) => p.id)}
-                strategy={verticalListSortingStrategy}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
               >
-                {filteredProfiles.map((p) => {
-                  const connected = isProfileConnected(p.id);
-                  const connecting = isProfileConnecting(p.id);
-                  const profileSessions = profileSessionMap.get(p.id);
-                  const hasActiveSessions =
-                    profileSessions?.some(
-                      (s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating"
-                    ) ?? false;
+                <SortableContext
+                  items={filteredProfiles.map((p) => p.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {profileGroups.map((group, groupIdx) => (
+                    <div
+                      key={group.key}
+                      className={`lp-group ${groupIdx > 0 ? "lp-group-gap" : ""}`}
+                    >
+                      {/* Only show group header when there are multiple groups */}
+                      {profileGroups.length > 1 && (
+                        <GroupHeader
+                          groupKey={group.key}
+                          count={group.profiles.length}
+                          t={t}
+                        />
+                      )}
+                      {group.profiles.map((p) => {
+                        const connected = isProfileConnected(p.id);
+                        const connecting = isProfileConnecting(p.id);
+                        const ps = profileSessionMap.get(p.id);
+                        const hasActiveSessions =
+                          ps?.some(
+                            (s) => s.state === "connected" || s.state === "connecting" || s.state === "authenticating"
+                          ) ?? false;
+                        const globalIdx = filteredProfiles.findIndex((fp) => fp.id === p.id);
 
-                  return (
-                    <SortableProfileCard
-                      key={p.id}
-                      profile={p}
-                      connected={connected}
-                      connecting={connecting}
-                      hasActiveSessions={hasActiveSessions}
-                      isExpanded={expandedProfiles.has(p.id)}
-                      profileSessions={profileSessions}
-                      activeSessionId={activeSessionId}
-                      statusClass={getProfileStatusClass(p.id)}
-                      onProfileClick={handleProfileClick}
-                      onConnect={onConnect}
-                      onEditProfile={onEditProfile}
-                      onDeleteClick={handleDeleteClick}
-                      onSetActiveSession={setActiveSession}
-                      onDisconnect={onDisconnect}
-                      t={t}
-                      connectingLabel={t("sidebar.connecting")}
-                      connectLabel={t("sidebar.connect")}
-                    />
-                  );
-                })}
-              </SortableContext>
-            </DndContext>
-          </div>
+                        return (
+                          <SortableProfileCard
+                            key={p.id}
+                            profile={p}
+                            connected={connected}
+                            connecting={connecting}
+                            hasActiveSessions={hasActiveSessions}
+                            isExpanded={expandedProfiles.has(p.id)}
+                            profileSessions={ps}
+                            activeSessionId={activeSessionId}
+                            onProfileClick={handleProfileClick}
+                            onConnect={onConnect}
+                            onEditProfile={onEditProfile}
+                            onDeleteClick={handleDeleteClick}
+                            onSetActiveSession={setActiveSession}
+                            onDisconnect={onDisconnect}
+                            t={t}
+                            connectingLabel={t("sidebar.connecting")}
+                            connectLabel={t("sidebar.connect")}
+                            isFocused={focusedIndex === globalIdx}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </SortableContext>
+              </DndContext>
+            </div>
+          )}
         </div>
 
         {/* Export/import feedback banner */}
@@ -849,7 +1058,7 @@ export function Sidebar({
             onClick={() => setBanner(null)}
             title={t("general.close")}
           >
-            {banner.type === "success" ? "\u2713 " : ""}{banner.message}
+            {banner.type === "success" ? "✓ " : ""}{banner.message}
           </div>
         )}
 
@@ -861,8 +1070,6 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Active Sessions section removed — sessions now shown inline under each expanded profile */}
-
       {/* ── Delete Confirmation Dialog ── */}
       <Dialog
         open={deleteConfirm !== null}
@@ -873,7 +1080,7 @@ export function Sidebar({
         {deleteConfirm && (
           <>
             <div className="delete-confirm-header">
-              <div className="delete-confirm-icon">{"\u26A0"}</div>
+              <div className="delete-confirm-icon">{"⚠"}</div>
               <div className="delete-confirm-text">
                 <h3 className="delete-confirm-title">
                   {t("sidebar.deleteConfirmTitle")}

@@ -32,10 +32,7 @@ pub async fn open_terminal(
         return Err(AppError::NotConnected);
     }
 
-    let ssh_handle = session
-        .ssh_handle
-        .as_ref()
-        .ok_or(AppError::NotConnected)?;
+    let ssh_handle = session.ssh_handle.as_ref().ok_or(AppError::NotConnected)?;
 
     // Open PTY channel (includes spawning reader task)
     let terminal_handle = term::open_pty(ssh_handle, cols, rows, on_output).await?;

@@ -11,7 +11,6 @@ use uuid::Uuid;
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
-use argon2::Argon2;
 use rand::RngCore;
 
 use crate::error::AppError;
@@ -232,6 +231,13 @@ impl From<&ConnectionProfile> for ExportedProfile {
                     AuthMethodConfig::KeyboardInteractive => {
                         ("keyboard-interactive".to_string(), None)
                     }
+                    // Agent auth carries no key path — only the optional pin,
+                    // which is non-secret and exported via the token suffix so a
+                    // re-import preserves it (see the import arms below).
+                    AuthMethodConfig::Agent { key_id } => match key_id {
+                        Some(id) => (format!("agent:{id}"), None),
+                        None => ("agent".to_string(), None),
+                    },
                 };
                 ExportedUser {
                     username: u.username.clone(),
@@ -285,16 +291,17 @@ pub async fn export_profiles(
             for (i, profile) in profiles.iter().enumerate() {
                 for (j, user) in profile.users.iter().enumerate() {
                     // Try new key format first, then legacy
-                    if let Ok(Some(password)) =
-                        crate::commands::vault::get_credential_from_vault(
-                            vault,
-                            &profile.id,
-                            Some(&user.id),
-                            "password",
-                        )
-                    {
+                    if let Ok(Some(password)) = crate::commands::vault::get_credential_from_vault(
+                        vault,
+                        &profile.id,
+                        Some(&user.id),
+                        "password",
+                    ) {
                         if j < exported[i].users.len() {
-                            exported[i].users[j].password = Some(password);
+                            // `password` is a `Zeroizing<String>`; the export format
+                            // requires a plain `String`, so deref into one here (the
+                            // export path intentionally materializes plaintext).
+                            exported[i].users[j].password = Some(password.to_string());
                         }
                     }
                 }
@@ -359,9 +366,8 @@ pub async fn import_profiles(
             .map_err(|e| AppError::ProfileError(format!("Invalid file encoding: {e}")))?
     };
 
-    let envelope: ExportEnvelope = serde_json::from_str(&contents).map_err(|e| {
-        AppError::ProfileError(format!("Invalid import file format: {e}"))
-    })?;
+    let envelope: ExportEnvelope = serde_json::from_str(&contents)
+        .map_err(|e| AppError::ProfileError(format!("Invalid import file format: {e}")))?;
 
     if envelope.app != "NexTerm" {
         return Err(AppError::ProfileError(
@@ -379,9 +385,9 @@ pub async fn import_profiles(
 
     for ep in &envelope.profiles {
         // Duplicate check: same name + host
-        let is_duplicate = profiles.iter().any(|existing| {
-            existing.name == ep.name && existing.host == ep.host
-        });
+        let is_duplicate = profiles
+            .iter()
+            .any(|existing| existing.name == ep.name && existing.host == ep.host);
 
         if is_duplicate {
             skipped += 1;
@@ -409,6 +415,10 @@ pub async fn import_profiles(
                             passphrase_in_keychain: false,
                         },
                         "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
+                        "agent" => AuthMethodConfig::Agent { key_id: None },
+                        other if other.starts_with("agent:") => AuthMethodConfig::Agent {
+                            key_id: Some(other["agent:".len()..].to_string()),
+                        },
                         _ => AuthMethodConfig::Password,
                     };
                     UserCredential {
@@ -422,7 +432,10 @@ pub async fn import_profiles(
         } else if let Some(ref username) = ep.username {
             // v1 format: single user from top-level fields
             if username.trim().is_empty() {
-                errors.push(format!("Skipped invalid profile: '{}' (no username)", ep.name));
+                errors.push(format!(
+                    "Skipped invalid profile: '{}' (no username)",
+                    ep.name
+                ));
                 continue;
             }
             let auth_method = match ep.auth_method.as_deref().unwrap_or("password") {
@@ -434,6 +447,10 @@ pub async fn import_profiles(
                     passphrase_in_keychain: false,
                 },
                 "keyboard-interactive" => AuthMethodConfig::KeyboardInteractive,
+                "agent" => AuthMethodConfig::Agent { key_id: None },
+                other if other.starts_with("agent:") => AuthMethodConfig::Agent {
+                    key_id: Some(other["agent:".len()..].to_string()),
+                },
                 _ => AuthMethodConfig::Password,
             };
             vec![UserCredential {
@@ -455,10 +472,14 @@ pub async fn import_profiles(
             name: ep.name.clone(),
             host: ep.host.clone(),
             port: ep.port,
+            // Imported profiles never carry a bastion config (the export format
+            // does not include one). Bastion setup is configured after import.
+            jump_host: None,
             username: None,
             auth_method: None,
             users: users.clone(),
             startup_directory: None,
+            startup_commands: Vec::new(),
             tunnels: Vec::new(),
             display_order: max_order + 1,
             created_at: now,
@@ -524,13 +545,38 @@ pub async fn import_profiles(
 
 // ─── Encryption Helpers ─────────────────────────────────
 
-/// Derive a 32-byte key from password + salt using Argon2id.
-fn derive_export_key(password: &str, salt: &[u8]) -> Result<[u8; 32], AppError> {
+/// Derive a 32-byte export key from password + salt using the supplied
+/// Argon2id KDF params.
+fn derive_export_key_with(
+    password: &str,
+    salt: &[u8],
+    params: &crate::vault::KdfParams,
+) -> Result<[u8; 32], AppError> {
     let mut key = [0u8; 32];
-    Argon2::default()
+    crate::vault::argon2_from_params(params)
+        .map_err(|e| AppError::ProfileError(format!("Key derivation init failed: {e}")))?
         .hash_password_into(password.as_bytes(), salt, &mut key)
         .map_err(|e| AppError::ProfileError(format!("Key derivation failed: {e}")))?;
     Ok(key)
+}
+
+/// Derive a 32-byte key from password + salt using the same shared KDF params
+/// the credential vault uses (see `vault::default_kdf_params`), so new exports
+/// stay consistent across the app.
+fn derive_export_key(password: &str, salt: &[u8]) -> Result<[u8; 32], AppError> {
+    derive_export_key_with(password, salt, &crate::vault::default_kdf_params())
+}
+
+/// Legacy export KDF params (Argon2 0.5 `Argon2::default()`: m=19456, t=2, p=1)
+/// used by app versions before the shared-params change. Kept only so old
+/// export files remain importable without an on-disk format change.
+fn legacy_export_kdf_params() -> crate::vault::KdfParams {
+    crate::vault::KdfParams {
+        algorithm: "argon2id".to_string(),
+        m_cost: argon2::Params::DEFAULT_M_COST,
+        t_cost: argon2::Params::DEFAULT_T_COST,
+        p_cost: argon2::Params::DEFAULT_P_COST,
+    }
 }
 
 /// Encrypt data for export: MAGIC(4) + salt(32) + nonce(12) + ciphertext.
@@ -565,12 +611,16 @@ fn encrypt_export_data(plaintext: &[u8], password: &str) -> Result<Vec<u8>, AppE
 fn decrypt_export_data(data: &[u8], password: &str) -> Result<Vec<u8>, AppError> {
     let header_size = ENCRYPTED_EXPORT_MAGIC.len() + EXPORT_SALT_SIZE + EXPORT_NONCE_SIZE;
     if data.len() < header_size + 16 {
-        return Err(AppError::ProfileError("Encrypted file is too short".to_string()));
+        return Err(AppError::ProfileError(
+            "Encrypted file is too short".to_string(),
+        ));
     }
 
     let magic = &data[..ENCRYPTED_EXPORT_MAGIC.len()];
     if magic != ENCRYPTED_EXPORT_MAGIC {
-        return Err(AppError::ProfileError("Not a valid encrypted export file".to_string()));
+        return Err(AppError::ProfileError(
+            "Not a valid encrypted export file".to_string(),
+        ));
     }
 
     let salt_start = ENCRYPTED_EXPORT_MAGIC.len();
@@ -580,15 +630,125 @@ fn decrypt_export_data(data: &[u8], password: &str) -> Result<Vec<u8>, AppError>
     let nonce_bytes = &data[nonce_start..nonce_start + EXPORT_NONCE_SIZE];
 
     let ciphertext = &data[nonce_start + EXPORT_NONCE_SIZE..];
+    let nonce = Nonce::from_slice(nonce_bytes);
 
-    let key = derive_export_key(password, salt)?;
+    // Try the current strong KDF params first. AES-GCM authenticates, so a key
+    // derived with the wrong params (or a wrong password) simply fails to
+    // decrypt — making it safe to retry once with the legacy default params so
+    // exports produced by older app versions remain importable. The on-disk
+    // export format is unchanged; only the import side probes both param sets.
+    if let Some(plaintext) = try_decrypt_export(
+        password,
+        salt,
+        nonce,
+        ciphertext,
+        &crate::vault::default_kdf_params(),
+    )? {
+        return Ok(plaintext);
+    }
+
+    if let Some(plaintext) = try_decrypt_export(
+        password,
+        salt,
+        nonce,
+        ciphertext,
+        &legacy_export_kdf_params(),
+    )? {
+        return Ok(plaintext);
+    }
+
+    Err(AppError::ProfileError(
+        "Wrong export password or corrupted file".to_string(),
+    ))
+}
+
+/// Attempt to decrypt an export payload with a key derived from `params`.
+/// Returns `Ok(Some(plaintext))` on success, `Ok(None)` on AEAD failure (so the
+/// caller can fall back to other params), or `Err` only on a non-AEAD error.
+fn try_decrypt_export(
+    password: &str,
+    salt: &[u8],
+    nonce: &aes_gcm::Nonce<aes_gcm::aead::consts::U12>,
+    ciphertext: &[u8],
+    params: &crate::vault::KdfParams,
+) -> Result<Option<Vec<u8>>, AppError> {
+    let key = derive_export_key_with(password, salt, params)?;
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|e| AppError::ProfileError(format!("Cipher init failed: {e}")))?;
+    Ok(cipher.decrypt(nonce, ciphertext).ok())
+}
 
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| AppError::ProfileError("Wrong export password or corrupted file".to_string()))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use argon2::Argon2;
 
-    Ok(plaintext)
+    /// Build a valid RMKT export blob encrypted with a key derived the OLD way
+    /// (legacy `Argon2::default()` params: m=19456, t=2, p=1), matching files
+    /// produced by app versions before the shared-params change.
+    fn make_legacy_export_blob(plaintext: &[u8], password: &str) -> Vec<u8> {
+        let mut salt = [0u8; EXPORT_SALT_SIZE];
+        OsRng.fill_bytes(&mut salt);
+
+        // Legacy key derivation: exactly what the old derive_export_key did.
+        let mut key = [0u8; 32];
+        Argon2::default()
+            .hash_password_into(password.as_bytes(), &salt, &mut key)
+            .unwrap();
+
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let mut nonce_bytes = [0u8; EXPORT_NONCE_SIZE];
+        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher.encrypt(nonce, plaintext).unwrap();
+
+        let mut blob = Vec::with_capacity(
+            ENCRYPTED_EXPORT_MAGIC.len() + EXPORT_SALT_SIZE + EXPORT_NONCE_SIZE + ciphertext.len(),
+        );
+        blob.extend_from_slice(ENCRYPTED_EXPORT_MAGIC);
+        blob.extend_from_slice(&salt);
+        blob.extend_from_slice(&nonce_bytes);
+        blob.extend_from_slice(&ciphertext);
+        blob
+    }
+
+    #[test]
+    fn import_decrypts_legacy_params_export() {
+        let plaintext = b"legacy-export-payload";
+        let password = "correct-horse";
+        let blob = make_legacy_export_blob(plaintext, password);
+
+        let decrypted = decrypt_export_data(&blob, password).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn import_decrypts_new_params_export() {
+        let plaintext = b"new-export-payload";
+        let password = "correct-horse";
+        let blob = encrypt_export_data(plaintext, password).unwrap();
+
+        let decrypted = decrypt_export_data(&blob, password).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn import_rejects_wrong_password_for_legacy_blob() {
+        let blob = make_legacy_export_blob(b"secret", "correct-horse");
+        let result = decrypt_export_data(&blob, "wrong");
+        assert!(
+            matches!(result, Err(AppError::ProfileError(_))),
+            "legacy blob with wrong password must fail, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn import_rejects_wrong_password_for_new_blob() {
+        let blob = encrypt_export_data(b"secret", "correct-horse").unwrap();
+        let result = decrypt_export_data(&blob, "wrong");
+        assert!(
+            matches!(result, Err(AppError::ProfileError(_))),
+            "new blob with wrong password must fail, got {result:?}"
+        );
+    }
 }

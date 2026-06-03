@@ -1,63 +1,151 @@
 /* ═══════════════════════════════════════════════════════════════
-   NexTerm — Premium Dark Theme
-   Inspired by GitHub Dark, Termius, Warp, modern macOS apps
+   NexTerm — LAMPLIGHT
+   Warm graphite instrument panel, one copper accent, jade = live.
+   Drop-in replacement for the :root block in src/styles/globals.css
+   (currently lines 6-61). OKLCH primary, hex fallback in comments.
+
+   HUE SWAP GUIDE (to retheme the whole app):
+   - Neutral hue ........ --hue-neutral (60-66 warm). Raise toward 250 for a
+     cool field, but keep ALL neutrals on ONE hue.
+   - Accent hue ......... --hue-accent  (64 copper). Move this single value to
+     re-brand the accent; everything below references it.
+   - Live/connected hue . --hue-live    (165 jade). Keep it ~100deg from accent
+     so "live" always pops against the accent.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ─── Backgrounds (layered depth system) ─── */
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --bg-hover: #30363d;
-  --bg-active: rgba(56, 139, 253, 0.1);
-  --bg-surface: #1c2128;
+  /* ─── Hue anchors (the only values you change to retheme) ─── */
+  --hue-neutral: 62;
+  --hue-accent: 64;
+  --hue-live: 165;
+  --hue-warn: 80;
+  --hue-error: 32;
 
-  /* ─── Borders ─── */
-  --border: rgba(240, 246, 252, 0.1);
-  --border-subtle: rgba(240, 246, 252, 0.06);
-  --border-emphasis: rgba(240, 246, 252, 0.16);
+  /* ─── Backgrounds (warm graphite, layered; lighter = closer) ─── */
+  --bg-abyss:    oklch(0.155 0.008 var(--hue-neutral)); /* #0f0b09 terminal canvas, deepest */
+  --bg-base:     oklch(0.185 0.008 var(--hue-neutral)); /* #15120f app + content pane */
+  --bg-panel:    oklch(0.215 0.009 var(--hue-neutral)); /* #1d1915 sidebar, status bar, tab bars */
+  --bg-raised:   oklch(0.255 0.010 var(--hue-neutral)); /* #26221e inputs, row hover */
+  --bg-raised-2: oklch(0.300 0.011 var(--hue-neutral)); /* #322d28 pressed / active / selected */
+  --bg-dialog:   oklch(0.235 0.010 var(--hue-neutral)); /* #221d19 modal surface */
+  --bg-overlay:  oklch(0.155 0.008 var(--hue-neutral) / 0.60); /* warm dim scrim, NO blur */
 
-  /* ─── Text ─── */
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-tertiary: #6e7681;
+  /* ── Back-compat aliases (so existing var(--bg-*) usages keep working) ── */
+  --bg-primary:   var(--bg-base);
+  --bg-secondary: var(--bg-panel);
+  --bg-tertiary:  var(--bg-raised);
+  --bg-hover:     var(--bg-raised);
+  --bg-active:    var(--accent-wash);
+  --bg-surface:   var(--bg-dialog);
 
-  /* ─── Accent ─── */
-  --accent: #58a6ff;
-  --accent-emphasis: #1f6feb;
-  --accent-subtle: rgba(56, 139, 253, 0.15);
+  /* ─── Borders / hairlines (warm, never gray, opaque so they read on any layer) ─── */
+  --hairline:        oklch(0.330 0.012 var(--hue-neutral)); /* #3a342f default 1px divider */
+  --hairline-strong: oklch(0.420 0.014 var(--hue-neutral)); /* #534c45 focused field, active edge */
+  /* back-compat */
+  --border:          var(--hairline);
+  --border-subtle:   oklch(0.300 0.011 var(--hue-neutral)); /* slightly under hairline */
+  --border-emphasis: var(--hairline-strong);
 
-  /* ─── Semantic ─── */
-  --success: #3fb950;
-  --success-subtle: rgba(63, 185, 80, 0.15);
-  --warning: #d29922;
-  --warning-subtle: rgba(210, 153, 34, 0.15);
-  --danger: #f85149;
-  --danger-subtle: rgba(248, 81, 73, 0.15);
-  --error: #f85149;
+  /* ─── Text (warm off-white -> warm graphite, NEVER #fff) ─── */
+  --text-primary:   oklch(0.940 0.006 70); /* #eeeae7  14.6:1 on panel */
+  --text-secondary: oklch(0.760 0.010 66); /* #b6b0ab   8.1:1 -- host:port, labels */
+  --text-muted:     oklch(0.600 0.012 64); /* #867f79   4.4:1 -- counts, timestamps */
+  --text-faint:     oklch(0.480 0.012 62); /* #635c57  decorative glyphs only */
+  /* back-compat: the audit's missing --text-quaternary finally has a value */
+  --text-tertiary:    var(--text-muted);
+  --text-quaternary:  var(--text-faint);
+
+  /* ─── Accent -- copper-amber (THE one color, <=10% of surface) ─── */
+  --accent:        oklch(0.760 0.130 var(--hue-accent)); /* #ea9e51  icons, active tab, primary btn */
+  --accent-strong: oklch(0.700 0.150 58);                /* #e2832d  hover / press */
+  --accent-on:     oklch(0.220 0.020 60);                /* #221811  text/icon ON accent fill, 7.9:1 */
+  --accent-wash:   oklch(0.300 0.040 var(--hue-accent)); /* #3c2918  selected-row / badge bg */
+  --focus-ring:    oklch(0.800 0.130 66);                /* #f6ac5c  brighter amber, 2px outer ring */
+  /* back-compat */
+  --accent-emphasis: var(--accent-strong);
+  --accent-subtle:   var(--accent-wash);
+  --color-on-accent: var(--accent-on);  /* kills the hardcoded #ffffff on btn-primary etc. */
+
+  /* ─── Connected / online (jade -- amber's complement, so LIVE pops) ─── */
+  --connected:      oklch(0.760 0.110 var(--hue-live)); /* #66c7a0  status dot, live edge, 8.5:1 */
+  --connected-wash: oklch(0.300 0.040 var(--hue-live)); /* #193429  live-row tint */
+  /* back-compat: demote green from brand to this single semantic role */
+  --success:        var(--connected);
+  --success-subtle: var(--connected-wash);
+
+  /* ─── Connecting / authenticating (reuses accent; it pulses) ─── */
+  --connecting: var(--accent);
+
+  /* ─── Warning (ochre, distinct from accent by lightness + hue) ─── */
+  --warning:      oklch(0.780 0.130 var(--hue-warn)); /* #e3ad4b */
+  --warning-wash: oklch(0.300 0.060 var(--hue-warn)); /* warm ochre wash */
+  --warning-subtle: var(--warning-wash);
+
+  /* ─── Error / danger (warm brick, NOT the cold #f85149) ─── */
+  --error:      oklch(0.640 0.150 var(--hue-error)); /* #d8644f  4.9:1 */
+  --error-wash: oklch(0.300 0.060 var(--hue-error)); /* #47211a  danger banner bg */
+  /* back-compat: merges the --error/--danger duplicate into ONE source */
+  --danger:        var(--error);
+  --danger-subtle: var(--error-wash);
 
   /* ─── Layout ─── */
-  --sidebar-width: 300px;
-  --statusbar-height: 28px;
-  --tabbar-height: 38px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --sidebar-width:     300px;  /* keep; raise to 320 if long hostnames truncate */
+  --statusbar-height:  28px;
+  --tabbar-height:     34px;   /* reclaimed from 38 when bars merge */
 
-  /* ─── Typography ─── */
-  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  /* ─── Radii (unifies the rogue raw 12px/16px the audit flagged) ─── */
+  --radius-sm: 5px;  /* badges, status-dot halo, micro-buttons */
+  --radius-md: 7px;  /* inputs, profile rows, buttons */
+  --radius-lg: 10px; /* dialogs, panels -- map the old 12px/16px here */
 
-  /* ─── Transitions ─── */
-  --transition-fast: 120ms ease;
-  --transition-normal: 180ms ease;
-  --transition-slow: 250ms ease;
+  /* ─── Typography families ─── */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", "Menlo", monospace;
 
-  /* ─── Shadows ─── */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 12px 40px rgba(0, 0, 0, 0.6);
+  /* ─── Type scale -- 1.25 major third, base 13px (the audit found ZERO size tokens) ─── */
+  --fs-caption: 0.5625rem; /*  9px -- status-bar legend (uppercase, tracked)        */
+  --fs-meta:    0.6875rem; /* 11px -- counts, timestamps, section eyebrows, btn text */
+  --fs-body:    0.8125rem; /* 13px -- row names, input text, body                    */
+  --fs-subhead: 1rem;      /* 16px -- dialog field-group titles, terminal infobar    */
+  --fs-title:   1.25rem;   /* 20px -- dialog title, empty-state headline             */
+  --fs-display: 1.5625rem; /* 25px -- empty-state hero line only                     */
+
+  --lh-tight:  1.2;
+  --lh-snug:   1.35;
+  --lh-body:   1.5;        /* body copy; pair with max-width: 38rem for 65-75ch     */
+
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;      /* titles, primary button, empty-state headline          */
+
+  --tracking-eyebrow: 0.08em; /* PROFILES / CONNECTION uppercase labels             */
+
+  /* ─── Motion -- ease-out exponential family, zero bounce/elastic ─── */
+  --ease-out:      cubic-bezier(0.16, 1, 0.30, 1);  /* quint-ish, default            */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);  /* gentler settle                */
+  --transition-fast:   120ms var(--ease-out); /* hover / press feedback              */
+  --transition-normal: 180ms var(--ease-out); /* selection move, reveal              */
+  --transition-slow:   240ms var(--ease-out); /* dialog enter                        */
+
+  /* ─── Shadows (warm-tinted, lamp source; NEVER pure black, NO four-step ramp) ─── */
+  --shadow-sm:  0 1px  2px oklch(0.120 0.010 50 / 0.35);
+  --shadow-md:  0 4px 12px oklch(0.120 0.010 50 / 0.45);
+  --shadow-lg:  0 8px 24px oklch(0.120 0.010 50 / 0.50);
+  --shadow-pop: 0 16px 40px oklch(0.120 0.010 50 / 0.55); /* dialogs / pop-overs only */
+  --shadow-xl:  var(--shadow-pop);
+
+  /* ─── The single luminous trick (replaces glassmorphism entirely) ─── */
+  /* a 4%-white top hairline simulating the lamp catching a raised plane's edge */
+  --lit-edge: inset 0 1px 0 oklch(1 0 0 / 0.04);
+}
+
+/* Honor reduced motion: kill transforms + the connecting pulse, keep opacity */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-normal: 0ms;
+    --transition-slow: 90ms ease;
+  }
 }
 
 /* ─── Reset ──────────────────────────────────────── */
@@ -525,7 +613,7 @@ body {
 .sidebar-search-input:focus {
   border-color: var(--accent);
   background-color: rgba(240, 246, 252, 0.06);
-  box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.1);
+  box-shadow: 0 0 0 3px oklch(0.760 0.130 var(--hue-accent) / 0.15);
 }
 
 .sidebar-search-input::placeholder {
@@ -628,14 +716,15 @@ body {
 /* ─── Section Collapse Animation ─────────────────── */
 
 .sidebar-section-content {
+  display: grid;
+  grid-template-rows: 1fr;
   overflow: hidden;
-  transition: max-height var(--transition-slow), opacity var(--transition-normal);
-  max-height: 2000px;
+  transition: grid-template-rows var(--transition-slow), opacity var(--transition-normal);
   opacity: 1;
 }
 
 .sidebar-section-content-collapsed {
-  max-height: 0;
+  grid-template-rows: 0fr;
   opacity: 0;
 }
 
@@ -939,40 +1028,97 @@ body {
   grid-row: 2;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
   padding: 0 16px;
-  background-color: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-tertiary);
+  background-color: var(--bg-panel);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+}
+
+/* ── Left / right clusters ── */
+.statusbar-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.statusbar-cluster-left {
+  /* left cluster natural width */
+}
+
+.statusbar-cluster-right {
+  margin-left: auto;
+  gap: 8px;
 }
 
 .statusbar-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  white-space: nowrap;
 }
 
-.statusbar-spacer {
-  flex: 1;
+/* ── Jade live dot ── */
+.statusbar-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
+.statusbar-dot-live {
+  background-color: var(--connected);
+}
+
+/* ── Terminal glyph (decorative) ── */
+.statusbar-glyph {
+  color: var(--text-faint);
+  font-size: var(--fs-meta);
+  line-height: 1;
+}
+
+/* ── 1px hairline divider between clusters ── */
+.statusbar-divider {
+  width: 1px;
+  height: 14px;
+  background-color: var(--hairline);
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* ── Active target: host@user in mono ── */
+.statusbar-target {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+/* ── Language toggle ── */
 .statusbar-lang-toggle {
   background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  padding: 1px 5px;
   cursor: pointer;
-  letter-spacing: 0.5px;
-  transition: background-color 0.15s, color 0.15s;
+  letter-spacing: 0.04em;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .statusbar-lang-toggle:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1004,6 +1150,11 @@ body {
 .tabbar-tab:hover {
   color: var(--text-secondary);
   background-color: rgba(240, 246, 252, 0.03);
+}
+
+.tabbar-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .tabbar-tab-active {
@@ -1081,6 +1232,11 @@ body {
 .terminal-tab:hover {
   background-color: rgba(240, 246, 252, 0.04);
   color: var(--text-secondary);
+}
+
+.terminal-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .terminal-tab-active {
@@ -1218,13 +1374,14 @@ body {
   flex: 1;
   overflow: hidden;
   position: relative;
-  background-color: #0d1117;
+  background-color: var(--bg-abyss);
 }
 
 /* ═══════════════════════════════════════════════════
    Welcome Screen
    ═══════════════════════════════════════════════════ */
 
+/* Legacy .welcome kept as no-op for any remaining references */
 .welcome {
   display: flex;
   flex-direction: column;
@@ -1239,6 +1396,728 @@ body {
   font-size: 20px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════
+   LAMPLIGHT — Profile Row (lp-profile-row)
+   Replaces .sidebar-profile-card with richer states.
+   ═══════════════════════════════════════════════════ */
+
+/* Row geometry: 44px tall, 10px/12px padding */
+.lp-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px 0 0;
+  height: 44px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-md);
+  position: relative;
+  transition:
+    background-color var(--transition-fast),
+    box-shadow var(--transition-normal);
+}
+
+.lp-profile-row:hover {
+  background-color: var(--bg-raised);
+  box-shadow: var(--lit-edge);
+}
+
+/* Live row: connected-wash fill + 2px jade inset left light-catch */
+.lp-profile-row-live {
+  background-color: var(--connected-wash);
+  box-shadow: inset 2px 0 0 var(--connected), var(--lit-edge);
+}
+
+.lp-profile-row-live:hover {
+  background-color: var(--connected-wash);
+  box-shadow: inset 2px 0 0 var(--connected), var(--lit-edge);
+}
+
+/* Connecting row: subtle accent-wash tint */
+.lp-profile-row-connecting {
+  background-color: var(--accent-wash);
+}
+
+.lp-profile-row-connecting:hover {
+  background-color: var(--accent-wash);
+}
+
+/* Keyboard-focus cue: a subtle background only. The prominent copper marker is
+   reserved for the ACTIVE connection (.lp-profile-row-active) so the highlight
+   tracks "where I am", not a stale keyboard-focus index. */
+.lp-profile-row-focused {
+  background-color: var(--bg-raised);
+}
+
+/* The active connection (its session is the one shown in the terminal): the
+   persistent "you are here" marker, a copper outline ON the actual row. Uses
+   outline (not box-shadow) so it never clobbers the live-row jade inset bar. */
+.lp-profile-row-active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ─── Status Dots ─────────────────────────────────── */
+
+/* Idle: hollow ring in --text-faint (monochrome, NO color) */
+.lp-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition:
+    background-color 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out),
+    opacity var(--transition-fast);
+}
+
+.lp-status-dot-idle {
+  background-color: transparent;
+  border: 1.5px solid var(--text-faint);
+}
+
+/* Connecting: copper dot pulsing opacity 0.55->1, 1.6s --ease-out-soft */
+.lp-status-dot-connecting {
+  background-color: var(--connecting);
+  animation: lp-dot-pulse 1.6s var(--ease-out-soft) infinite;
+}
+
+@keyframes lp-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+/* Honor reduced-motion: kill pulse */
+@media (prefers-reduced-motion: reduce) {
+  .lp-status-dot-connecting {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* Live: jade dot — the only green in the sidebar */
+.lp-status-dot-live {
+  background-color: var(--connected);
+}
+
+/* ─── Profile text ────────────────────────────────── */
+
+.lp-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.lp-profile-name {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);    /* 13px */
+  font-weight: var(--fw-medium); /* 500 */
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.lp-profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* host:port in mono — middle-ellipsis done in JS, CSS just clips */
+.lp-profile-host {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);     /* 11px */
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* "N credentials" badge */
+.lp-credential-badge {
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Actions area ────────────────────────────────── */
+
+.lp-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  /* Hidden by default; connect btn always visible, overflow hidden until hover */
+}
+
+/* Connect button — always visible */
+.lp-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 5px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    opacity var(--transition-fast);
+  color: var(--text-muted);
+}
+
+.lp-action-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised-2);
+}
+
+.lp-action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Connect: accent-colored play button, distinct from overflow */
+.lp-action-btn-connect {
+  color: var(--text-secondary);
+}
+
+.lp-action-btn-connect:hover {
+  color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+/* "Add session" variant (already connected) */
+.lp-action-btn-add {
+  color: var(--text-muted);
+}
+
+.lp-action-btn-add:hover {
+  color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
+/* Overflow ··· — hidden until row hover, revealed via opacity + translateX */
+.lp-action-btn-overflow {
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast),
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+  color: var(--text-faint);
+  font-size: var(--fs-meta);
+  letter-spacing: 0.06em;
+}
+
+.lp-profile-row:hover .lp-action-btn-overflow,
+.lp-profile-row-focused .lp-action-btn-overflow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Override: keep overflow visible when its menu is open */
+.lp-overflow-wrapper:focus-within .lp-action-btn-overflow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.lp-overflow-dots {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+
+/* Overflow dropdown menu */
+.lp-overflow-wrapper {
+  position: relative;
+}
+
+.lp-overflow-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 130px;
+  padding: 4px;
+  background-color: var(--bg-dialog);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+}
+
+.lp-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--fs-meta);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.lp-overflow-item:hover {
+  background-color: var(--bg-raised);
+}
+
+.lp-overflow-item-danger {
+  color: var(--danger);
+}
+
+.lp-overflow-item-danger:hover {
+  background-color: var(--error-wash);
+  color: var(--danger);
+}
+
+/* ─── Elapsed time for live sessions ─────────────── */
+.lp-elapsed {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  padding-right: 2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Connecting spinner (replaces old sidebar-btn-spinner) */
+.lp-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid transparent;
+  border-top-color: var(--connecting);
+  border-radius: 50%;
+  animation: lp-spin 0.7s linear infinite;
+}
+
+@keyframes lp-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-spinner {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ─── Drag handle ────────────────────────────────── */
+.lp-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  padding: 4px 0;
+  touch-action: none;
+}
+
+.lp-drag-handle:active {
+  cursor: grabbing;
+}
+
+.lp-profile-row:hover .lp-drag-handle {
+  opacity: 0.35;
+}
+
+.lp-drag-handle:hover {
+  opacity: 0.8 !important;
+}
+
+.lp-drag-dots {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 6px;
+}
+
+.lp-drag-dots::before,
+.lp-drag-dots::after {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 2px;
+  background: var(--text-faint);
+  border-radius: 1px;
+}
+
+.lp-drag-dots::before {
+  box-shadow: 0 4px 0 var(--text-faint);
+}
+
+/* ─── Connect wrapper ────────────────────────────── */
+.lp-connect-wrapper {
+  position: relative;
+}
+
+/* ═══════════════════════════════════════════════════
+   LAMPLIGHT — Profile List & Groups
+   ═══════════════════════════════════════════════════ */
+
+/* The outermost list container — focusable for keyboard nav */
+.lp-profile-list {
+  position: relative;
+  padding: 0 6px 8px;
+  outline: none; /* custom focus handled by bar */
+}
+
+.lp-profile-list:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+  border-radius: var(--radius-md);
+}
+
+/* Group container — adds gap BETWEEN groups (16px), 8px to first row */
+.lp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lp-group-gap {
+  margin-top: 16px;
+}
+
+/* Group header eyebrow */
+.lp-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  margin-bottom: 8px;
+  height: 22px;
+  user-select: none;
+}
+
+.lp-group-label {
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);       /* 11px */
+  font-weight: var(--fw-medium);   /* 500 */
+  letter-spacing: var(--tracking-eyebrow); /* 0.08em */
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lp-group-count {
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
+  color: var(--text-faint);
+}
+
+/* ═══════════════════════════════════════════════════
+   LAMPLIGHT — Welcome / Empty State (Launchpad)
+   ═══════════════════════════════════════════════════ */
+
+.lp-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background-color: var(--bg-base);
+}
+
+/* Centered ~380px column */
+.lp-welcome-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 380px;
+  max-width: 90vw;
+  text-align: center;
+}
+
+/* Server glyph — text-faint strokes, one copper highlight */
+.lp-welcome-glyph {
+  color: var(--text-faint);
+  margin-bottom: 24px;
+  flex-shrink: 0;
+}
+
+/* Copper highlight circle inside the glyph */
+.lp-glyph-accent {
+  fill: var(--accent);
+}
+
+/* Display headline — --fs-display / --fw-semibold */
+.lp-welcome-headline {
+  font-family: var(--font-sans);
+  font-size: var(--fs-display);    /* 25px */
+  font-weight: var(--fw-semibold); /* 600 */
+  color: var(--text-primary);
+  line-height: var(--lh-tight);
+  margin-bottom: 10px;
+}
+
+/* Subline — --fs-body / --text-secondary */
+.lp-welcome-subline {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+  line-height: var(--lh-body);
+  margin-bottom: 24px;
+}
+
+/* Primary CTA — copper fill, --accent-on text */
+.lp-welcome-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  background-color: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+  margin-bottom: 12px;
+}
+
+.lp-welcome-cta:hover {
+  background-color: var(--accent-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.lp-welcome-cta:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-welcome-cta {
+    transition: background-color var(--transition-fast);
+  }
+  .lp-welcome-cta:hover {
+    transform: none;
+  }
+}
+
+/* Keyboard hint — mono, --text-muted */
+.lp-welcome-hint {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  margin-bottom: 32px;
+}
+
+/* Error inline */
+.lp-welcome-error {
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  color: var(--danger);
+  background-color: var(--error-wash);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  margin-bottom: 16px;
+}
+
+/* Connecting inline progress row */
+.lp-welcome-connecting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background-color: var(--accent-wash);
+  box-shadow: var(--lit-edge);
+}
+
+.lp-connecting-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--connecting);
+  flex-shrink: 0;
+  animation: lp-dot-pulse 1.6s var(--ease-out-soft) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-connecting-dot {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+.lp-connecting-label {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.lp-connecting-cancel {
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.lp-connecting-cancel:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-raised);
+}
+
+/* ─── Recent list ────────────────────────────────── */
+.lp-recent {
+  width: 100%;
+  text-align: left;
+}
+
+.lp-recent-header {
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+
+.lp-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lp-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.lp-recent-row:last-child {
+  border-bottom: none;
+}
+
+.lp-recent-row:hover {
+  background-color: var(--bg-raised);
+}
+
+.lp-recent-name {
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 80px;
+}
+
+.lp-recent-host {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lp-recent-age {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* ─── LAMPLIGHT sidebar-specific overrides ─────────
+   Keep the existing .sidebar-* rules intact;
+   these override only the values that changed.     */
+
+/* Warm scrollbar instead of cool gray */
+.sidebar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(99, 92, 87, 0.25); /* --text-faint warm equivalent */
+}
+
+/* Search input focus ring: warm amber, not blue */
+.sidebar-search-input:focus {
+  border-color: var(--accent);
+  background-color: var(--bg-raised);
+  box-shadow: 0 0 0 3px oklch(0.760 0.130 var(--hue-accent) / 0.15);
+}
+
+/* Primary action button: warm copper, not blue */
+.sidebar-action-btn-primary {
+  background-color: var(--accent-wash) !important;
+  color: var(--accent) !important;
+  border-color: oklch(0.760 0.130 var(--hue-accent) / 0.35) !important;
+}
+
+.sidebar-action-btn-primary:hover {
+  background-color: oklch(0.350 0.060 var(--hue-accent)) !important;
+  border-color: var(--accent) !important;
+}
+
+
+/* Status indicators: update glow colors to warm tokens */
+.indicator-success {
+  background-color: var(--connected);
+  /* warm jade glow, not neon green */
+  box-shadow: 0 0 6px oklch(0.760 0.110 var(--hue-live) / 0.45);
+}
+
+.indicator-warning {
+  background-color: var(--connecting);
+  box-shadow: 0 0 6px oklch(0.760 0.130 var(--hue-accent) / 0.35);
+}
+
+.indicator-error {
+  background-color: var(--danger);
+  box-shadow: 0 0 6px oklch(0.640 0.150 var(--hue-error) / 0.35);
+}
+
+.indicator-muted {
+  background-color: var(--text-faint);
+  opacity: 0.6;
 }
 
 .placeholder {
@@ -1291,12 +2170,12 @@ body {
 
 .btn-primary {
   background-color: var(--accent-emphasis);
-  color: #ffffff;
+  color: var(--accent-on);
   border-color: rgba(240, 246, 252, 0.1);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #388bfd;
+  background-color: var(--accent-strong);
 }
 
 .btn-secondary {
@@ -1313,12 +2192,12 @@ body {
 
 .btn-danger {
   background-color: var(--danger);
-  color: #ffffff;
-  border-color: rgba(248, 81, 73, 0.4);
+  color: var(--accent-on);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: #da3633;
+  background-color: var(--error);
 }
 
 .btn-ghost {
@@ -1563,7 +2442,7 @@ dialog::backdrop {
 }
 
 .hk-modal-danger {
-  border-color: rgba(248, 81, 73, 0.3);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .hk-modal-warning {
@@ -1640,7 +2519,7 @@ dialog::backdrop {
   margin: 16px 24px 0;
   padding: 12px 14px;
   background-color: var(--danger-subtle);
-  border: 1px solid rgba(248, 81, 73, 0.25);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   border-radius: var(--radius-md);
 }
 
@@ -1689,6 +2568,42 @@ dialog::backdrop {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* ─── MFA (keyboard-interactive) challenge ─── */
+
+.hk-mfa-instruction {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hk-mfa-prompt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hk-mfa-prompt-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hk-mfa-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.hk-mfa-input:focus {
+  border-color: var(--accent);
 }
 
 /* ─── Info card ─── */
@@ -1857,13 +2772,13 @@ dialog::backdrop {
 .hk-btn-primary {
   padding: 8px 20px;
   background-color: var(--accent-emphasis);
-  color: #ffffff;
+  color: var(--accent-on);
   border: 1px solid rgba(240, 246, 252, 0.1);
 }
 
 .hk-btn-primary:hover {
-  background-color: #388bfd;
-  box-shadow: 0 2px 8px rgba(56, 139, 253, 0.3);
+  background-color: var(--accent-strong);
+  box-shadow: 0 2px 8px oklch(0.760 0.130 64 / 0.30);
 }
 
 .hk-btn-ghost {
@@ -1896,12 +2811,12 @@ dialog::backdrop {
   padding: 8px 16px;
   background: none;
   color: var(--danger);
-  border: 1px solid rgba(248, 81, 73, 0.3);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .hk-btn-danger-outline:hover {
   background-color: var(--danger-subtle);
-  border-color: rgba(248, 81, 73, 0.5);
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
 }
 
 /* ─── Auth Prompt (legacy — kept for compat) ──────── */
@@ -2089,7 +3004,7 @@ dialog::backdrop {
 
 .cd-toggle-on .cd-toggle-thumb {
   transform: translateX(16px);
-  background-color: #ffffff;
+  background-color: var(--accent-on);
 }
 
 .cd-toggle-label {
@@ -2107,7 +3022,7 @@ dialog::backdrop {
   font-size: 12px;
   color: var(--danger);
   background-color: var(--danger-subtle);
-  border: 1px solid rgba(248, 81, 73, 0.2);
+  border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
   border-radius: var(--radius-md);
   margin-bottom: 4px;
   line-height: 1.5;
@@ -2137,7 +3052,7 @@ dialog::backdrop {
   color: var(--danger);
   font-size: 12px;
   padding: 6px 8px;
-  background: rgba(255, 59, 48, 0.08);
+  background: var(--error-wash);
   border-radius: 4px;
   margin-top: 8px;
 }
@@ -2158,6 +3073,73 @@ dialog::backdrop {
   background-color: var(--bg-hover);
   color: var(--text-secondary);
   vertical-align: middle;
+}
+
+/* ─── Startup Commands (in connection dialog + preview dialog) ──── */
+
+.cd-startup-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.cd-startup-textarea:focus-visible {
+  border-color: var(--hairline-strong);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.startup-subtitle {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+.startup-command-list {
+  list-style: decimal;
+  padding-left: 20px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.startup-command-item code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  background: var(--bg-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  color: var(--text-primary);
+}
+
+.cd-header-subtitle {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Visually hidden helper (accessible label for textarea) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ─── User Card (in connection dialog) ──────────── */
@@ -2214,6 +3196,12 @@ dialog::backdrop {
 
 .cd-user-row-input-error {
   border-color: var(--danger);
+}
+
+.cd-auth-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 .cd-user-row-auth {
@@ -2978,7 +3966,7 @@ dialog::backdrop {
 }
 
 .sftp-row-selected .sftp-file-name {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .sftp-row-selected .sftp-col-size,
@@ -3372,7 +4360,7 @@ dialog::backdrop {
   align-items: center;
   justify-content: center;
   background-color: var(--accent-emphasis);
-  color: #ffffff;
+  color: var(--accent-on);
   font-size: 10px;
   font-weight: 700;
   min-width: 18px;
@@ -4527,10 +5515,10 @@ dialog::backdrop {
   font-weight: 500;
   user-select: none;
   padding: 24px 32px;
-  background-color: rgba(13, 17, 23, 0.7);
+  background-color: var(--bg-overlay);
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(88, 166, 255, 0.2);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid oklch(0.760 0.130 64 / 0.20);
+  box-shadow: var(--shadow-md);
 }
 
 .sftp-drop-overlay-content svg {
@@ -4752,21 +5740,21 @@ dialog::backdrop {
 .statusbar-update-badge {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   background: none;
-  border: 1px solid var(--accent-subtle);
-  border-radius: 3px;
+  border: 1px solid var(--accent-wash);
+  border-radius: var(--radius-sm);
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
   padding: 1px 6px;
   cursor: pointer;
-  letter-spacing: 0.3px;
-  transition: background-color 0.15s, border-color 0.15s;
+  letter-spacing: 0.02em;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .statusbar-update-badge:hover {
-  background-color: var(--accent-subtle);
+  background-color: var(--accent-wash);
   border-color: var(--accent);
 }
 
@@ -4786,14 +5774,14 @@ dialog::backdrop {
 /* ─── StatusBar Help Button ────────────────────────── */
 
 .statusbar-help-btn {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   background: none;
-  color: var(--text-tertiary);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
   font-family: var(--font-sans);
   cursor: pointer;
   display: flex;
@@ -4801,13 +5789,13 @@ dialog::backdrop {
   justify-content: center;
   padding: 0;
   line-height: 1;
-  transition: color var(--transition-fast), border-color var(--transition-fast), background-color var(--transition-fast);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .statusbar-help-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-emphasis);
-  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ─── Onboarding Tour ──────────────────────────────── */
@@ -4896,7 +5884,7 @@ dialog::backdrop {
 .tour-tooltip-btn-primary {
   background: var(--accent-emphasis);
   border-color: var(--accent-emphasis);
-  color: #fff;
+  color: var(--accent-on);
 }
 
 .tour-tooltip-btn-primary:hover {

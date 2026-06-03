@@ -10,7 +10,7 @@ interface StatusBarProps {
 
 export function StatusBar({ onStartTour }: StatusBarProps) {
   const { t, locale, setLocale } = useI18n();
-  const { sessions } = useSessionStore();
+  const { sessions, activeSessionId } = useSessionStore();
   const { status, isCritical } = useUpdateStore();
 
   // Show badge when user dismissed a normal update
@@ -25,8 +25,15 @@ export function StatusBar({ onStartTour }: StatusBarProps) {
     0,
   );
 
+  // Active session target: host@username (right-side info)
+  const activeSession = activeSessionId ? sessions.get(activeSessionId) : null;
+  const activeTarget =
+    activeSession && activeSession.state === "connected"
+      ? `${activeSession.host}@${activeSession.username}`
+      : null;
+
   const toggleLocale = () => {
-    setLocale(locale === "en" ? "es" : "en" as Locale);
+    setLocale(locale === "en" ? "es" : ("en" as Locale));
   };
 
   const handleUpdateBadgeClick = () => {
@@ -36,43 +43,69 @@ export function StatusBar({ onStartTour }: StatusBarProps) {
 
   return (
     <footer className="statusbar">
-      <span className="statusbar-item">
-        {connectedCount !== 1
-          ? t("status.connections", { count: connectedCount })
-          : t("status.connection", { count: connectedCount })}
-      </span>
-      <span className="statusbar-item">
-        {totalTerminals !== 1
-          ? t("status.terminals", { count: totalTerminals })
-          : t("status.terminal", { count: totalTerminals })}
-      </span>
-      <div className="statusbar-spacer" />
-      {showUpdateBadge && (
+      {/* ── Left cluster: live count + terminal count ── */}
+      <div className="statusbar-cluster statusbar-cluster-left">
+        <span className="statusbar-item">
+          {/* Jade dot signals live connections — color is reinforcing, text is the load-bearing signal */}
+          <span
+            className="statusbar-dot statusbar-dot-live"
+            aria-hidden="true"
+          />
+          {connectedCount !== 1
+            ? t("status.connections", { count: connectedCount })
+            : t("status.connection", { count: connectedCount })}
+        </span>
+        <span className="statusbar-item">
+          {/* Terminal glyph — decorative, aria-hidden */}
+          <span className="statusbar-glyph" aria-hidden="true">
+            ▣
+          </span>
+          {totalTerminals !== 1
+            ? t("status.terminals", { count: totalTerminals })
+            : t("status.terminal", { count: totalTerminals })}
+        </span>
+      </div>
+
+      {/* ── Hairline divider ── */}
+      <div className="statusbar-divider" aria-hidden="true" />
+
+      {/* ── Right cluster: active target + update badge + help + lang ── */}
+      <div className="statusbar-cluster statusbar-cluster-right">
+        {activeTarget && (
+          <span className="statusbar-target" title={activeTarget}>
+            {activeTarget}
+          </span>
+        )}
+
+        {showUpdateBadge && (
+          <button
+            className="statusbar-update-badge"
+            onClick={handleUpdateBadgeClick}
+            title={t("update.statusBadge")}
+          >
+            <span className="statusbar-update-dot" />
+            {t("update.statusBadge")}
+          </button>
+        )}
+
+        {onStartTour && (
+          <button
+            className="statusbar-help-btn"
+            onClick={onStartTour}
+            title={t("tour.helpButton")}
+          >
+            ?
+          </button>
+        )}
+
         <button
-          className="statusbar-update-badge"
-          onClick={handleUpdateBadgeClick}
-          title={t("update.statusBadge")}
+          className="statusbar-lang-toggle"
+          onClick={toggleLocale}
+          title={t("settings.language")}
         >
-          <span className="statusbar-update-dot" />
-          {t("update.statusBadge")}
+          {t(`settings.${locale}`)}
         </button>
-      )}
-      {onStartTour && (
-        <button
-          className="statusbar-help-btn"
-          onClick={onStartTour}
-          title={t("tour.helpButton")}
-        >
-          ?
-        </button>
-      )}
-      <button
-        className="statusbar-lang-toggle"
-        onClick={toggleLocale}
-        title={t("settings.language")}
-      >
-        {t(`settings.${locale}`)}
-      </button>
+      </div>
     </footer>
   );
 }

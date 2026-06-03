@@ -83,30 +83,16 @@ pub async fn create_tunnel(
                 .get_mut(&session_id)
                 .ok_or(AppError::SessionNotFound(session_id))?;
 
-            let ssh_mut = session
-                .ssh_handle
-                .as_mut()
-                .ok_or(AppError::NotConnected)?;
+            let ssh_mut = session.ssh_handle.as_mut().ok_or(AppError::NotConnected)?;
 
-            let registry = session
-                .remote_forward_registry
-                .clone()
-                .ok_or_else(|| {
-                    AppError::TunnelError(
-                        "Remote forward registry not available".to_string(),
-                    )
-                })?;
+            let registry = session.remote_forward_registry.clone().ok_or_else(|| {
+                AppError::TunnelError("Remote forward registry not available".to_string())
+            })?;
 
             let session_cancel = session.cancel_token.clone();
 
-            tunnel::start_remote_forward(
-                ssh_mut,
-                &config,
-                session_cancel,
-                registry,
-                on_event,
-            )
-            .await?
+            tunnel::start_remote_forward(ssh_mut, &config, session_cancel, registry, on_event)
+                .await?
         }
     };
 
@@ -194,30 +180,16 @@ pub async fn start_tunnel(
                 .get_mut(&session_id)
                 .ok_or(AppError::SessionNotFound(session_id))?;
 
-            let ssh_mut = session
-                .ssh_handle
-                .as_mut()
-                .ok_or(AppError::NotConnected)?;
+            let ssh_mut = session.ssh_handle.as_mut().ok_or(AppError::NotConnected)?;
 
-            let registry = session
-                .remote_forward_registry
-                .clone()
-                .ok_or_else(|| {
-                    AppError::TunnelError(
-                        "Remote forward registry not available".to_string(),
-                    )
-                })?;
+            let registry = session.remote_forward_registry.clone().ok_or_else(|| {
+                AppError::TunnelError("Remote forward registry not available".to_string())
+            })?;
 
             let session_cancel = session.cancel_token.clone();
 
-            tunnel::start_remote_forward(
-                ssh_mut,
-                &config,
-                session_cancel,
-                registry,
-                on_event,
-            )
-            .await?
+            tunnel::start_remote_forward(ssh_mut, &config, session_cancel, registry, on_event)
+                .await?
         }
     };
 
@@ -267,15 +239,11 @@ pub async fn stop_tunnel(
         if let Some(ssh_handle) = session.ssh_handle.as_ref() {
             let addr = &handle.config.bind_host;
             let port = handle.config.bind_port as u32;
-            tracing::debug!(
-                "Tunnel {tunnel_id}: sending cancel_tcpip_forward for {addr}:{port}"
-            );
+            tracing::debug!("Tunnel {tunnel_id}: sending cancel_tcpip_forward for {addr}:{port}");
             if let Err(e) = ssh_handle.cancel_tcpip_forward(addr, port).await {
                 // Log but don't fail — the tunnel stop should proceed regardless.
                 // The server may already be disconnected.
-                tracing::warn!(
-                    "Tunnel {tunnel_id}: cancel_tcpip_forward failed (non-fatal): {e}"
-                );
+                tracing::warn!("Tunnel {tunnel_id}: cancel_tcpip_forward failed (non-fatal): {e}");
             }
         }
     }
@@ -312,9 +280,7 @@ pub async fn remove_tunnel(
             let addr = &handle.config.bind_host;
             let port = handle.config.bind_port as u32;
             if let Err(e) = ssh_handle.cancel_tcpip_forward(addr, port).await {
-                tracing::warn!(
-                    "Tunnel {tunnel_id}: cancel_tcpip_forward failed (non-fatal): {e}"
-                );
+                tracing::warn!("Tunnel {tunnel_id}: cancel_tcpip_forward failed (non-fatal): {e}");
             }
         }
     }
@@ -322,11 +288,7 @@ pub async fn remove_tunnel(
     // Stop if still running
     tunnel::stop_tunnel(&mut handle);
 
-    tracing::info!(
-        "Tunnel {} removed from session {}",
-        tunnel_id,
-        session_id
-    );
+    tracing::info!("Tunnel {} removed from session {}", tunnel_id, session_id);
 
     Ok(())
 }

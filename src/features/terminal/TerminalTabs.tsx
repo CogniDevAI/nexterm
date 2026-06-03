@@ -3,7 +3,7 @@
 // Shows tab bar for multiple terminal channels on the same session.
 // Each tab wraps a TerminalView that stays alive when hidden (not destroyed).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSessionStore, type TerminalTab } from "../../stores/sessionStore";
 import { TerminalView } from "./TerminalView";
 import { useTerminal } from "./useTerminal";
@@ -30,15 +30,20 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
     useSessionStore();
   const { closeTerminal } = useTerminal();
 
+  // Read session — may be undefined after disconnect/session-switch.
+  // ALL hooks must run unconditionally before any early return so the
+  // hook count stays stable across renders (Rules of Hooks).
   const session = sessions.get(sessionId);
-  if (!session) return null;
 
-  const { terminals, activeTerminalId } = session;
+  // Null-safe derived values — used by hooks below
+  const terminals = session?.terminals ?? [];
+  const activeTerminalId = session?.activeTerminalId;
 
   // Connection info for the info bar
   const hostLabel = useMemo(
-    () => `${session.username}@${session.host}`,
-    [session.username, session.host],
+    () => (session ? `${session.username}@${session.host}` : ""),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session?.username, session?.host],
   );
 
   // Tick elapsed time every 30s
@@ -47,7 +52,7 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
     const interval = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(interval);
   }, []);
-  const elapsed = formatElapsed(session.connectedAt);
+  const elapsed = session ? formatElapsed(session.connectedAt) : "";
 
   // Derive next label number from existing labels to avoid gaps
   const getNextTerminalNumber = useCallback((): number => {
@@ -67,6 +72,7 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
   // destroying the xterm.js DOM container and leaving the screen blank.
   const autoCreatedRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!session) return;
     if (terminals.length === 0 && autoCreatedRef.current !== sessionId) {
       autoCreatedRef.current = sessionId;
       const stableKey = crypto.randomUUID();
@@ -78,7 +84,7 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
         reactKey: stableKey,
       });
     }
-  }, [terminals.length, sessionId, addTerminalTab]);
+  }, [session, terminals.length, sessionId, addTerminalTab]);
 
   const handleNewTab = useCallback(async () => {
     const nextNum = getNextTerminalNumber();
@@ -103,31 +109,78 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
   );
 
   const tabBarRef = useRef<HTMLDivElement>(null);
+  // Roving-tabindex refs so keyboard navigation can move DOM focus.
+  // Declared before the early return to keep the hook order stable.
+  const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // WAI-ARIA tabs keyboard pattern: ArrowLeft/Right move (no wrap),
+  // Home → first, End → last. Selection follows focus to match click behavior.
+  // Defined as a hook-free closure after the refs so it captures current values.
+  const handleTabKeyDown = useCallback(
+    (e: KeyboardEvent, index: number) => {
+      const move = (target: number) => {
+        const tab = terminals[target];
+        if (!tab) return;
+        e.preventDefault();
+        setActiveTerminal(sessionId, tab.id);
+        tabRefs.current[target]?.focus();
+      };
+      switch (e.key) {
+        case "ArrowRight":
+          move(Math.min(index + 1, terminals.length - 1));
+          break;
+        case "ArrowLeft":
+          move(Math.max(index - 1, 0));
+          break;
+        case "Home":
+          move(0);
+          break;
+        case "End":
+          move(terminals.length - 1);
+          break;
+      }
+    },
+    [terminals, sessionId, setActiveTerminal],
+  );
+
+  // All hooks have run — safe to early-return now
+  if (!session) return null;
 
   return (
     <div className="terminal-tabs">
       {/* Tab bar */}
       <div className="terminal-tabbar" ref={tabBarRef}>
-        <div className="terminal-tabbar-scroll">
-          {terminals.map((tab) => (
-            <div
-              key={tab.reactKey}
-              className={`terminal-tab ${tab.id === activeTerminalId ? "terminal-tab-active" : ""}`}
-              onClick={() => setActiveTerminal(sessionId, tab.id)}
-            >
-              <span className="terminal-tab-label">{tab.label}</span>
-              <button
-                className="terminal-tab-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleCloseTab(tab);
+        <div className="terminal-tabbar-scroll" role="tablist">
+          {terminals.map((tab, i) => {
+            const isActive = tab.id === activeTerminalId;
+            return (
+              <div
+                key={tab.reactKey}
+                ref={(el) => {
+                  tabRefs.current[i] = el;
                 }}
-                title={t("terminal.closeTab")}
+                role="tab"
+                aria-selected={isActive}
+                aria-label={tab.label}
+                tabIndex={isActive ? 0 : -1}
+                className={`terminal-tab ${isActive ? "terminal-tab-active" : ""}`}
+                onClick={() => setActiveTerminal(sessionId, tab.id)}
+                onKeyDown={(e) => handleTabKeyDown(e, i)}
               >
-                ×
-              </button>
-            </div>
-          ))}
+                <span className="terminal-tab-label">{tab.label}</span>
+                <button
+                  className="terminal-tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleCloseTab(tab);
+                  }}
+                  title={t("terminal.closeTab")}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
         <button
           className="terminal-tab-new"
