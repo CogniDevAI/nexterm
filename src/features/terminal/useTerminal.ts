@@ -28,6 +28,8 @@ import {
 } from "../history/lineBufferReducer";
 import { useCommandHistoryStore } from "../../stores/commandHistoryStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { usePaneLayoutStore } from "../../stores/paneLayoutStore";
+import { getBroadcastTargets } from "./broadcastUtils";
 
 /** Result of a search results update from the SearchAddon. */
 export interface SearchResults {
@@ -283,6 +285,12 @@ export function useTerminal() {
           terminalId,
           data: Array.from(bytes),
         });
+
+        // Broadcast fan-out: mirror keystrokes to all other live panes.
+        // Reads store at call time (not captured at open time) so toggle changes
+        // take effect immediately without reopening the terminal.
+        // SAFETY: source is excluded by getBroadcastTargets — no double-write.
+        _broadcastFanOut(sessionId, terminalId, Array.from(bytes));
       });
 
       // Handle binary data (e.g., from paste)
@@ -296,6 +304,12 @@ export function useTerminal() {
           terminalId,
           data: Array.from(bytes),
         });
+
+        // Broadcast fan-out for paste (onBinary) — same logic as onData.
+        // Critical: paste MUST get the same fan-out or pasted content is
+        // sent to the source pane only. getBroadcastTargets guarantees no
+        // double-write to source.
+        _broadcastFanOut(sessionId, terminalId, Array.from(bytes));
       });
 
       // Resize handler with debounce
@@ -603,6 +617,41 @@ export function _testSeedTerminalInstance(id: string, instance: TerminalInstance
  */
 export function _testGetFindBarOpener(terminalId: TerminalId): (() => void) | null {
   return terminalInstances.get(terminalId)?.callbackOnOpenFindBar ?? null;
+}
+
+/**
+ * Broadcast fan-out helper.
+ *
+ * Reads the paneLayoutStore and sessionStore at call time to get the current
+ * broadcastEnabled state and session connection state. This deliberately avoids
+ * closure-capture so toggling broadcast takes effect on the very next keystroke.
+ *
+ * SAFETY INVARIANTS (enforced here and by getBroadcastTargets):
+ * 1. Source pane is never written a second time (excluded by getBroadcastTargets).
+ * 2. Pending slots (null or "pending-*" terminalIds) are excluded.
+ * 3. Only fires when session is "connected" string state.
+ * 4. write_terminal errors are silently ignored (void) — target PTY closing
+ *    mid-broadcast is handled gracefully by Rust; the pane shows PTY-closed msg.
+ */
+function _broadcastFanOut(
+  sessionId: SessionId,
+  sourceTerminalId: TerminalId,
+  bytes: number[],
+): void {
+  const layout = usePaneLayoutStore.getState().layouts[sessionId];
+  if (!layout?.broadcastEnabled) return;
+
+  const session = useSessionStore.getState().sessions.get(sessionId);
+  const sessionState = session?.state ?? "disconnected";
+
+  const targets = getBroadcastTargets(layout.slots, sourceTerminalId, sessionState);
+  for (const targetId of targets) {
+    void tauriInvoke<void>("write_terminal", {
+      sessionId,
+      terminalId: targetId,
+      data: bytes,
+    });
+  }
 }
 
 /**
