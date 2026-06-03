@@ -42,44 +42,36 @@ describe("workspaceStore — panelSection + panelOpen", () => {
   });
 
   it("setPanelSection sets the panelSection field", () => {
-    const ws = useWorkspaceStore
-      .getState()
-      .getOrCreateWorkspace("profile-1", "user-1");
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
     const key = buildWorkspaceKey("profile-1", "user-1");
     useWorkspaceStore.getState().setPanelSection(key, "sftp");
-    const updated = useWorkspaceStore.getState().workspaces[key];
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
     expect(updated.panelSection).toBe("sftp");
   });
 
   it("setPanelSection accepts null to close panel section", () => {
-    const ws = useWorkspaceStore
-      .getState()
-      .getOrCreateWorkspace("profile-1", "user-1");
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
     const key = buildWorkspaceKey("profile-1", "user-1");
     useWorkspaceStore.getState().setPanelSection(key, "sftp");
     useWorkspaceStore.getState().setPanelSection(key, null);
-    const updated = useWorkspaceStore.getState().workspaces[key];
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
     expect(updated.panelSection).toBeNull();
   });
 
   it("setPanelOpen sets panelOpen field", () => {
-    const ws = useWorkspaceStore
-      .getState()
-      .getOrCreateWorkspace("profile-1", "user-1");
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
     const key = buildWorkspaceKey("profile-1", "user-1");
     useWorkspaceStore.getState().setPanelOpen(key, true);
-    const updated = useWorkspaceStore.getState().workspaces[key];
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
     expect(updated.panelOpen).toBe(true);
   });
 
   it("setPanelOpen to false closes the panel", () => {
-    const ws = useWorkspaceStore
-      .getState()
-      .getOrCreateWorkspace("profile-1", "user-1");
+    useWorkspaceStore.getState().getOrCreateWorkspace("profile-1", "user-1");
     const key = buildWorkspaceKey("profile-1", "user-1");
     useWorkspaceStore.getState().setPanelOpen(key, true);
     useWorkspaceStore.getState().setPanelOpen(key, false);
-    const updated = useWorkspaceStore.getState().workspaces[key];
+    const updated = useWorkspaceStore.getState().workspaces[key]!;
     expect(updated.panelOpen).toBe(false);
   });
 

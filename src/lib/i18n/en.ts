@@ -153,6 +153,13 @@ export const en = {
   "tabbar.sftp": "SFTP",
   "tabbar.tunnels": "Tunnels",
 
+  // Side panel
+  "panel.sftp": "Files",
+  "panel.tunnels": "Tunnels",
+  "panel.close": "Close panel",
+  "panel.open": "Open panel",
+  "panel.region": "Session panel",
+
   // Terminal
   "terminal.newTab": "New terminal",
   "terminal.closeTab": "Close terminal",

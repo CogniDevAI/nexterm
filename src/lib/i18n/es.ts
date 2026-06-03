@@ -155,6 +155,13 @@ export const es: Record<TranslationKey, string> = {
   "tabbar.sftp": "SFTP",
   "tabbar.tunnels": "Túneles",
 
+  // Side panel
+  "panel.sftp": "Archivos",
+  "panel.tunnels": "Túneles",
+  "panel.close": "Cerrar panel",
+  "panel.open": "Abrir panel",
+  "panel.region": "Panel de sesión",
+
   // Terminal
   "terminal.newTab": "Nueva terminal",
   "terminal.closeTab": "Cerrar terminal",
