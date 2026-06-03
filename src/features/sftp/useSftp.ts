@@ -510,7 +510,7 @@ export function useSftp(sessionId: SessionId, options?: UseSftpOptions) {
   );
 
   const downloadFolder = useCallback(
-    async (remotePath: string, localPath: string) => {
+    async (remotePath: string, localPath: string, conflictPolicy?: string) => {
       const channel = new Channel<TransferEvent>();
 
       channel.onmessage = (message) => {
@@ -547,6 +547,7 @@ export function useSftp(sessionId: SessionId, options?: UseSftpOptions) {
         remotePath,
         localPath,
         onProgress: channel,
+        conflictPolicy: conflictPolicy ?? null,
       });
     },
     [sessionId, addTransfer, updateProgress, completeTransfer, failTransfer, refreshLocal],
