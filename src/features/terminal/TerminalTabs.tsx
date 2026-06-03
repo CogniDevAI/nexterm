@@ -2,9 +2,25 @@
 //
 // Shows tab bar for multiple terminal channels on the same session.
 // Each tab wraps a TerminalView that stays alive when hidden (not destroyed).
+//
+// Rendering model (v2 — correct):
+//   Panes are a VIEW over the existing session tabs.
+//   - Single-pane (slots <= 1): render ALL tabs via TerminalView with isSplitPane=false.
+//     Active tab is display:block, inactive tabs display:none. Pane layout is ignored.
+//     This is IDENTICAL to pre-split behavior and restores multi-tab behavior.
+//   - Multi-pane (slots >= 2): render PaneSplitView, each slot maps to one terminal.
+//
+// Split reconciliation:
+//   - "+" new tab: adds a tab only (does NOT add a slot). Single-pane mode shows it.
+//   - Split button: adds a new terminal + slot. Layout switches to multi-pane.
+//   - Close TAB (× in tab bar): removes tab + if slot found → removes slot too.
+//     When slots drop below 2, view returns to single-pane automatically.
+//   - Close PANE (× on each pane): removes slot only (tab stays alive). Non-destructive.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSessionStore, type TerminalTab } from "../../stores/sessionStore";
+import { usePaneLayoutStore, MAX_PANE_COUNT } from "../../stores/paneLayoutStore";
+import { PaneSplitView } from "./PaneSplitView";
 import { TerminalView } from "./TerminalView";
 import { useTerminal } from "./useTerminal";
 import { useI18n } from "../../lib/i18n";
@@ -30,6 +46,15 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
   const { sessions, addTerminalTab, removeTerminalTab, replaceTerminalTab, setActiveTerminal } =
     useSessionStore();
   const { closeTerminal } = useTerminal();
+  const {
+    openLayout,
+    removeLayout,
+    splitSlot,
+    closeSlot,
+    assignTerminal,
+    setDirection,
+    layouts: paneLayouts,
+  } = usePaneLayoutStore();
 
   // Read session — may be undefined after disconnect/session-switch.
   // ALL hooks must run unconditionally before any early return so the
@@ -39,6 +64,8 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
   // Null-safe derived values — used by hooks below
   const terminals = session?.terminals ?? [];
   const activeTerminalId = session?.activeTerminalId;
+  const paneLayout = paneLayouts[sessionId];
+  const paneCount = paneLayout?.slots.length ?? 0;
 
   // Connection info for the info bar
   const hostLabel = useMemo(
@@ -87,6 +114,28 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
     }
   }, [session, terminals.length, sessionId, addTerminalTab]);
 
+  // Initialize pane layout once the first terminal is present.
+  // This runs after the auto-create effect above, so by the time we look up
+  // terminals[0] it will be the pending tab that was just added.
+  useEffect(() => {
+    if (!session) return;
+    const firstTab = terminals[0];
+    if (!firstTab) return;
+    if (paneLayouts[sessionId]) return; // already initialized
+
+    // Use the current terminalId (or null for pending tabs — assignTerminal
+    // will update it when the xterm opens via the onTerminalOpened callback).
+    const initialTerminalId = firstTab.id.startsWith("pending-") ? null : firstTab.id;
+    openLayout(sessionId, initialTerminalId ?? firstTab.id);
+  }, [session, terminals, sessionId, paneLayouts, openLayout]);
+
+  // Remove the pane layout when this component unmounts (session closed / navigated away)
+  useEffect(() => {
+    return () => {
+      removeLayout(sessionId);
+    };
+  }, [sessionId, removeLayout]);
+
   const handleNewTab = useCallback(async () => {
     const nextNum = getNextTerminalNumber();
     const stableKey = crypto.randomUUID();
@@ -105,8 +154,98 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
         await closeTerminal(tab.id, sessionId);
       }
       removeTerminalTab(sessionId, tab.id);
+      // If this tab was assigned to a pane slot, remove that slot too.
+      // This keeps the pane layout and tab list in sync.
+      // When slots drop below 2 the view returns to single-pane mode automatically.
+      const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+      if (currentLayout) {
+        const matchingSlot = currentLayout.slots.find((s) => s.terminalId === tab.id);
+        if (matchingSlot && currentLayout.slots.length > 1) {
+          closeSlot(sessionId, matchingSlot.id);
+        }
+      }
     },
-    [sessionId, closeTerminal, removeTerminalTab],
+    [sessionId, closeTerminal, removeTerminalTab, closeSlot],
+  );
+
+  // Split the active pane: add a new pending tab AND a new pane slot.
+  const handleSplit = useCallback(async () => {
+    const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+    if (!currentLayout) return;
+    if (currentLayout.slots.length >= MAX_PANE_COUNT) return;
+
+    // Find the focused slot to split after
+    const focusedSlotId = currentLayout.focusedSlotId;
+
+    // Add a new pending terminal tab (mirrors handleNewTab)
+    const nextNum = getNextTerminalNumber();
+    const stableKey = crypto.randomUUID();
+    const pendingId = `pending-${stableKey}`;
+    addTerminalTab(sessionId, {
+      id: pendingId,
+      label: `Terminal ${nextNum}`,
+      sessionId,
+      reactKey: stableKey,
+    });
+
+    // Add a new pane slot in the layout
+    splitSlot(sessionId, focusedSlotId);
+
+    // Link the pending tab to the new slot (the last slot after split)
+    // assignTerminal will be called again when the real terminal opens via
+    // PaneSplitView's onTerminalOpened → but we pre-link with pending so
+    // PaneSplitView can render the TerminalView immediately
+    const newLayout = usePaneLayoutStore.getState().layouts[sessionId];
+    if (newLayout) {
+      const lastSlot = newLayout.slots[newLayout.slots.length - 1];
+      if (lastSlot) {
+        assignTerminal(sessionId, lastSlot.id, pendingId);
+      }
+    }
+  }, [sessionId, addTerminalTab, splitSlot, assignTerminal, getNextTerminalNumber]);
+
+  // Close a pane slot (non-destructive: removes the slot from the split view,
+  // keeps the terminal tab alive and reachable from the tab bar).
+  // When slots drop below 2, the view returns to single-pane mode automatically.
+  const handleClosePane = useCallback(
+    (slotId: string) => {
+      const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+      if (!currentLayout) return;
+      if (currentLayout.slots.length <= 1) return; // never remove the last slot
+      closeSlot(sessionId, slotId);
+    },
+    [sessionId, closeSlot],
+  );
+
+  // Toggle split direction between horizontal and vertical.
+  const handleDirectionToggle = useCallback(() => {
+    const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+    if (!currentLayout) return;
+    const next = currentLayout.direction === "horizontal" ? "vertical" : "horizontal";
+    setDirection(sessionId, next);
+  }, [sessionId, setDirection]);
+
+  // When a terminal opens via PaneSplitView, sync the slot's terminalId with the
+  // real (non-pending) ID. Also handle the tab replacement (M3 fix pattern).
+  const handlePaneSplitTerminalOpened = useCallback(
+    (slotId: string, realId: string) => {
+      // Find the pending tab that corresponds to this slot
+      const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+      const slot = currentLayout?.slots.find((s) => s.id === slotId);
+      if (slot?.terminalId?.startsWith("pending-")) {
+        replaceTerminalTab(sessionId, slot.terminalId, {
+          id: realId,
+          label:
+            sessions
+              .get(sessionId)
+              ?.terminals.find((t) => t.id === slot.terminalId)?.label ?? `Terminal`,
+          sessionId,
+          reactKey: slot.terminalId.replace("pending-", ""),
+        });
+        assignTerminal(sessionId, slotId, realId);
+      }
+    },
+    [sessionId, replaceTerminalTab, assignTerminal, sessions],
   );
 
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -190,6 +329,33 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
         >
           +
         </button>
+        <button
+          className="terminal-tab-split"
+          onClick={() => void handleSplit()}
+          title={t("terminal.splitHorizontal")}
+          disabled={paneCount >= MAX_PANE_COUNT}
+          aria-label={t("terminal.splitHorizontal")}
+        >
+          ⊟
+        </button>
+        {paneCount >= 2 && (
+          <button
+            className="terminal-tab-split-direction"
+            onClick={handleDirectionToggle}
+            title={
+              paneLayout?.direction === "horizontal"
+                ? t("terminal.splitVertical")
+                : t("terminal.splitHorizontal")
+            }
+            aria-label={
+              paneLayout?.direction === "horizontal"
+                ? t("terminal.splitVertical")
+                : t("terminal.splitHorizontal")
+            }
+          >
+            {paneLayout?.direction === "horizontal" ? "⊠" : "⊟"}
+          </button>
+        )}
         {onOpenSnippets && (
           <button
             className="terminal-tab-snippets"
@@ -216,34 +382,63 @@ export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
         </span>
       </div>
 
-      {/* Terminal views — hidden but alive when not active */}
+      {/* Terminal views — rendering mode depends on split state:
+          - Single-pane (slots <= 1 OR no layout): render ALL tabs via TerminalView
+            with isSplitPane=false → display:block/none active/inactive toggle.
+            This is IDENTICAL to pre-split behavior. The pane layout is IGNORED.
+          - Multi-pane (slots >= 2): render PaneSplitView over the slots.
+            Each slot maps to one TerminalView with isSplitPane=true. */}
       <div className="terminal-views">
         {terminals.length === 0 ? (
           <div className="terminal-empty">
             <span className="terminal-empty-icon">&#9002;</span>
             <span>{t("terminal.noTerminal")}</span>
           </div>
+        ) : paneCount >= 2 ? (
+          <PaneSplitView
+            sessionId={sessionId}
+            onTerminalOpened={handlePaneSplitTerminalOpened}
+            onClosePane={handleClosePane}
+          />
         ) : (
-          terminals.map((tab) => (
-            <TerminalView
-              key={tab.reactKey}
-              sessionId={sessionId}
-              terminalId={tab.id.startsWith("pending-") ? null : tab.id}
-              onTerminalOpened={(realId) => {
-                // M3 fix: Atomic tab replacement — single state update instead
-                // of remove+add which caused a visual flash and potential leak.
-                // reactKey is preserved so React doesn't remount the component.
-                if (tab.id.startsWith("pending-")) {
-                  replaceTerminalTab(sessionId, tab.id, {
-                    ...tab,
-                    id: realId,
-                    reactKey: tab.reactKey,
-                  });
-                }
-              }}
-              active={tab.id === activeTerminalId}
-            />
-          ))
+          // Single-pane mode: render all tabs, show only the active one.
+          // This preserves the multi-tab display:block/none behavior exactly
+          // and is NOT affected by the pane layout store at all.
+          terminals.map((tab) => {
+            const isActive = tab.id === activeTerminalId;
+            return (
+              <TerminalView
+                key={tab.reactKey}
+                sessionId={sessionId}
+                terminalId={tab.id.startsWith("pending-") ? null : tab.id}
+                onTerminalOpened={(realId) => {
+                  // Replace the pending tab entry with the real one
+                  if (tab.id.startsWith("pending-")) {
+                    replaceTerminalTab(sessionId, tab.id, {
+                      id: realId,
+                      label: tab.label,
+                      sessionId,
+                      reactKey: tab.reactKey,
+                    });
+                  }
+                  // Keep the pane layout slot[0] in sync with the first real terminal
+                  const currentLayout = usePaneLayoutStore.getState().layouts[sessionId];
+                  if (currentLayout) {
+                    const pendingSlot = currentLayout.slots.find(
+                      (s) => s.terminalId === tab.id || s.terminalId === null,
+                    );
+                    if (pendingSlot) {
+                      assignTerminal(sessionId, pendingSlot.id, realId);
+                    }
+                  }
+                  setActiveTerminal(sessionId, realId);
+                }}
+                active={isActive}
+                isSplitPane={false}
+                reactKey={tab.reactKey}
+              />
+            );
+          })
         )}
       </div>
     </div>

@@ -177,6 +177,9 @@ export const en = {
   "terminal.closeTab": "Close terminal",
   "terminal.connected": "Connected",
   "terminal.noTerminal": "No terminal open. Click + to create one.",
+  "terminal.splitHorizontal": "Split pane horizontally",
+  "terminal.splitVertical": "Split pane vertically",
+  "terminal.closePane": "Close pane",
 
   // Terminal find-bar
   "terminal.find.placeholder": "Search in terminal...",
