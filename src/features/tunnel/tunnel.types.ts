@@ -78,9 +78,13 @@ export function validateTunnelForm(data: TunnelFormData): TunnelFormErrors {
   if (bindHostErr) errors.bindHost = bindHostErr;
   const bindPortErr = validatePort(data.bindPort);
   if (bindPortErr) errors.bindPort = bindPortErr;
-  const targetHostErr = validateHost(data.targetHost);
-  if (targetHostErr) errors.targetHost = targetHostErr;
-  const targetPortErr = validatePort(data.targetPort);
-  if (targetPortErr) errors.targetPort = targetPortErr;
+  // Dynamic tunnels have no fixed target — the destination is resolved per-connection
+  // from the SOCKS5 CONNECT request, so target fields are not required.
+  if (data.tunnelType !== "dynamic") {
+    const targetHostErr = validateHost(data.targetHost);
+    if (targetHostErr) errors.targetHost = targetHostErr;
+    const targetPortErr = validatePort(data.targetPort);
+    if (targetPortErr) errors.targetPort = targetPortErr;
+  }
   return errors;
 }

@@ -99,7 +99,7 @@ export interface TunnelConfig {
   label?: string;
 }
 
-export type TunnelType = "local" | "remote";
+export type TunnelType = "local" | "remote" | "dynamic";
 
 export type TunnelState =
   | "stopped"
