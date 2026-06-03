@@ -12,6 +12,7 @@ import type { SessionId } from "../../lib/types";
 
 interface TerminalTabsProps {
   sessionId: SessionId;
+  onOpenSnippets?: () => void;
 }
 
 /** Format elapsed time since a timestamp into a human-readable string */
@@ -24,7 +25,7 @@ function formatElapsed(connectedAt: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export function TerminalTabs({ sessionId }: TerminalTabsProps) {
+export function TerminalTabs({ sessionId, onOpenSnippets }: TerminalTabsProps) {
   const { t } = useI18n();
   const { sessions, addTerminalTab, removeTerminalTab, replaceTerminalTab, setActiveTerminal } =
     useSessionStore();
@@ -189,6 +190,16 @@ export function TerminalTabs({ sessionId }: TerminalTabsProps) {
         >
           +
         </button>
+        {onOpenSnippets && (
+          <button
+            className="terminal-tab-snippets"
+            onClick={onOpenSnippets}
+            title={t("snippets.openSnippets")}
+            aria-label={t("snippets.openSnippets")}
+          >
+            §
+          </button>
+        )}
       </div>
 
       {/* Connection info bar */}

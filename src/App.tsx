@@ -3,6 +3,7 @@
 // Orchestrates: vault unlock, layout, connection dialogs, terminal + SFTP view routing
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type { Token } from "./features/snippets/snippetParser";
 import { AppLayout } from "./components/layout/AppLayout";
 import { TabBar } from "./components/layout/TabBar";
 import { ConnectionDialog } from "./features/connection/ConnectionDialog";
@@ -10,6 +11,15 @@ import { HostKeyDialog } from "./features/connection/HostKeyDialog";
 import { MfaChallengeDialog } from "./features/connection/MfaChallengeDialog";
 import { AuthPrompt } from "./features/connection/AuthPrompt";
 import { StartupCommandsDialog } from "./features/connection/StartupCommandsDialog";
+import { SnippetPickerModal } from "./features/snippets/SnippetPickerModal";
+import { SnippetVariableModal } from "./features/snippets/SnippetVariableModal";
+import type { InjectPayload } from "./features/snippets/SnippetVariableModal";
+import { SnippetManagerDialog } from "./features/snippets/SnippetManagerDialog";
+import { useSnippetStore } from "./stores/snippetStore";
+import type { Snippet } from "./stores/snippetStore";
+import { injectSnippet } from "./features/snippets/useSnippetInject";
+import { resolveSessionVars, DYNAMIC_VAR_NAMES } from "./features/snippets/resolveSessionVars";
+import { resolveTemplate } from "./features/snippets/snippetParser";
 import { VaultScreen } from "./features/vault/VaultScreen";
 import { UpdateDialog } from "./features/updater/UpdateDialog";
 import { CriticalUpdateScreen } from "./features/updater/CriticalUpdateScreen";
@@ -289,6 +299,15 @@ function App() {
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [editProfileId, setEditProfileId] = useState<string | null>(null);
 
+  // ── Snippet state ─────────────────────────────────────
+  const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
+  const [snippetManagerOpen, setSnippetManagerOpen] = useState(false);
+  const [snippetVarState, setSnippetVarState] = useState<{
+    snippet: Snippet;
+    variables: Token[];
+  } | null>(null);
+  const { snippets } = useSnippetStore((s) => ({ snippets: s.snippets }));
+
   const handleNewProfile = useCallback(() => {
     setEditProfileId(null);
     setShowProfileDialog(true);
@@ -318,6 +337,53 @@ function App() {
       void disconnect(sessionId);
     },
     [disconnect],
+  );
+
+  // ── Snippet handlers ──────────────────────────────────
+  const DYNAMIC_SET = useMemo(() => new Set<string>(DYNAMIC_VAR_NAMES), []);
+
+  const handleSnippetPick = useCallback(
+    (snippet: Snippet, variables: Token[]) => {
+      setSnippetPickerOpen(false);
+      const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
+      const sessionVars = resolveSessionVars(activeSession ?? null);
+
+      // Filter out dynamic vars that are already resolved from the session
+      const userVars = variables.filter(
+        (tok) => tok.kind === "variable" && !DYNAMIC_SET.has(tok.name),
+      );
+
+      if (userVars.length === 0) {
+        // No user-defined vars — inject directly using session-resolved values
+        const terminalId = activeSession?.activeTerminalId ?? null;
+        try {
+          const resolved = resolveTemplate(snippet.template, sessionVars);
+          void injectSnippet(
+            activeSessionId ?? "",
+            terminalId,
+            resolved,
+            "execute",
+          );
+        } catch {
+          // Missing required var — open variable modal as fallback
+          setSnippetVarState({ snippet, variables });
+        }
+      } else {
+        // Has user-defined vars — open variable modal
+        setSnippetVarState({ snippet, variables });
+      }
+    },
+    [activeSessionId, sessions, DYNAMIC_SET],
+  );
+
+  const handleSnippetInject = useCallback(
+    ({ resolvedCommand, mode }: InjectPayload) => {
+      const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
+      const terminalId = activeSession?.activeTerminalId ?? null;
+      void injectSnippet(activeSessionId ?? "", terminalId, resolvedCommand, mode);
+      setSnippetVarState(null);
+    },
+    [activeSessionId, sessions],
   );
 
   const activeSession = activeSessionId
@@ -362,7 +428,10 @@ function App() {
             <TabBar />
             <div className="session-content">
               {activeFeature === "terminal" && (
-                <TerminalTabs sessionId={activeSession.id} />
+                <TerminalTabs
+                  sessionId={activeSession.id}
+                  onOpenSnippets={() => setSnippetPickerOpen(true)}
+                />
               )}
               {activeFeature === "sftp" && (
                 <SftpBrowser sessionId={activeSession.id} />
@@ -435,6 +504,33 @@ function App() {
           clearStartupPreview();
         }}
         onCancel={clearStartupPreview}
+      />
+
+      {/* Snippet modals */}
+      <SnippetPickerModal
+        open={snippetPickerOpen}
+        snippets={snippets}
+        onPick={handleSnippetPick}
+        onManage={() => {
+          setSnippetPickerOpen(false);
+          setSnippetManagerOpen(true);
+        }}
+        onClose={() => setSnippetPickerOpen(false)}
+      />
+
+      <SnippetVariableModal
+        open={snippetVarState !== null}
+        template={snippetVarState?.snippet.template ?? ""}
+        variables={snippetVarState?.variables ?? []}
+        snippetName={snippetVarState?.snippet.name}
+        onInject={handleSnippetInject}
+        onClose={() => setSnippetVarState(null)}
+      />
+
+      <SnippetManagerDialog
+        open={snippetManagerOpen}
+        snippets={snippets}
+        onClose={() => setSnippetManagerOpen(false)}
       />
     </>
   );

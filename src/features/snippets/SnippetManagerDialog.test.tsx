@@ -24,12 +24,11 @@ vi.mock("../../lib/i18n", () => ({
 }));
 
 // ── Mock snippetStore ─────────────────────────────────────────
-const { mockAddSnippet, mockUpdateSnippet, mockDeleteSnippet, mockGetState } =
+const { mockAddSnippet, mockUpdateSnippet, mockDeleteSnippet } =
   vi.hoisted(() => ({
     mockAddSnippet: vi.fn(),
     mockUpdateSnippet: vi.fn(),
     mockDeleteSnippet: vi.fn(),
-    mockGetState: vi.fn(),
   }));
 
 vi.mock("../../stores/snippetStore", () => ({
