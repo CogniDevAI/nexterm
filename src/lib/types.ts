@@ -284,6 +284,15 @@ export interface SearchResult {
   relativePath: string;  // path relative to search base_path
 }
 
+// ─── SSH Key Generation ──────────────────────────────
+
+/** Mirrors commands/keygen.rs GenerateSshKeyResult (serde camelCase) */
+export interface GenerateSshKeyResult {
+  publicKeyOpenssh: string;
+  privateKeyPath: string;
+  publicKeyPath: string;
+}
+
 // ─── File Content (SFTP file viewer) ────────────────
 
 export interface FileContent {

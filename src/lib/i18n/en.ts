@@ -93,6 +93,7 @@ export const en = {
   "connection.testMitm": "Host key changed or revoked",
   "connection.sectionStartup": "Startup Commands",
   "connection.startupPlaceholder": "One command per line — run after connect",
+  "connection.keygen.hint": "Generate new key",
 
   // Host key dialog
   "hostKey.unknownTitle": "New Host",
@@ -474,6 +475,26 @@ export const en = {
   "general.close": "Close",
   "general.error": "Error",
   "general.loading": "Loading...",
+
+  // SSH key generation dialog
+  "keygen.title": "Generate SSH Key",
+  "keygen.algorithm": "Algorithm",
+  "keygen.comment": "Comment",
+  "keygen.commentPlaceholder": "user@hostname",
+  "keygen.passphrase": "Passphrase",
+  "keygen.passphrasePlaceholder": "Optional — leave blank for no passphrase",
+  "keygen.filename": "Filename",
+  "keygen.filenamePlaceholder": "e.g. id_ed25519",
+  "keygen.generate": "Generate",
+  "keygen.generating": "Generating…",
+  "keygen.cancel": "Cancel",
+  "keygen.publicKeyLabel": "Public key — add this to your server's ~/.ssh/authorized_keys",
+  "keygen.copyPublicKey": "Copy",
+  "keygen.copied": "Copied!",
+  "keygen.useThisKey": "Use this key",
+  "keygen.done": "Done",
+  "keygen.errorAlreadyExists": "Key already exists",
+  "keygen.hint": "Generate new key",
 } as const;
 
 export type TranslationKey = keyof typeof en;

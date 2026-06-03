@@ -95,6 +95,7 @@ export const es: Record<TranslationKey, string> = {
   "connection.testMitm": "Clave de host cambiada o revocada",
   "connection.sectionStartup": "Comandos de Inicio",
   "connection.startupPlaceholder": "Un comando por línea — se ejecutan al conectar",
+  "connection.keygen.hint": "Generar nueva clave",
 
   // Host key dialog
   "hostKey.unknownTitle": "Host Nuevo",
@@ -476,4 +477,24 @@ export const es: Record<TranslationKey, string> = {
   "general.close": "Cerrar",
   "general.error": "Error",
   "general.loading": "Cargando...",
+
+  // SSH key generation dialog
+  "keygen.title": "Generar clave SSH",
+  "keygen.algorithm": "Algoritmo",
+  "keygen.comment": "Comentario",
+  "keygen.commentPlaceholder": "usuario@hostname",
+  "keygen.passphrase": "Frase de contraseña",
+  "keygen.passphrasePlaceholder": "Opcional — dejar en blanco para sin frase",
+  "keygen.filename": "Nombre de archivo",
+  "keygen.filenamePlaceholder": "ej. id_ed25519",
+  "keygen.generate": "Generar",
+  "keygen.generating": "Generando…",
+  "keygen.cancel": "Cancelar",
+  "keygen.publicKeyLabel": "Clave pública — agregá esto al ~/.ssh/authorized_keys de tu servidor",
+  "keygen.copyPublicKey": "Copiar",
+  "keygen.copied": "Copiado!",
+  "keygen.useThisKey": "Usar esta clave",
+  "keygen.done": "Listo",
+  "keygen.errorAlreadyExists": "La clave ya existe",
+  "keygen.hint": "Generar nueva clave",
 };
