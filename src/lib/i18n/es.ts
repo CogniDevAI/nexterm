@@ -179,6 +179,9 @@ export const es: Record<TranslationKey, string> = {
   "terminal.closeTab": "Cerrar terminal",
   "terminal.connected": "Conectado",
   "terminal.noTerminal": "Sin terminal abierta. Hacé clic en + para crear una.",
+  "terminal.splitHorizontal": "Dividir panel horizontalmente",
+  "terminal.splitVertical": "Dividir panel verticalmente",
+  "terminal.closePane": "Cerrar panel",
 
   // Terminal find-bar
   "terminal.find.placeholder": "Buscar en la terminal...",
