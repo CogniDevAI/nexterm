@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { Dialog } from "../../components/ui/Dialog";
+import { copyText } from "../../lib/clipboard";
 import { useI18n } from "../../lib/i18n";
 import { tauriInvoke } from "../../lib/tauri";
 import type { GenerateSshKeyResult } from "../../lib/types";
@@ -95,7 +96,10 @@ export function KeygenDialog({ open, onClose, onKeyGenerated }: KeygenDialogProp
   async function handleCopy() {
     if (!result) return;
     try {
-      await navigator.clipboard.writeText(result.publicKeyOpenssh);
+      // The OpenSSH public key is meant to be shared (authorized_keys, GitHub,
+      // ssh-copy-id), so it is NOT secret. Use copyText (no auto-clear) so the
+      // user can paste it into a remote host without it being wiped first.
+      await copyText(result.publicKeyOpenssh);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

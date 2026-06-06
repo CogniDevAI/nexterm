@@ -43,6 +43,8 @@ export const en = {
   "sidebar.importPassword.message": "This export is encrypted. Enter the export password to import.",
   "sidebar.importPassword.wrongPassword": "Wrong export password",
   "sidebar.newSession": "New connection",
+  "sidebar.collapse": "Collapse sidebar",
+  "sidebar.expand": "Expand sidebar",
 
   // Session states
   "session.connected": "Connected",
@@ -230,6 +232,14 @@ export const en = {
   "terminal.broadcastAriaOn": "Disable input broadcast",
   "terminal.broadcastAriaOff": "Enable input broadcast",
 
+  // Terminal a11y
+  "terminal.ariaLabel": "Terminal",
+  "terminal.status.disconnected": "Terminal disconnected",
+  "terminal.status.connecting": "Connecting to terminal",
+  "terminal.status.authenticating": "Authenticating terminal session",
+  "terminal.status.connected": "Terminal connected",
+  "terminal.status.error": "Terminal connection error",
+
   // Terminal find-bar
   "terminal.find.placeholder": "Search in terminal...",
   "terminal.find.matchCount": "{current} of {total}",
@@ -238,6 +248,12 @@ export const en = {
   "terminal.find.nextMatch": "Next match (Enter)",
   "terminal.find.closeSearch": "Close search (Escape)",
   "terminal.find.caseToggle": "Case sensitive",
+
+  // Terminal paste guard (pastejacking protection)
+  "terminal.paste.confirmTitle": "Paste multiple lines?",
+  "terminal.paste.confirmMessage": "This paste contains {count} lines and will run as separate commands. Paste only if you trust the source.",
+  "terminal.paste.cancel": "Cancel",
+  "terminal.paste.confirm": "Paste anyway",
 
   // SFTP toolbar
   "sftp.upload": "Upload",
@@ -413,6 +429,7 @@ export const en = {
   "vault.unlock": "Unlock",
   "vault.create": "Create Vault",
   "vault.passwordRequired": "Password is required",
+  "vault.passwordTooShort": "Use at least {min} characters",
   "vault.passwordMismatch": "Passwords don't match",
   "vault.wrongPassword": "Wrong master password",
   "vault.forgotPassword": "Forgot your password?",
@@ -421,6 +438,13 @@ export const en = {
   "vault.reset.irreversible": "This action cannot be undone.",
   "vault.reset.confirm": "Reset Vault",
   "vault.reset.success": "Vault has been reset. Create a new master password.",
+  "vault.strength.label": "Password strength",
+  "vault.strength.weak": "Weak",
+  "vault.strength.fair": "Fair",
+  "vault.strength.strong": "Strong",
+  "vault.revealPassword": "Show password",
+  "vault.hidePassword": "Hide password",
+  "vault.capsLockOn": "Caps Lock is on",
 
   // Update
   "update.available": "Update Available",

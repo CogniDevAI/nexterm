@@ -30,6 +30,7 @@ import { useCommandHistoryStore } from "../../stores/commandHistoryStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { usePaneLayoutStore } from "../../stores/paneLayoutStore";
 import { getBroadcastTargets } from "./broadcastUtils";
+import { isRiskyPaste } from "./pasteSafety";
 
 /** Result of a search results update from the SearchAddon. */
 export interface SearchResults {
@@ -54,6 +55,11 @@ interface TerminalInstance {
   /** Callback registered by TerminalView to open the find-bar overlay.
    *  Called by attachCustomKeyEventHandler when Cmd/Ctrl+F is detected. */
   callbackOnOpenFindBar: (() => void) | null;
+  /** Callback registered by TerminalView to handle a risky paste.
+   *  Called by the native 'paste' listener when isRiskyPaste flags the clipboard
+   *  text, so the same confirmation dialog used by right-click paste runs for
+   *  keyboard (Cmd/Ctrl+V, Ctrl+Shift+V) and middle-click pastes too. */
+  callbackOnPasteRequest: ((text: string) => void) | null;
   /** Callback registered by TerminalView to receive real-time match counts. */
   callbackOnSearchResults: ((r: SearchResults) => void) | null;
   /** Collected IDisposable subscriptions — disposed when the terminal closes. */
@@ -87,6 +93,28 @@ export function unregisterFindBarOpener(terminalId: TerminalId): void {
   const instance = terminalInstances.get(terminalId);
   if (instance) {
     instance.callbackOnOpenFindBar = null;
+  }
+}
+
+/** Register a callback that handles a risky paste for a specific terminal.
+ *  The native 'paste' listener in openTerminal calls this with the clipboard
+ *  text when isRiskyPaste flags it, so TerminalView can open the confirmation
+ *  dialog. Called by TerminalView after mounting (and after re-attach). */
+export function registerPasteHandler(
+  terminalId: TerminalId,
+  fn: (text: string) => void,
+): void {
+  const instance = terminalInstances.get(terminalId);
+  if (instance) {
+    instance.callbackOnPasteRequest = fn;
+  }
+}
+
+/** Unregister the risky-paste handler callback (called on TerminalView unmount). */
+export function unregisterPasteHandler(terminalId: TerminalId): void {
+  const instance = terminalInstances.get(terminalId);
+  if (instance) {
+    instance.callbackOnPasteRequest = null;
   }
 }
 
@@ -227,6 +255,11 @@ export function useTerminal() {
         allowProposedApi: true,
         macOptionIsMeta: isApplePlatform(),
         scrollback: 10000,
+        // a11y: enable xterm's screen-reader mode so it maintains an ARIA live
+        // region mirroring terminal output. Without this the terminal surface is
+        // invisible to assistive technology (the canvas/WebGL renderer has no
+        // accessible text). See TerminalView for the container's accessible name.
+        screenReaderMode: true,
       });
 
       const fitAddon = new FitAddon();
@@ -403,6 +436,35 @@ export function useTerminal() {
       // Attach mouseup AFTER term.open() so term.element exists
       term.element?.addEventListener("mouseup", handleMouseUp);
 
+      // Pastejacking guard for ALL paste gestures handled by xterm.js.
+      // Keyboard paste (Cmd/Ctrl+V, Ctrl+Shift+V) and Linux middle-click paste
+      // are processed internally by xterm and would otherwise flow straight to
+      // onData/onBinary → write_terminal with no isRiskyPaste check. xterm reads
+      // the clipboard via a native 'paste' event on its helper textarea, so we
+      // intercept that event here: when the clipboard text is risky (embedded
+      // newline / control char that could auto-execute multiple commands), we
+      // preventDefault to stop xterm from forwarding it and hand the text to the
+      // confirmation flow registered by TerminalView. Safe single-line pastes
+      // are left untouched so xterm's normal paste path keeps working.
+      const handlePaste = (event: ClipboardEvent) => {
+        const text = event.clipboardData?.getData("text") ?? "";
+        if (!text || !isRiskyPaste(text)) return; // safe → let xterm handle it
+        event.preventDefault();
+        event.stopPropagation();
+        const inst = terminalInstances.get(terminalId);
+        inst?.callbackOnPasteRequest?.(text);
+      };
+      // Track the paste listener for cleanup
+      const pasteDisposable: IDisposable = {
+        dispose: () => {
+          term.element?.removeEventListener("paste", handlePaste, true);
+        },
+      };
+      disposables.push(pasteDisposable);
+
+      // Capture phase so we intercept before xterm's own paste handler runs.
+      term.element?.addEventListener("paste", handlePaste, true);
+
       // Load WebGL renderer for GPU-accelerated rendering.
       // Must come AFTER term.open() — WebglAddon requires a rendered canvas.
       // Falls back silently to xterm's default DOM renderer when WebGL2 is
@@ -430,6 +492,7 @@ export function useTerminal() {
         disposed: false,
         container,
         callbackOnOpenFindBar: null,
+        callbackOnPasteRequest: null,
         callbackOnSearchResults: null,
         disposables,
         lineBuffer: makeLineBufferState(),

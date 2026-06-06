@@ -45,6 +45,8 @@ export const es: Record<TranslationKey, string> = {
   "sidebar.importPassword.message": "Esta exportación está encriptada. Ingresá la contraseña de exportación para importar.",
   "sidebar.importPassword.wrongPassword": "Contraseña de exportación incorrecta",
   "sidebar.newSession": "Nueva conexión",
+  "sidebar.collapse": "Colapsar sidebar",
+  "sidebar.expand": "Expandir sidebar",
 
   // Session states
   "session.connected": "Conectado",
@@ -232,6 +234,14 @@ export const es: Record<TranslationKey, string> = {
   "terminal.broadcastAriaOn": "Desactivar difusión de teclado",
   "terminal.broadcastAriaOff": "Activar difusión de teclado",
 
+  // Terminal a11y
+  "terminal.ariaLabel": "Terminal",
+  "terminal.status.disconnected": "Terminal desconectada",
+  "terminal.status.connecting": "Conectando a la terminal",
+  "terminal.status.authenticating": "Autenticando la sesión de la terminal",
+  "terminal.status.connected": "Terminal conectada",
+  "terminal.status.error": "Error de conexión de la terminal",
+
   // Terminal find-bar
   "terminal.find.placeholder": "Buscar en la terminal...",
   "terminal.find.matchCount": "{current} de {total}",
@@ -240,6 +250,12 @@ export const es: Record<TranslationKey, string> = {
   "terminal.find.nextMatch": "Siguiente coincidencia (Enter)",
   "terminal.find.closeSearch": "Cerrar búsqueda (Escape)",
   "terminal.find.caseToggle": "Distinguir mayúsculas",
+
+  // Terminal paste guard (pastejacking protection)
+  "terminal.paste.confirmTitle": "¿Pegar varias líneas?",
+  "terminal.paste.confirmMessage": "Este pegado contiene {count} líneas y se ejecutará como comandos separados. Pegá solo si confiás en el origen.",
+  "terminal.paste.cancel": "Cancelar",
+  "terminal.paste.confirm": "Pegar de todos modos",
 
   // SFTP toolbar
   "sftp.upload": "Subir",
@@ -415,6 +431,7 @@ export const es: Record<TranslationKey, string> = {
   "vault.unlock": "Desbloquear",
   "vault.create": "Crear Bóveda",
   "vault.passwordRequired": "La contraseña es requerida",
+  "vault.passwordTooShort": "Usá al menos {min} caracteres",
   "vault.passwordMismatch": "Las contraseñas no coinciden",
   "vault.wrongPassword": "Contraseña maestra incorrecta",
   "vault.forgotPassword": "¿Olvidaste tu contraseña?",
@@ -423,6 +440,13 @@ export const es: Record<TranslationKey, string> = {
   "vault.reset.irreversible": "Esta acción no se puede deshacer.",
   "vault.reset.confirm": "Restablecer Bóveda",
   "vault.reset.success": "La bóveda fue restablecida. Creá una nueva contraseña maestra.",
+  "vault.strength.label": "Fortaleza de la contraseña",
+  "vault.strength.weak": "Débil",
+  "vault.strength.fair": "Aceptable",
+  "vault.strength.strong": "Fuerte",
+  "vault.revealPassword": "Mostrar contraseña",
+  "vault.hidePassword": "Ocultar contraseña",
+  "vault.capsLockOn": "Bloq Mayús está activado",
 
   // Update
   "update.available": "Actualización Disponible",

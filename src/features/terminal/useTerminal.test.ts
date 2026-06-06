@@ -495,3 +495,31 @@ describe("WebglAddon integration — openTerminal", () => {
     expect(termInstance.open).toHaveBeenCalled();
   });
 });
+
+// ── Screen-reader accessibility — Terminal construction options ────────────────
+// xterm.js exposes its accessibility tree only when screenReaderMode is enabled.
+// Without it the terminal surface is invisible to assistive technology, so this
+// option MUST be present in the Terminal constructor options.
+
+describe("openTerminal — screen-reader accessibility options", () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+  });
+
+  it("constructs the Terminal with screenReaderMode: true", async () => {
+    const { Terminal } = await import("@xterm/xterm");
+    const MockTerminal = vi.mocked(Terminal);
+    MockTerminal.mockClear();
+
+    const { result } = renderHook(() => useTerminal());
+    await act(async () => {
+      await result.current.openTerminal(container, "sess-a11y-1");
+    });
+
+    expect(MockTerminal).toHaveBeenCalledTimes(1);
+    const options = MockTerminal.mock.calls[0]?.[0];
+    expect(options).toMatchObject({ screenReaderMode: true });
+  });
+});

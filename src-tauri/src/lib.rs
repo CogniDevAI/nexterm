@@ -103,7 +103,26 @@ pub fn run() {
     let vault_handle = Arc::clone(&app_state.vault);
     let auto_lock_handle = Arc::clone(&app_state.auto_lock);
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance lock MUST be the first registered plugin (per the plugin
+    // docs). It guarantees only one process touches profiles.json / vault.json,
+    // preventing two instances from racing on those files (silent data loss).
+    // A second launch surfaces the already-running window instead of spawning a
+    // duplicate. Desktop-only: the plugin is not available on mobile targets.
+    #[cfg(desktop)]
+    {
+        use tauri::Manager;
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())

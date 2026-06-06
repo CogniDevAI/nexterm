@@ -20,3 +20,8 @@ export const KEYCHAIN_SERVICE = "nexterm";
 export const RESIZE_DEBOUNCE_MS = 100;
 export const MIN_WINDOW_WIDTH = 1024;
 export const MIN_WINDOW_HEIGHT = 768;
+
+// How long a copied secret (password, private key, token) is allowed to
+// linger in the system clipboard before it is auto-cleared. Kept as a
+// constant so it can later be surfaced as a user-configurable Setting.
+export const SECRET_CLIPBOARD_CLEAR_MS = 30_000;

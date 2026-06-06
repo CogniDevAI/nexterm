@@ -8,6 +8,7 @@ import { useState, useCallback } from "react";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
+import { PasswordStrength } from "./PasswordStrength";
 import { tauriInvoke } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
 
@@ -17,6 +18,9 @@ interface VaultScreenProps {
   onVaultReset?: () => void;
 }
 
+/** Minimum length enforced when creating a new master password. */
+const MIN_MASTER_PASSWORD_LENGTH = 8;
+
 export function VaultScreen({ vaultExists, onUnlocked, onVaultReset }: VaultScreenProps) {
   const { t } = useI18n();
   const [password, setPassword] = useState("");
@@ -25,12 +29,24 @@ export function VaultScreen({ vaultExists, onUnlocked, onVaultReset }: VaultScre
   const [loading, setLoading] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
+
+  // Caps Lock is announced via key events: `getModifierState` reflects the
+  // physical state at the moment a key is pressed/released, which is the only
+  // reliable signal available in the browser.
+  const handleCapsLock = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    setCapsLock(e.getModifierState("CapsLock"));
+  }, []);
 
   const handleCreate = useCallback(async () => {
     setError(null);
 
     if (password.length < 1) {
       setError(t("vault.passwordRequired"));
+      return;
+    }
+    if (password.length < MIN_MASTER_PASSWORD_LENGTH) {
+      setError(t("vault.passwordTooShort", { min: MIN_MASTER_PASSWORD_LENGTH }));
       return;
     }
     if (password !== confirmPassword) {
@@ -119,22 +135,40 @@ export function VaultScreen({ vaultExists, onUnlocked, onVaultReset }: VaultScre
         </p>
 
         <form onSubmit={handleSubmit} className="vault-form" autoComplete="off">
-          <Input
-            id="vault-password"
-            type="password"
-            label={vaultExists ? t("vault.masterPassword") : t("vault.newPassword")}
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setError(null);
-            }}
-            placeholder={
-              vaultExists
-                ? t("vault.enterPasswordPlaceholder")
-                : t("vault.newPasswordPlaceholder")
-            }
-            autoFocus
-          />
+          <div className="vault-field">
+            <Input
+              id="vault-password"
+              type="password"
+              label={vaultExists ? t("vault.masterPassword") : t("vault.newPassword")}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError(null);
+              }}
+              onKeyUp={handleCapsLock}
+              onKeyDown={handleCapsLock}
+              placeholder={
+                vaultExists
+                  ? t("vault.enterPasswordPlaceholder")
+                  : t("vault.newPasswordPlaceholder")
+              }
+              reveal
+              revealLabel={t("vault.revealPassword")}
+              hideLabel={t("vault.hidePassword")}
+              autoFocus
+            />
+            {capsLock && (
+              <p className="vault-caps-warning" role="alert">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                {t("vault.capsLockOn")}
+              </p>
+            )}
+            {!vaultExists && <PasswordStrength password={password} />}
+          </div>
 
           {!vaultExists && (
             <Input
@@ -146,7 +180,12 @@ export function VaultScreen({ vaultExists, onUnlocked, onVaultReset }: VaultScre
                 setConfirmPassword(e.target.value);
                 setError(null);
               }}
+              onKeyUp={handleCapsLock}
+              onKeyDown={handleCapsLock}
               placeholder={t("vault.confirmPlaceholder")}
+              reveal
+              revealLabel={t("vault.revealPassword")}
+              hideLabel={t("vault.hidePassword")}
             />
           )}
 

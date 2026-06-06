@@ -250,3 +250,31 @@ describe("TerminalView — wrapper structure", () => {
     expect(container.querySelector(".terminal-container")).not.toBeNull();
   });
 });
+
+describe("TerminalView — screen-reader accessibility", () => {
+  it("gives the terminal container an accessible name via aria-label", async () => {
+    const { container } = renderTerminalView();
+    await act(async () => {});
+    const termContainer = container.querySelector(".terminal-container");
+    expect(termContainer).not.toBeNull();
+    // useI18n is mocked to echo the key, so the label resolves to the key string.
+    expect(termContainer).toHaveAttribute("aria-label", "terminal.ariaLabel");
+  });
+
+  it("exposes the terminal container as an application role for assistive tech", async () => {
+    const { container } = renderTerminalView();
+    await act(async () => {});
+    const termContainer = container.querySelector(".terminal-container");
+    expect(termContainer).toHaveAttribute("role", "application");
+  });
+
+  it("renders a polite live region for connection status announcements", async () => {
+    const { container } = renderTerminalView();
+    await act(async () => {});
+    const status = container.querySelector('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status).toHaveAttribute("aria-live", "polite");
+    // Visually hidden so it only reaches assistive technology.
+    expect(status).toHaveClass("sr-only");
+  });
+});
